@@ -1,0 +1,168 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      color-scheme: light;
+      --bg:#f4f2ee; --surface:#ffffff; --surface-2:#efece6;
+      --text:#1d1c1a; --muted:#5f5b54; --faint:#868077;
+      --border:#d9d4cb; --border-2:#bdb6aa;
+      --accent:#7a4a1e; --accent-bg:#f3e7da;
+      --warn:#8a5a00; --warn-bg:#faeed6;
+      --danger:#9a2521; --danger-bg:#f8e3e1;
+      --na:#6b6b6b; --na-bg:#e8e6e3;
+      --ink-1:#7a4a1e; --ink-2:#2f5d74; --ink-3:#6a5a86;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font:15px/1.6 "Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+    a{color:var(--accent)} a:hover{color:#5e3714}
+    h1,h2{line-height:1.3;margin:0;font-weight:650}
+    .mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+    .fieldlabel{font-size:.74rem;color:var(--faint);display:block;margin-bottom:3px}
+    .inp{font:inherit;font-size:.9rem;color:var(--text);background:var(--surface);
+      border:1px solid var(--border-2);border-radius:6px;padding:6px 8px;width:100%}
+  </style>
+</helmet>
+
+<div style="min-height:100%;background:var(--bg);padding:0 0 28px">
+
+  <div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px 0">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <h1 style="font-size:1rem">유약 실험·소성 관리 시스템</h1>
+      <span style="flex:1"></span>
+      <button style="font:inherit;font-size:.78rem;background:var(--surface);color:var(--text);
+        border:1px solid var(--border-2);border-radius:6px;padding:4px 9px;cursor:pointer">부록 C 대장</button>
+    </div>
+    <div style="display:flex;gap:2px;margin-top:8px">
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">① 목표</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">② 탐색</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">③ 배치·시유</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">④ 위험</span>
+      <span style="color:var(--text);font-weight:650;padding:8px 10px;font-size:.9rem;border-bottom:2px solid var(--accent)">⑤ 소성</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">⑥ 기록·되먹임</span>
+    </div>
+  </div>
+
+  <div style="max-width:1000px;margin:0 auto;padding:14px 20px">
+
+    <!-- E 게이트 : 미정 계수라 빈칸으로 시작하고, 값이 없으면 아래가 잠긴다 -->
+    <div style="border:1px solid var(--na);background:var(--na-bg);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px">
+          <div style="font-size:.78rem;font-weight:650;color:var(--na)">E (겉보기 활성화 에너지) — 부록 C 미정 · 값 없음</div>
+          <p style="font-size:.8rem;color:var(--na);margin:4px 0 0">
+            이 저장소는 E의 <b>값을 주장하지 않는다</b>. 계산에 필요하면 가정값을 직접 고르고,
+            그 사실이 결과에 따라붙는다.
+          </p>
+          <p style="font-size:.74rem;color:var(--na);margin:4px 0 0">
+            동정 방법: 서로 다른 승온율에서의 콘 도달온도 쌍 (10-3절)
+          </p>
+        </div>
+        <div style="width:200px">
+          <span class="fieldlabel" style="color:var(--na)">가정값 (kJ/mol) — 기본값 없음</span>
+          <input class="inp" placeholder="미입력" style="background:var(--surface)">
+          <div style="display:flex;gap:4px;margin-top:6px">
+            <button style="flex:1;font:inherit;font-size:.74rem;background:var(--surface);color:var(--na);
+              border:1px solid var(--border-2);border-radius:6px;padding:3px 0;cursor:pointer">200</button>
+            <button style="flex:1;font:inherit;font-size:.74rem;background:var(--surface);color:var(--na);
+              border:1px solid var(--border-2);border-radius:6px;padding:3px 0;cursor:pointer">300</button>
+            <button style="flex:1;font:inherit;font-size:.74rem;background:var(--surface);color:var(--na);
+              border:1px solid var(--border-2);border-radius:6px;padding:3px 0;cursor:pointer">400</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 냉각 : 자연냉각률 곡선이 배경, 그 위는 회색으로 덮여 고를 수 없다 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+        <span style="font-size:.7rem;color:var(--faint)">9-6절</span>
+        <h2 style="font-size:.98rem">냉각 계획</h2>
+        <span style="flex:1"></span>
+        <span style="font-size:.78rem;color:var(--muted)">30L 전기가마</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--faint);margin:0 0 12px">
+        전기가마는 서냉만 제어 가능하다. 자연냉각률 위쪽은 고를 수 없다.
+      </p>
+
+      <svg viewBox="0 0 900 260" style="display:block;width:100%;height:auto">
+        <rect x="60" y="16" width="812" height="118" fill="#6b6b6b" opacity="0.17"/>
+        <text x="70" y="34" font-size="11" fill="#6b6b6b" font-family="inherit">자연냉각률 위 — 제어 불가 (가마는 열을 넣을 수만 있다)</text>
+        <path d="M60 134 L 200 150 L 340 166 L 480 182 L 620 196 L 760 208 L 872 216"
+              fill="none" stroke="#6b6b6b" stroke-width="2"/>
+        <text x="640" y="150" font-size="10" fill="#6b6b6b" font-family="inherit">자연냉각률 (제어 상한)</text>
+        <line x1="60" y1="228" x2="872" y2="228" stroke="#bdb6aa"/>
+        <line x1="60" y1="16" x2="60" y2="228" stroke="#bdb6aa"/>
+        <line x1="700" y1="16" x2="700" y2="228" stroke="#9a2521" stroke-dasharray="4 3"/>
+        <text x="646" y="248" font-size="10" fill="#9a2521" font-family="inherit">573℃ 석영 전이</text>
+        <path d="M200 186 L 340 186" stroke="#7a4a1e" stroke-width="4"/>
+        <text x="204" y="180" font-size="10" fill="#7a4a1e" font-family="inherit">50℃/h 결정 성장</text>
+        <path d="M660 200 L 700 200" stroke="#7a4a1e" stroke-width="4"/>
+        <text x="560" y="196" font-size="10" fill="#7a4a1e" font-family="inherit">40℃/h 전이 진입</text>
+        <text x="70" y="246" font-size="10" fill="#868077" font-family="inherit">1220℃</text>
+        <text x="828" y="246" font-size="10" fill="#868077" font-family="inherit">200℃</text>
+        <text x="4" y="22" font-size="10" fill="#868077" font-family="inherit">160℃/h</text>
+        <text x="22" y="226" font-size="10" fill="#868077" font-family="inherit">0</text>
+      </svg>
+
+      <!-- 되돌림 비용과 같은 원칙 : 서냉을 고르면 무엇을 지불하는가 -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">추가 시간</div>
+          <div style="font-size:1.5rem;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums;color:var(--warn)">2.96
+            <span style="font-size:.85rem;font-weight:400;color:var(--muted)">h</span></div>
+          <div style="font-size:.72rem;color:var(--muted)">자연냉각 대비</div>
+        </div>
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">추가 전력량</div>
+          <div style="font-size:1.5rem;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums;color:var(--warn)">5.60
+            <span style="font-size:.85rem;font-weight:400;color:var(--muted)">kWh</span></div>
+          <div style="font-size:.72rem;color:var(--muted)">서냉 유지</div>
+        </div>
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">전체 냉각</div>
+          <div style="font-size:1.5rem;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums">7.14
+            <span style="font-size:.85rem;font-weight:400;color:var(--muted)">h</span></div>
+          <div style="font-size:.72rem;color:var(--muted)">자연냉각분 포함</div>
+        </div>
+      </div>
+
+      <details open style="border:1px solid var(--border);border-left:3px solid var(--border-2);
+        background:var(--surface-2);border-radius:6px;padding:8px 10px;margin:12px 0 0;font-size:.8rem;color:var(--muted)">
+        <summary style="cursor:pointer;color:var(--text);font-weight:600">출처 · 냉각 계획 · 2개</summary>
+        <ul style="margin:6px 0 0;padding-left:18px">
+          <li>선형 UA 근사는 고온 복사 손실을 과소평가한다 — 상대 비교용으로만 쓴다 (부록 A)</li>
+          <li>냉각은 H로 환산하지 않는다. H는 급냉과 서냉을 구분하지 못한다 (9-4절)</li>
+        </ul>
+      </details>
+    </div>
+
+    <!-- 시뮬레이션은 E가 없으면 잠긴다 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;opacity:.55">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+        <span style="font-size:.7rem;color:var(--faint)">12-2절</span>
+        <h2 style="font-size:.98rem">소성 시뮬레이션</h2>
+        <span style="flex:1"></span>
+        <span style="font-size:.72rem;padding:2px 8px;border-radius:99px;border:1px solid var(--na);
+          color:var(--na);background:var(--na-bg)">E 가정값을 넣어야 열린다</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+        <label><span class="fieldlabel">최고온도 (℃)</span><input class="inp" value="1220" disabled></label>
+        <label><span class="fieldlabel">승온율 (℃/h)</span><input class="inp" value="60" disabled></label>
+        <label><span class="fieldlabel">유지 (분)</span><input class="inp" value="20" disabled></label>
+        <label><span class="fieldlabel">외란 seed</span><input class="inp" value="0" disabled></label>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

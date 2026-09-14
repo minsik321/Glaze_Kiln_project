@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      color-scheme: light;
+      --bg:#f4f2ee; --surface:#ffffff; --surface-2:#efece6;
+      --text:#1d1c1a; --muted:#5f5b54; --faint:#868077;
+      --border:#d9d4cb; --border-2:#bdb6aa;
+      --accent:#7a4a1e; --accent-bg:#f3e7da;
+      --warn:#8a5a00; --warn-bg:#faeed6;
+      --danger:#9a2521; --danger-bg:#f8e3e1;
+      --na:#6b6b6b; --na-bg:#e8e6e3;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font:15px/1.6 "Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+    a{color:var(--accent)} a:hover{color:#5e3714}
+    h1,h2,h3{line-height:1.3;margin:0;font-weight:650}
+    .mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+  </style>
+</helmet>
+
+<div style="min-height:100%;background:var(--bg);padding:0 0 28px">
+
+  <!-- 상단 -->
+  <div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px 0">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <h1 style="font-size:1rem">유약 실험·소성 관리 시스템</h1>
+      <span style="color:var(--faint);font-size:.78rem">시뮬레이터 기반 · 실측 없음</span>
+      <span style="flex:1"></span>
+      <button style="font:inherit;font-size:.78rem;background:var(--surface);color:var(--text);
+        border:1px solid var(--border-2);border-radius:6px;padding:4px 9px;cursor:pointer">부록 C 대장</button>
+    </div>
+    <div style="display:flex;gap:2px;margin-top:8px">
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">① 목표</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">② 탐색</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">③ 배치·시유</span>
+      <span style="color:var(--text);font-weight:650;padding:8px 10px;font-size:.9rem;border-bottom:2px solid var(--accent)">④ 위험</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">⑤ 소성</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">⑥ 기록·되먹임</span>
+    </div>
+  </div>
+
+  <div style="max-width:1000px;margin:0 auto;padding:14px 20px">
+
+    <!-- 사이클 레일 : 평평한 상태바를 대체한다 -->
+    <div style="display:flex;align-items:stretch;gap:0;border:1px solid var(--border);
+      background:var(--surface);border-radius:10px;overflow:hidden;margin-bottom:14px">
+      <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border)">
+        <div style="font-size:.7rem;color:var(--faint);letter-spacing:.02em">목표</div>
+        <div style="font-size:.84rem;font-weight:600">Matte · 반불투명</div>
+      </div>
+      <div style="flex:1.3;padding:8px 12px;border-right:1px solid var(--border)">
+        <div style="font-size:.7rem;color:var(--faint)">유약</div>
+        <div style="font-size:.84rem;font-weight:600">석회 매트 <span class="mono" style="color:var(--faint);font-weight:400">r1</span></div>
+      </div>
+      <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border)">
+        <div style="font-size:.7rem;color:var(--faint)">시유 기록</div>
+        <div style="font-size:.84rem;font-weight:600" class="mono">g3</div>
+      </div>
+      <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border)">
+        <div style="font-size:.7rem;color:var(--faint)">회차</div>
+        <div style="font-size:.84rem;color:var(--faint)">없음</div>
+      </div>
+      <div style="flex:1.1;padding:8px 12px;background:var(--na-bg)">
+        <div style="font-size:.7rem;color:var(--na)">E 가정</div>
+        <div style="font-size:.84rem;font-weight:600;color:var(--na)">미입력</div>
+      </div>
+    </div>
+
+    <!-- 판정 요약 : 숫자/등급이 먼저, 근거는 접힌다 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 16px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px">
+        <span style="font-size:.74rem;color:var(--faint)">08절 · 위험 판정</span>
+        <span style="flex:1"></span>
+        <span style="font-size:.78rem;color:var(--muted)">시유기록 <span class="mono">g3</span></span>
+      </div>
+
+      <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin:6px 0 4px">
+        <div>
+          <div style="font-size:.74rem;color:var(--faint)">최고 위험 등급</div>
+          <div style="font-size:1.9rem;font-weight:650;line-height:1.15;color:var(--danger)">높음</div>
+        </div>
+        <div style="flex:1;min-width:220px;padding-bottom:6px">
+          <div style="font-size:.86rem;color:var(--muted)">
+            가마에 들어가기 전이 <b style="color:var(--text)">되돌릴 수 있는 마지막 지점</b>이다.
+          </div>
+        </div>
+        <button style="font:inherit;font-size:.88rem;background:var(--accent-bg);color:var(--accent);
+          border:1px solid var(--accent);border-radius:6px;padding:7px 14px;cursor:pointer">다시 판정</button>
+      </div>
+
+      <details style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
+        <summary style="cursor:pointer;font-size:.78rem;color:var(--muted);font-weight:600">왜 이렇게 판정하는가 — 8-2 · 8-4절</summary>
+        <p style="font-size:.82rem;color:var(--muted);margin:6px 0 0">
+          판정할 수 없으면 「판정 불가」이지 「없음」이 아니다. 분포 모델은 담금 전용이라
+          부기·분무·붓칠에서는 흘러내림·응력 균열의 근거 자체가 없다 — 그때 「없음」으로 내리면
+          거짓 안심이 된다. 그리고 어떤 선택지에도 확정 기호를 붙이지 않는다.
+        </p>
+      </details>
+    </div>
+
+    <!-- 위험 5종 : 등급 배지가 왼쪽 고정폭, 근거 문장이 본문 -->
+    <h2 style="font-size:.92rem;color:var(--muted);margin:0 0 8px">위험 유형 5종</h2>
+
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+
+      <div style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:start;
+        background:var(--danger-bg);border:1px solid var(--border);border-left:4px solid var(--danger);
+        border-radius:8px;padding:10px 12px">
+        <div>
+          <div style="font-size:.8rem;font-weight:650;color:var(--danger)">흘러내림</div>
+          <div style="display:inline-block;margin-top:3px;font-size:.72rem;padding:1px 7px;border-radius:99px;
+            border:1px solid var(--danger);color:var(--danger);background:var(--surface)">높음</div>
+        </div>
+        <div>
+          <div style="font-size:.95rem;font-weight:600">굽에서 12mm 지점 두께 1.72mm</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:3px">
+            이 유약의 안전 범위 0.8–1.3mm <span style="color:var(--faint)">(문헌 추정 초기값 · 캘리브레이션 전)</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:start;
+        background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border-2);
+        border-radius:8px;padding:10px 12px">
+        <div>
+          <div style="font-size:.8rem;font-weight:650">미용융</div>
+          <div style="display:inline-block;margin-top:3px;font-size:.72rem;padding:1px 7px;border-radius:99px;
+            border:1px solid var(--border-2);color:var(--muted);background:var(--surface-2)">없음</div>
+        </div>
+        <div>
+          <div style="font-size:.95rem">굽에서 60mm 지점 두께 1.00mm</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:3px">안전 범위 0.8–1.3mm 안</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:start;
+        background:var(--na-bg);border:1px solid var(--na);border-left:4px solid var(--na);
+        border-radius:8px;padding:10px 12px">
+        <div>
+          <div style="font-size:.8rem;font-weight:650;color:var(--na)">응력 균열</div>
+          <div style="display:inline-block;margin-top:3px;font-size:.72rem;padding:1px 7px;border-radius:99px;
+            border:1px solid var(--na);color:var(--na);background:var(--surface)">판정 불가</div>
+        </div>
+        <div>
+          <div style="font-size:.95rem;color:var(--na)">분무는 부위별 두께 분포를 산출할 수 없어 판정 근거가 없다</div>
+          <div style="font-size:.78rem;color:var(--na);margin-top:3px">
+            <b>위험이 없다는 뜻이 아니다</b> — 「판정 불가」는 「없음」이 아니다 (8-2절)
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 되돌림 선택지 : 비용이 이름 바로 옆 고정 열 -->
+    <h2 style="font-size:.92rem;color:var(--muted);margin:0 0 4px">되돌림 선택지</h2>
+    <p style="font-size:.78rem;color:var(--faint);margin:0 0 8px">
+      비용 없이 효과만 적으면 "재시유하면 되지"로 읽힌다. 비용을 이름 옆에 고정한다.
+    </p>
+
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)">
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        border-bottom:1px solid var(--border);font-size:.7rem;color:var(--faint);background:var(--surface-2)">
+        <div>선택지</div><div>되돌림 비용</div><div>효과</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        border-bottom:1px solid var(--border);font-size:.84rem;align-items:start">
+        <div style="font-weight:650">재시유</div>
+        <div style="color:var(--warn);font-weight:600">건조 4시간 재소요</div>
+        <div style="color:var(--muted)">가장 확실하나 <b style="color:var(--danger)">예측 신뢰도 하향</b> — 재습윤으로 흡수율이 변해 07절 모델의 적용 범위를 벗어난다</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        border-bottom:1px solid var(--border);font-size:.84rem;align-items:start">
+        <div style="font-weight:650">부분 보정</div>
+        <div style="color:var(--warn);font-weight:600">수 분 (약 5분)</div>
+        <div style="color:var(--muted)">국소 위험 완화</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        border-bottom:1px solid var(--border);font-size:.84rem;align-items:start">
+        <div style="font-weight:650">적재 조정</div>
+        <div style="color:var(--muted)">없음</div>
+        <div style="color:var(--muted)">2차 피해 방지 — 흘러내려도 아래 선반·이웃 기물로 번지지 않게 한다</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        border-bottom:1px solid var(--border);font-size:.84rem;align-items:start">
+        <div style="font-weight:650">스케줄 보정</div>
+        <div style="color:var(--muted)">없음</div>
+        <div style="color:var(--muted)"><b style="color:var(--warn)">효과 불확실</b> — 기포가 먼저 터질지 흘러내림이 먼저 터질지를 시스템이 관측하지 않는다</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:110px 148px 1fr;gap:12px;padding:10px 12px;
+        font-size:.84rem;align-items:start">
+        <div style="font-weight:650">그대로 진행</div>
+        <div style="color:var(--muted)">없음</div>
+        <div style="color:var(--faint)">—</div>
+      </div>
+
+    </div>
+
+    <!-- 출처 : 접히지 않고 남되, 숫자 아래로 내려간다 -->
+    <details open style="border:1px solid var(--border);border-left:3px solid var(--border-2);
+      background:var(--surface-2);border-radius:6px;padding:8px 10px;margin:14px 0 0;font-size:.8rem;color:var(--muted)">
+      <summary style="cursor:pointer;color:var(--text);font-weight:600">출처 · 이 판정에 쓰인 계수 · 4개</summary>
+      <ul style="margin:6px 0 0;padding-left:18px">
+        <li>rho_dry=1.5 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+        <li>k1=0.55 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+        <li>k2=0.35 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+        <li>안전 두께 범위는 10-2절 점선 — 실패 발생 지점 축적으로만 좁혀진다</li>
+      </ul>
+    </details>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

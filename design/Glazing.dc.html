@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      color-scheme: light;
+      --bg:#f4f2ee; --surface:#ffffff; --surface-2:#efece6;
+      --text:#1d1c1a; --muted:#5f5b54; --faint:#868077;
+      --border:#d9d4cb; --border-2:#bdb6aa;
+      --accent:#7a4a1e; --accent-bg:#f3e7da;
+      --warn:#8a5a00; --warn-bg:#faeed6;
+      --danger:#9a2521; --danger-bg:#f8e3e1;
+      --na:#6b6b6b; --na-bg:#e8e6e3;
+      --ink-2:#2f5d74;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font:15px/1.6 "Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+    a{color:var(--accent)} a:hover{color:#5e3714}
+    h1,h2,h3{line-height:1.3;margin:0;font-weight:650}
+    .mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em}
+    .fieldlabel{font-size:.74rem;color:var(--faint);display:block;margin-bottom:3px}
+    .inp{font:inherit;font-size:.9rem;color:var(--text);background:var(--surface);
+      border:1px solid var(--border-2);border-radius:6px;padding:6px 8px;width:100%}
+    .step{font-size:.7rem;color:var(--faint);letter-spacing:.02em;text-transform:none}
+  </style>
+</helmet>
+
+<div style="min-height:100%;background:var(--bg);padding:0 0 28px">
+
+  <div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px 0">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <h1 style="font-size:1rem">유약 실험·소성 관리 시스템</h1>
+      <span style="flex:1"></span>
+      <button style="font:inherit;font-size:.78rem;background:var(--surface);color:var(--text);
+        border:1px solid var(--border-2);border-radius:6px;padding:4px 9px;cursor:pointer">부록 C 대장</button>
+    </div>
+    <div style="display:flex;gap:2px;margin-top:8px">
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">① 목표</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">② 탐색</span>
+      <span style="color:var(--text);font-weight:650;padding:8px 10px;font-size:.9rem;border-bottom:2px solid var(--accent)">③ 배치·시유</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">④ 위험</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">⑤ 소성</span>
+      <span style="color:var(--muted);padding:8px 10px;font-size:.9rem;border-bottom:2px solid transparent">⑥ 기록·되먹임</span>
+    </div>
+  </div>
+
+  <div style="max-width:1000px;margin:0 auto;padding:14px 20px">
+
+    <!-- 3단계를 번호로 끊는다. 지금은 15개 입력이 한 그리드에 평평하게 있다 -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;font-size:.78rem;flex-wrap:wrap">
+      <span style="padding:4px 10px;border-radius:99px;border:1px solid var(--border-2);
+        background:var(--surface-2);color:var(--muted)">1 · 비중 점검 <b style="color:var(--warn)">경고</b></span>
+      <span style="padding:4px 10px;border-radius:99px;border:1px solid var(--border-2);
+        background:var(--surface-2);color:var(--muted)">2 · 담금시간 <b style="color:var(--text)">4.0초</b></span>
+      <span style="padding:4px 10px;border-radius:99px;border:1px solid var(--accent);
+        background:var(--accent-bg);color:var(--accent);font-weight:600">3 · 시유 · 두께 산출</span>
+    </div>
+
+    <!-- 비중 : 입력 왼쪽 / 결과 오른쪽, 결과가 숫자 우선 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+        <span class="step">06절 · 배치와 비중</span>
+        <h2 style="font-size:.98rem">1 · 비중 점검</h2>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+        <div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label><span class="fieldlabel">비중 ρ</span><input class="inp" value="1.55"></label>
+            <label><span class="fieldlabel">교반 후 (분)</span><input class="inp" value="12"></label>
+            <label><span class="fieldlabel">권장 하한</span><input class="inp" value="1.40"></label>
+            <label><span class="fieldlabel">권장 상한</span><input class="inp" value="1.50"></label>
+          </div>
+          <button style="margin-top:10px;font:inherit;font-size:.88rem;background:var(--accent-bg);color:var(--accent);
+            border:1px solid var(--accent);border-radius:6px;padding:7px 14px;cursor:pointer">비중 점검</button>
+        </div>
+
+        <div style="border:1px solid var(--warn);background:var(--warn-bg);border-radius:8px;padding:12px">
+          <div style="font-size:.74rem;color:var(--warn)">판정</div>
+          <div style="font-size:1.35rem;font-weight:650;line-height:1.2;color:var(--warn)">범위 초과(되직)</div>
+          <p style="font-size:.82rem;color:var(--warn);margin:6px 0 8px">
+            두껍게 붙고 흘러내림 위험이 있다. 물을 소량 추가한 뒤 재측정을 권장한다.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:.74rem">
+            <span style="padding:2px 8px;border-radius:99px;border:1px solid var(--border-2);
+              background:var(--surface);color:var(--muted)">진행을 막지 않는다 (6-4절)</span>
+            <span style="padding:2px 8px;border-radius:99px;border:1px solid var(--border-2);
+              background:var(--surface);color:var(--muted)">재측정 권고 — 교반 후 12분</span>
+          </div>
+          <div style="font-size:.74rem;color:var(--warn);margin-top:8px;padding-top:6px;border-top:1px solid var(--border-2)">
+            권장 범위 출처: (문헌 추정 초기값 · 캘리브레이션 전)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 시유 : 입력을 의미 단위 3묶음으로 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+        <span class="step">07절 · 두께 산출</span>
+        <h2 style="font-size:.98rem">3 · 시유 기록</h2>
+      </div>
+      <p style="font-size:.8rem;color:var(--faint);margin:0 0 12px">사용자가 하는 일은 저울에 두 번 올리는 것과 형태를 고르는 것뿐이다.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div style="border-left:2px solid var(--border);padding-left:10px">
+          <div style="font-size:.72rem;color:var(--faint);font-weight:600;margin-bottom:6px">기물</div>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">형태</span>
+            <select class="inp"><option>사발 (굽 r25 → 구연부 r75)</option></select></label>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">소지</span><input class="inp" value="석기토"></label>
+          <label style="display:block"><span class="fieldlabel">초벌 온도 (℃)</span><input class="inp" value="800"></label>
+        </div>
+
+        <div style="border-left:2px solid var(--border);padding-left:10px">
+          <div style="font-size:.72rem;color:var(--faint);font-weight:600;margin-bottom:6px">저울 2회</div>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">시유 전 (g)</span><input class="inp" value="480"></label>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">건조 후 (g)</span><input class="inp" value="576"></label>
+          <label style="display:block"><span class="fieldlabel">발수 면적 (m²)</span><input class="inp" value="0"></label>
+        </div>
+
+        <div style="border-left:2px solid var(--border);padding-left:10px">
+          <div style="font-size:.72rem;color:var(--faint);font-weight:600;margin-bottom:6px">시유 조건</div>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">방법</span>
+            <select class="inp"><option>담금</option></select></label>
+          <label style="display:block;margin-bottom:6px"><span class="fieldlabel">담금 시간 (s)</span><input class="inp" value="3"></label>
+          <label style="display:block"><span class="fieldlabel">비중 ρ</span><input class="inp" value="1.45"></label>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <button style="font:inherit;font-size:.88rem;background:var(--accent-bg);color:var(--accent);
+          border:1px solid var(--accent);border-radius:6px;padding:7px 14px;cursor:pointer">시유 기록 · 두께 산출</button>
+        <label style="font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:5px">
+          <input type="checkbox"> 재시유 <span style="color:var(--faint)">(모델 적용 범위 밖)</span></label>
+        <label style="font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:5px">
+          <input type="checkbox" checked> 건조 완료</label>
+      </div>
+    </div>
+
+    <!-- 결과 : 숫자 3개가 먼저, 출처가 바로 아래 붙는다 -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px">
+      <h2 style="font-size:.98rem;margin-bottom:10px">두께 산출 결과</h2>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px">
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">평균 두께</div>
+          <div style="font-size:1.7rem;font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums">1.050
+            <span style="font-size:.9rem;font-weight:400;color:var(--muted)">mm</span></div>
+          <div style="font-size:.74rem;color:var(--muted);margin-top:2px">W/(A·ρ_dry) · k₂와 무관</div>
+        </div>
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">국소 최대</div>
+          <div style="font-size:1.7rem;font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--danger)">1.720
+            <span style="font-size:.9rem;font-weight:400;color:var(--muted)">mm</span></div>
+          <div style="font-size:.74rem;color:var(--muted);margin-top:2px">k₂ 의존 · <b>가장 불확실</b></div>
+        </div>
+        <div style="border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:.72rem;color:var(--faint)">편차</div>
+          <div style="font-size:1.7rem;font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums">0.720
+            <span style="font-size:.9rem;font-weight:400;color:var(--muted)">mm</span></div>
+          <div style="font-size:.74rem;color:var(--muted);margin-top:2px">안전창 폭 0.50mm</div>
+        </div>
+      </div>
+
+      <div style="font-size:.78rem;color:var(--muted);margin:8px 0 12px">
+        유약 96.0g · 면적 0.0609m² · 시유기록 <span class="mono">g3</span>
+      </div>
+
+      <!-- 두께 분포 : 안전창 밴드를 배경으로 -->
+      <svg viewBox="0 0 900 200" style="display:block;width:100%;height:auto">
+        <rect x="56" y="74" width="812" height="46" fill="#efece6" stroke="#bdb6aa" stroke-dasharray="3 3"/>
+        <text x="62" y="70" font-size="10" fill="#868077" font-family="inherit">안전 범위 0.8–1.3mm (문헌 추정 초기값)</text>
+        <line x1="56" y1="170" x2="868" y2="170" stroke="#bdb6aa"/>
+        <line x1="56" y1="20" x2="56" y2="170" stroke="#bdb6aa"/>
+        <path d="M56 40 L 190 52 L 330 86 L 470 104 L 610 112 L 750 118 L 868 120"
+              fill="none" stroke="#7a4a1e" stroke-width="2"/>
+        <circle cx="190" cy="52" r="3.5" fill="#9a2521"/>
+        <text x="198" y="48" font-size="10" fill="#9a2521" font-family="inherit">굽에서 12mm · 1.72mm</text>
+        <text x="56" y="186" font-size="10" fill="#868077" font-family="inherit">굽 (z=0)</text>
+        <text x="820" y="186" font-size="10" fill="#868077" font-family="inherit">구연부</text>
+        <text x="10" y="44" font-size="10" fill="#868077" font-family="inherit">1.8mm</text>
+        <text x="18" y="168" font-size="10" fill="#868077" font-family="inherit">0mm</text>
+      </svg>
+
+      <details open style="border:1px solid var(--border);border-left:3px solid var(--border-2);
+        background:var(--surface-2);border-radius:6px;padding:8px 10px;margin:12px 0 0;font-size:.8rem;color:var(--muted)">
+        <summary style="cursor:pointer;color:var(--text);font-weight:600">출처 · 두께 계산에 쓰인 계수 · 5개</summary>
+        <ul style="margin:6px 0 0;padding-left:18px">
+          <li>rho_dry=1.5 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+          <li>k1=0.55 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+          <li>k2=0.35 (문헌 추정 초기값 · 캘리브레이션 전) 사용 (미보정)</li>
+          <li>absorption=1.0 — k₁과 곱으로만 식별된다 (부록 A)</li>
+          <li>총량 제약이 보장하는 것은 내적 정합성이지 실측과의 일치가 아니다 (7-2절)</li>
+        </ul>
+      </details>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
