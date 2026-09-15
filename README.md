@@ -34,28 +34,22 @@
 
 ## 설치와 실행
 
-Python 3.11 이상. 런타임 의존성 없음 (순수 stdlib).
+React + TypeScript + Vite 기반입니다. Node.js 22.12 이상에서:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest
+npm ci
+npm run dev
 ```
 
-## 앱
+http://localhost:5173/ 에서 실행합니다. 빌드: `npm run build` (출력 `dist/`).
+기존 Python 계산 엔진은 Pyodide로 브라우저에서 실행합니다.
+데이터는 Supabase PostgreSQL에 저장하고 FastAPI가 인증된 작업 기록 API를 제공합니다.
+로그인·프로필·개인 기록 저장·공개 기록 조회가 구현되어 있습니다.
 
-`app/` 에 정적 웹앱이 있다. 브라우저에서 **이 패키지를 그대로** 돌리므로
-(Pyodide) 계산을 JS로 재구현하지 않는다 — 화면에 뜨는 값과 테스트가 검증하는
-값이 갈라질 수 없다는 뜻이다. 빌드 도구가 필요 없고 정적 호스팅에 그대로
-올라간다.
-
-```powershell
-.\.venv\Scripts\python.exe -m http.server 8000
-#  → http://localhost:8000/app/
-```
-
-`file://` 로 열면 fetch가 CORS로 막히므로 반드시 HTTP로 연다.
-배포는 [app/README.md](app/README.md).
+- [개발/DB 설정](docs/DEVELOPMENT.md)
+- [FastAPI 백엔드](backend/README.md)
+- [React 구조와 이전 경계](app/README.md)
+- [단계별 TODO](docs/TODO.md)
 
 ## 문서
 

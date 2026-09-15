@@ -1,0 +1,92 @@
+.records-panel {
+  margin: 16px auto;
+  padding: 20px;
+  max-width: 1160px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.records-heading,
+.record-save,
+.record-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.records-heading {
+  justify-content: space-between;
+}
+.records-heading h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.record-save {
+  margin: 14px 0;
+  align-items: end;
+}
+.record-save label:not(.record-check) {
+  display: flex;
+  flex: 1 1 240px;
+  max-width: 420px;
+  flex-direction: column;
+  gap: 5px;
+}
+.record-save input:not([type="checkbox"]) {
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.record-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.record-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.record-tabs button[aria-selected="true"] {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.record-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.record-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.record-title {
+  font-weight: 700;
+  margin-right: auto;
+}
+.record-list span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.record-detail {
+  margin-top: 14px;
+}
+.record-detail pre {
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+.record-error {
+  color: var(--danger);
+}
+.records-panel button {
+  min-height: 36px;
+}

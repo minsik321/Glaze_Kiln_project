@@ -1,109 +1,38 @@
-# app/ — 브라우저 화면
+# React 프런트엔드
 
-`src/kiln` 파이썬 패키지를 **브라우저에서 그대로** 돌리는 정적 웹앱이다.
-Pyodide가 `kiln` 을 import 하고, 화면은 `kiln.webapp.bridge.KilnApp` 이
-돌려주는 dict를 그리기만 한다.
-
-**계산을 JS로 다시 구현하지 않는다.** 두 구현이 갈라지면 "기획서가 코드보다
-위에 있다"는 전제가 깨지고, 어느 쪽이 기획서의 구현인지 말할 수 없게 된다.
-`app.js` 에 수식이 없는 이유다.
-
-| 파일 | 내용 |
-|---|---|
-| `index.html` | 6개 탭 뼈대 + 부팅 화면 + 부록 C 대장 패널 |
-| `app.css` | `:root` 토큰 팔레트 (다크는 토큰만 교체) |
-| `app.js` | Pyodide 부팅 · 브리지 호출 · 인라인 SVG 그래프 |
-| `kiln-manifest.json` | Pyodide가 받아야 할 모듈 목록 (`build_manifest.py` 가 생성) |
-| `build_manifest.py` | 매니페스트 재생성 |
-
-의존은 Pyodide CDN 하나뿐이다. 빌드 도구도, 차트 라이브러리도, 패키지
-매니저도 쓰지 않는다.
-
-## 로컬 실행
-
-`file://` 로 열면 **작동하지 않는다.** `fetch` 가 CORS로 막혀 모듈을 못
-받는다. 정적 서버로 열어라 — **저장소 루트에서**:
+저장소 루트에서 Node.js 22.12 이상으로 실행합니다.
 
 ```powershell
-python -m http.server 8000
+npm ci
+npm run dev
 ```
 
-그다음 브라우저에서:
-
-```
-http://localhost:8000/app/
-```
-
-루트에서 띄우는 이유는 매니페스트의 `root` 가 `../src` 이기 때문이다 —
-`app/` 안에서 서버를 띄우면 `src/` 가 서버 루트 밖이라 404가 난다.
-
-부팅은 **수십 초** 걸린다 (Pyodide 런타임 수십 MB + 모듈 37개). 진행
-상태가 화면에 나온다: Pyodide 로딩 → 모듈 N개 중 M개 → 준비 완료.
-실패하면 사유가 화면에 뜬다 (조용히 멈추지 않는다).
-
-`src/kiln` 아래 `.py` 를 고치면 새로고침만 하면 반영된다. 파일을
-**추가·삭제**했다면 매니페스트를 다시 만들어야 한다:
+앱은 `http://127.0.0.1:5173/`에서 실행합니다. 작업 기록을 사용하려면 FastAPI도 별도 터미널에서 실행해야 합니다.
 
 ```powershell
-.\.venv\Scripts\python.exe app\build_manifest.py
+.\\.venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
-## GitHub Pages 배포
+## 구조
 
-정적 파일뿐이라 빌드 단계가 없다. 다만 `app/` 이 `../src` 를 참조하므로
-**저장소 전체를 그대로 publish** 해야 한다.
+- `react/Simulator.tsx`, `react/simulator/`: 6단계 React 시뮬레이터와 Pyodide 브리지
+- `react/auth/`: Supabase Auth와 프로필 UI
+- `react/records/`: FastAPI를 사용하는 개인·공개 작업 기록 UI
+- `react/lib/api.ts`: FastAPI 클라이언트
+- `react/lib/supabase.ts`: 브라우저 인증 클라이언트
+- `../scripts/python-assets.mjs`: Python 소스를 개발 서버와 빌드에 포함
 
-1. GitHub 저장소 → **Settings → Pages**
-2. **Source: Deploy from a branch**
-3. **Branch: `main` / `(root)`** → Save
-4. 몇 분 뒤 `https://<사용자>.github.io/<저장소>/app/` 에서 열린다
+계산은 Python에서만 수행합니다. 프런트엔드는 `export_state` 스냅샷을 FastAPI에 저장합니다.
+출처 표시, 판정 불가 표시, 미정 계수의 명시적 입력, 경고 시 진행 허용 규칙을 유지합니다.
 
-주의할 것 둘:
+## 검증
 
-- **`.nojekyll` 을 저장소 루트에 두어라** (빈 파일). Jekyll이 기본으로 도는데,
-  `_` 로 시작하는 경로를 빼먹을 수 있다.
-  ```powershell
-  New-Item -ItemType File .nojekyll
-  ```
-- **`src/` 가 배포에 포함되어야 한다.** `.gitignore` 나 워크플로가 `src/` 를
-  빼면 부팅이 404로 실패한다. 앱이 받는 것은 빌드 산출물이 아니라 **소스
-  그대로**다.
+```powershell
+npm run typecheck
+npm run test:react
+npm run test:e2e
+npm run build
+```
 
-Actions 워크플로로 올리는 경우에도 아티팩트에 `app/` 과 `src/` 를 모두 담아야
-한다. `src/` 를 zip으로 묶어 올리는 방식은 쓰지 않는다 — 소스를 고친 뒤 다시
-묶는 것을 잊으면 앱이 **조용히 옛 코드를 돌린다** (`build_manifest.py` 참조).
-
-Cloudflare Pages · Netlify · Vercel 같은 다른 무료 정적 호스팅도 같다:
-빌드 명령 없음, 출력 디렉터리는 저장소 루트, 진입점은 `/app/`.
-
-## 화면이 지키는 것 (기획서 00절)
-
-예쁜 화면보다 이것이 먼저다.
-
-1. **출처를 떨어뜨리지 않는다.** 모든 결과의 `provenance_notes` /
-   `annotation` / `notes` / `reason` 을 `<details open>` 으로 **펼친 채**
-   보여주고, 접더라도 요약에 개수가 남는다.
-2. **「판정 불가」를 「없음」처럼 그리지 않는다** (8-2절). `available: false`
-   인 finding은 회색이고 「판정 불가」라고 쓴다. 초록·체크·안전 표시를 쓰지
-   않는다 — 팔레트에 성공색 자체가 없다.
-3. **어떤 선택지에도 확정 기호를 붙이지 않는다** (8-4절). 되돌림 선택지는
-   `cost` 를 항상 함께 그린다. 비용 없이 효과만 보여주지 않는다.
-4. **미정 계수에 기본값을 채워 넣지 않는다.** E 입력은 **빈칸으로 시작**하고,
-   값을 넣기 전에는 슬라이더가 열리지 않으며 시뮬레이션·처방 발행 버튼이
-   잠긴다. 값을 넣으면 그것이 가정이라는 사실(`E_note`)이 결과 옆에 붙는다.
-5. **경고가 진행을 막지 않는다** (6-4절). `check_density` 의 경고는 뜨지만
-   다음 단계 버튼은 잠기지 않는다 (`blocks_progress` 를 화면에 같이 적는다).
-6. **AI를 판단 주체로 쓰지 않는다** (부록 D). 이 앱에 모델 호출이 없다.
-   탐색은 `kiln.search` 의 규칙 기반 엔진이다.
-
-그래프(두께 분포 · 자연냉각률 곡선 · 소성 곡선)는 **인라인 SVG**로 직접
-그린다. 차트 라이브러리를 넣지 않는 이유는 CSP와 배포 단순성이다.
-
-## 한 바퀴 도는 순서
-
-① 목표 지정 → ② 후보 생성 · 채택 → ③ 비중 점검 · 담금시간 역산 · 기물 등록 ·
-시유 → ④ 위험 판정 → ⑤ 적재 점검 · 냉각 계획 · 시뮬레이션 · 회차 기록 →
-⑥ 결과 입력 · 타일 캘리브레이션 · 계수 표 · 처방 발행 · 다른 가마로 변환.
-
-⑤에서 **회차로 기록** 을 눌러야 ⑥이 열린다 (결과는 회차에 귀속된다).
-E 가정값은 ⑤·⑥ 어디서 넣어도 공유된다.
+Pyodide는 CDN에서 받아오므로 최초 실행과 브라우저 회귀 테스트에 네트워크가 필요합니다.
+상세 설정은 [개발 환경](../docs/DEVELOPMENT.md), 남은 작업은 [TODO](../docs/TODO.md)를 참고하세요.
