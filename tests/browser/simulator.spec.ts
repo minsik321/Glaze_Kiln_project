@@ -28,6 +28,12 @@ test("nine-screen AICE sample finishes without numeric input", async ({ page }) 
   await page.getByRole("button", { name: /^다음/ }).click();
 
   await expect(page.getByRole("img", { name: /가상 전기가마 종단면/ })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const flowDurationSeconds = await page.locator(".kiln-flow").first().evaluate((element) => {
+    const value = getComputedStyle(element).animationDuration;
+    return value.endsWith("ms") ? Number.parseFloat(value) / 1000 : Number.parseFloat(value);
+  });
+  expect(flowDurationSeconds).toBeLessThanOrEqual(0.00001);
   await page.getByRole("button", { name: /상·중·하 3개/ }).click();
   await page.getByRole("button", { name: /^다음/ }).click();
   await expect(page.getByRole("img", { name: /수정 계획 비교/ })).toBeVisible();
@@ -61,3 +67,19 @@ for (const viewport of [
     expect(shortControls).toEqual([]);
   });
 }
+
+test("initial shell and accessibility invariants stay lightweight", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const started = Date.now();
+  await page.goto("/");
+  await expect(page.getByTestId("aice-step-1")).toBeVisible();
+  expect(Date.now() - started).toBeLessThan(3000);
+  const domContentLoadedMs = await page.evaluate(() => (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming).domContentLoadedEventEnd);
+  expect(domContentLoadedMs).toBeLessThan(3000);
+  const duplicateIds = await page.locator("[id]").evaluateAll((elements) => {
+    const ids = elements.map((element) => element.id); return ids.filter((id, index) => ids.indexOf(id) !== index);
+  });
+  expect(duplicateIds).toEqual([]);
+  const unnamed = await page.getByRole("button").evaluateAll((buttons) => buttons.filter((button) => !(button.getAttribute("aria-label") || button.textContent?.trim())).length);
+  expect(unnamed).toBe(0);
+});

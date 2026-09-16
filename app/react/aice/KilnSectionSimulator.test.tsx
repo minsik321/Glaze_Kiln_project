@@ -9,7 +9,7 @@ afterEach(cleanup);
 function Harness() {
   const [plan, setPlan] = useState<SensorPlan>("three");
   const [sensors, setSensors] = useState<SensorPlacement[]>(sensorPreset("three"));
-  return <KilnSectionSimulator ware="bowl" plan={plan} sensors={sensors} onPlanChange={setPlan} onSensorsChange={setSensors} />;
+  return <KilnSectionSimulator ware="bowl" coating="target" plan={plan} sensors={sensors} onPlanChange={setPlan} onSensorsChange={setSensors} />;
 }
 
 describe("kiln section controls", () => {

@@ -1,7 +1,8 @@
 # 유약 실험·소성 관리 시스템
 
-전기가마 1대·개인 1인 범위의 유약 실험 관리 시스템. **시뮬레이터 기반**이며
-실측은 수행하지 않는다. 기획서 [v7](docs/kiln-plan-v7.md)의 구현이다.
+비전문가가 사진·선택 카드·단면도·그래프로 한 번의 가상 유약 실험을 수행하는
+AICE 로컬 MVP다. **시뮬레이터 기반**이며 실제 센서 연결, 실제 가마 제어와 품질
+보장은 포함하지 않는다.
 
 ## 무엇을 하는가
 
@@ -9,8 +10,9 @@
 담갔는지(두께), 어떤 열이력을 받았는지, 얼마나 천천히 식혔는지는 레시피 밖에
 있다. **문제는 정보의 부족이 아니라 정보의 소실이다.**
 
-이 시스템은 그 값들을 각각 정량 관측하고, 결합해 소성을 결정·제어하며,
-전 과정을 자동으로 기록해 재현 가능한 단위로 만든다.
+이 시스템은 출처가 확인된 관측, 문헌·특허 범위, 추론과 합성을 구분하고 가상
+도포·적재·곡선·결과를 하나의 버전 있는 `AiceRun`으로 기록한다. 근거가 없으면
+정상이나 안전으로 처리하지 않고 `판정 불가`로 남긴다.
 
 ```
 [바깥 루프 · 회차 사이]  목표 지정 → 탐색 범위 → 후보 생성 → 선택
@@ -42,11 +44,13 @@ npm run dev
 ```
 
 http://localhost:5173/ 에서 실행합니다. 빌드: `npm run build` (출력 `dist/`).
-기존 Python 계산 엔진은 Pyodide로 브라우저에서 실행합니다.
+기존 Python 계산 엔진은 필요한 시점에 Pyodide로 브라우저에서 실행합니다.
 데이터는 Supabase PostgreSQL에 저장하고 FastAPI가 인증된 작업 기록 API를 제공합니다.
 로그인·프로필·개인 기록 저장·공개 기록 조회가 구현되어 있습니다.
 
 - [개발/DB 설정](docs/DEVELOPMENT.md)
+- [AICE 로컬 실행·백업·복구](docs/AICE_LOCAL_OPERATIONS.md)
+- [AiceRun 마이그레이션](docs/AICE_MIGRATION.md)
 - [FastAPI 백엔드](backend/README.md)
 - [React 구조와 이전 경계](app/README.md)
 - [단계별 TODO](docs/TODO.md)
@@ -58,4 +62,6 @@ http://localhost:5173/ 에서 실행합니다. 빌드: `npm run build` (출력 `
 | [docs/kiln-plan-v7.md](docs/kiln-plan-v7.md) | 기획서 원본. 모든 설계 판단의 출처 |
 | [docs/INTERFACES.md](docs/INTERFACES.md) | 모듈 간 계약 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 폐기된 설계와 그 이유 |
+| [docs/AICE_REBUILD_TODO.md](docs/AICE_REBUILD_TODO.md) | AICE Phase 0–10 완료 기준 |
+| [docs/AICE_IMPLEMENTATION_PROGRESS.md](docs/AICE_IMPLEMENTATION_PROGRESS.md) | Phase별 구현·검증 원장 |
 | [CLAUDE.md](CLAUDE.md) | 저장소 안내 (모듈별 상세는 각 모듈의 `CLAUDE.md`) |

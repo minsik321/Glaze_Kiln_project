@@ -16,8 +16,8 @@
 | 6. 가마·센서·열 시뮬레이터 | 완료 | `b866294` |
 | 7. 곡선 보상과 제어 설명 | 완료 | `7c980f2` |
 | 8. 특허·문헌 기반 AI MVP | 완료 | `87155bd` |
-| 9. 결과·피드백·공유 | 완료 | 커밋 후 기록 |
-| 10. 검증·성능·로컬 실행 | 대기 | — |
+| 9. 결과·피드백·공유 | 완료 | `612ee9b` |
+| 10. 검증·성능·로컬 실행 | 부분 완료 · 환경 차단 | 커밋 후 기록 |
 
 ## Phase 0 — 새 브랜치와 기준선 격리
 
@@ -685,7 +685,7 @@ AiceRun 목록·상세·페이지네이션·복원을 구현한다.
 
 ### 완료 커밋
 
-커밋 생성 후 해시를 보충한다.
+`612ee9b` (`phase-9: complete feedback sharing and restore`)
 
 ### 다음 Phase 시작점
 
@@ -693,3 +693,81 @@ Phase 10 TODO와 완료 조건을 다시 읽고 전체 Python·DB·백엔드·�
 버전 전파와 출처 표시 통합 테스트, 접근성·성능 점검, 로컬 마이그레이션과
 백업/복구 절차를 완성한다. 실행 불가능한 실제 두 계정 항목은 원인과 재현 절차를
 성공 항목과 분리해 기록한다.
+
+## Phase 10 — 검증, 성능, 로컬 실행 완성
+
+상태: 부분 완료 · 실제 Supabase 환경 차단
+
+### 완료한 작업
+
+- Python 계산/계약, PostgreSQL 호환 DB/RLS, React/TS, FastAPI, 타입 검사, Vite
+  빌드와 Edge E2E 전체 회귀를 실행했다.
+- 도포 입력 하나가 두께, 위험, 곡선, 가마 기물 추정온도와 동일 통합 버전에
+  전파되는 테스트를 추가했다.
+- 문헌·추정·합성값이 관측값으로 승격되지 않고 여섯 source_type만 허용되는
+  출처 회귀를 추가했다.
+- E2E에 저모션, 중복 ID, 버튼 접근 이름, 3초 초기 표시 기준을 추가하고 기존
+  390/768/1280px 가로 넘침·44px 터치 목표와 함께 검사했다.
+- 기록 화면을 지연 로드하고 React/Supabase vendor를 분리해 초기 앱 JS를
+  73,444 bytes로 줄였으며 단일 500 kB 청크 경고를 제거했다.
+- 390px Edge에서 DOMContentLoaded 98.3ms, load 132.0ms, 가마 60프레임 평균
+  13.19ms/최대 13.8ms를 측정했다.
+- 깨끗한 두 DB 사이에서 AiceRun·출처·동의를 논리 백업/복원하는 자동 테스트를
+  추가하고 버전·출처·공개 상태 보존을 확인했다.
+- 로컬 실행, 마이그레이션, DB/Storage 백업, 복구, 두 계정 수동 시나리오와
+  코드 롤백 절차를 문서화했다.
+
+### 남은 작업과 차단 원인
+
+- 현재 호스트에 Docker 실행 파일이 없어 로컬 Supabase를 기동할 수 없다.
+- Supabase CLI가 `C:\Users\user\.supabase` 생성 중 `EPERM`으로 중단되어 실제
+  `db dump`, `migration up`, `db reset`을 실행하지 못했다.
+- 따라서 실제 Auth 두 계정의 가입·비공개 저장·공개·타인 조회·철회·삭제·복원과
+  실제 Storage 사진 정책/객체 복구는 미검증이다. 성공으로 표시하지 않는다.
+- 위 수동 항목이 Docker/Auth/Storage 사용 가능한 환경에서 통과해야 Phase 10을
+  완전 완료로 변경한다.
+
+### 주요 설계 결정
+
+- 성능 측정은 로컬 회귀 기준일 뿐 저사양 실기기 성능 보장으로 표현하지 않는다.
+- DB 논리 복구 테스트는 CLI/Storage 복구의 대체물이 아니므로 두 결과를 분리한다.
+- 실제 가마 연결은 포함하지 않으며 다음 단계도 별도 안전 프로젝트로 유지한다.
+
+### 주요 파일
+
+- `app/react/aice/integration.test.ts`
+- `scripts/aice-backup-restore.test.mjs`
+- `tests/browser/simulator.spec.ts`
+- `app/react/App.tsx`, `vite.config.ts`
+- `docs/AICE_LOCAL_OPERATIONS.md`, `AICE_PHASE10_VERIFICATION.md`
+- `README.md`, `docs/DEVELOPMENT.md`
+
+### 테스트와 결과
+
+- `\.venv\Scripts\python.exe -m pytest tests -q`: 625 passed
+- `npm run test:database`: 8 passed
+- `npm run test:react`: 52 passed
+- `npm run test:backend`: 10 passed
+- `npm run test:e2e`: 5 passed
+- `npm run build`: 통과, 단일 500 kB 초과 청크 없음
+
+### 실패와 수정
+
+- 첫 논리 복구 테스트가 실제 `aice_consents`에 없는 `created_at`을 백업하려 해
+  실패했다. 마이그레이션의 실제 열(`granted_at`, `updated_at`)에 맞춰 고치고
+  DB/자산 8건을 모두 다시 통과했다.
+- 첫 저모션 E2E가 동일한 0.01ms를 Edge가 `1e-05s`로 정규화해 문자열 비교에서
+  실패했다. 초 단위 숫자로 변환해 상한을 검사하고 E2E 5건을 다시 통과했다.
+- Supabase CLI 도움말도 사용자 홈 생성 권한 때문에 실패했고 Docker 명령은
+  설치되어 있지 않았다. 우회해 성공 처리하지 않고 환경 차단으로 기록했다.
+
+### 완료/체크포인트 커밋
+
+자동 검증과 문서 체크포인트 커밋 생성 후 해시를 보충한다. 실제 두 계정 수동
+검증 전이므로 Phase 10 완료 커밋으로 간주하지 않는다.
+
+### 다음 시작점
+
+Docker와 로컬 Supabase Auth/Storage가 사용 가능한 호스트에서
+`docs/AICE_LOCAL_OPERATIONS.md`의 백업·복구 및 두 계정 시나리오를 수행한다.
+모든 항목 통과 뒤 원장 상태를 완료로 바꾸고 별도 Phase 10 완료 커밋을 남긴다.

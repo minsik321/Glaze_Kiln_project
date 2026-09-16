@@ -1,6 +1,5 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { AuthPanel } from "./auth/AuthPanel";
-import { RecordsPanel } from "./records/RecordsPanel";
 import type { SimulatorSnapshot } from "./Simulator";
 import { AicePrototype } from "./aice/AicePrototype";
 import { AppShell, BottomNavigation } from "./aice/ui";
@@ -8,6 +7,7 @@ import type { AiceRun } from "./aice/contract";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "records" | "account";
+const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
 
 function NavIcon({ children }: { children: ReactNode }) {
   return (
@@ -42,7 +42,7 @@ export function App() {
             <h1>작업 기록</h1>
             <p>지난 실험과 소성 결과를 모아봅니다.</p>
           </div>
-          <RecordsPanel getSnapshot={getSnapshot} onRestore={(run) => { setRestoredRun(run); setView("work"); }} />
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel getSnapshot={getSnapshot} onRestore={(run) => { setRestoredRun(run); setView("work"); }} /></Suspense>}
         </section>
         <section className="app-view app-utility-view" hidden={view !== "account"}>
           <div className="utility-header">

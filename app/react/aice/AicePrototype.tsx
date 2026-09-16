@@ -114,7 +114,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
     const thicknessView = buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", evidence: "mass_only", meanMm: null });
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
-    const kilnFrame = simulateKilnFrame({ minute: 320, sensors });
+    const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: state.coating ?? "target" });
     const curveSeries = buildCurveComparison(state.coating ?? "target");
     const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
     const controlPlan = CONTROL_PLANS[state.controlPreset];
@@ -271,7 +271,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
         )}
 
         {step === 5 && (
-          <KilnSectionSimulator ware={state.ware ?? "bowl"} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
+          <KilnSectionSimulator ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
         )}
 
         {step === 6 && (

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { WarePreset } from "./catalog";
 import { Alert, DetailDrawer, StatusBadge } from "./ui";
 import { moveSensor, recommendSensorPlan, sensorPreset, simulateKilnFrame, TOTAL_MINUTES, type KilnScenario, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
+import type { CoatingPreset } from "./thicknessView";
 
 const SCENARIOS: Array<{ id: KilnScenario; label: string }> = [
   { id: "normal", label: "기본" },
@@ -30,12 +31,14 @@ const WARE_PATHS: Record<WarePreset, string> = {
 
 export function KilnSectionSimulator({
   ware,
+  coating,
   plan,
   sensors,
   onPlanChange,
   onSensorsChange,
 }: {
   ware: WarePreset;
+  coating: CoatingPreset;
   plan?: SensorPlan;
   sensors: SensorPlacement[];
   onPlanChange: (plan: SensorPlan) => void;
@@ -45,7 +48,7 @@ export function KilnSectionSimulator({
   const [playing, setPlaying] = useState(false);
   const [scenario, setScenario] = useState<KilnScenario>("normal");
   const activeSensors = sensors.length ? sensors : sensorPreset(plan ?? "three");
-  const frame = useMemo(() => simulateKilnFrame({ minute, sensors: activeSensors, scenario }), [activeSensors, minute, scenario]);
+  const frame = useMemo(() => simulateKilnFrame({ minute, sensors: activeSensors, scenario, coating }), [activeSensors, coating, minute, scenario]);
   const recommendation = recommendSensorPlan(6, "medium");
 
   useEffect(() => {

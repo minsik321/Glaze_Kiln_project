@@ -44,7 +44,8 @@ Docker가 없는 환경에서는 이 방법을 실행할 수 없습니다.
 ### Supabase 클라우드
 
 1. 자신의 Supabase 프로젝트를 생성합니다.
-2. SQL Editor에서 `supabase/migrations/20260915000000_initial.sql`을 한 번 실행합니다.
+2. SQL Editor에서 `supabase/migrations/20260915000000_initial.sql`과
+   `20260916010000_aice_runs.sql`을 순서대로 한 번 실행합니다.
 3. Project URL과 publishable key를 아래 값에 넣습니다.
 4. 인증을 구현할 때 Auth URL Configuration의 Site URL과 Redirect URLs를 개발/운영 주소에 맞춥니다.
 
@@ -61,6 +62,10 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
 - profiles: Auth 사용자 ID, 표시 이름, 생성 시간. 현재 본인만 접근.
 - work_records: 작성자 ID, 제목, JSONB payload, schema_version, is_public, 생성/수정 시간.
+- aice_runs: AiceRun v2 전체 payload와 목표·레시피·기물·상태 검색 필드.
+- aice_run_sources / aice_consents / aice_photos: 출처, 공개 동의·철회, 비공개 사진
+  메타데이터. 공개 조회에는 활성 동의와 사진 권리가 모두 필요합니다.
+- personal_calibrations: 사용자 소유 가마·소지 보정. 공개 실행과 분리됩니다.
 - 모든 기록은 기본 비공개. 본인만 작성/수정/삭제. 다른 로그인 사용자는 공개된 기록만 조회.
 - 익명 사용자는 기록을 조회할 수 없습니다. 공개는 payload 전체를 다른 로그인 사용자에게 공유합니다.
 - 사용자 삭제 시 연결된 프로필/기록은 함께 삭제됩니다.
@@ -85,10 +90,11 @@ SQL 테스트는 임베디드 PostgreSQL(PGlite)에서 실제 마이그레이션
 검증합니다. auth.users/auth.uid는 테스트에서 최소 형태로 제공하며 실제 Supabase Auth,
 메일 발송, 네트워크 연동을 검증하는 테스트는 아닙니다.
 
-검증 결과: TypeScript/Vite 빌드, React 테스트 10개, DB 테스트 4개,
-FastAPI 테스트 6개, 기존 Python 테스트 621개가 통과했습니다.
-실제 Edge에서 Pyodide 6단계 전체 흐름도 통과했습니다. FastAPI 실제 서버의 health/readiness와
-비로그인 기록 요청 401을 확인했습니다. 실제 사용자 계정으로 저장하는 과정은 수동 검증이 남았습니다.
+2026-09-17 검증 결과: TypeScript/Vite 빌드, React 테스트 52개, DB/자산 테스트
+8개, FastAPI 테스트 10개, Python 계산/계약 테스트 625개, Edge E2E 5개가
+통과했습니다. 실제 Supabase Auth/Storage와 두 계정 수동 시나리오는 Docker가 없는
+현재 환경에서 실행하지 못했으며 성공으로 간주하지 않습니다. 자세한 실행·백업·복구와
+수동 검증 절차는 [AICE_LOCAL_OPERATIONS.md](AICE_LOCAL_OPERATIONS.md)를 따릅니다.
 
 ## 연결 확인
 
@@ -125,4 +131,7 @@ npm run test:e2e
 
 브라우저 테스트는 Windows에 설치된 Edge를 사용합니다. 다른 환경에서는
 `playwright.config.ts`의 channel 설정을 변경하고 해당 브라우저를 설치하세요.
-Pyodide CDN을 사용하므로 인터넷 연결이 필요합니다. 개발 서버는 테스트에서 자동 시작합니다.
+현재 AICE 안내 흐름 E2E는 앱 셸과 TypeScript 합성 모델을 검증하며 초기 표시에서
+Pyodide 로드를 기다리지 않습니다. 기존 Python 브리지 경로를 직접 검증할 때는 Pyodide
+CDN 인터넷 연결이 필요합니다. Windows에서는 Playwright가 시작한 Vite 자식 프로세스가
+남을 수 있어, 개발 서버를 먼저 시작한 뒤 `npm run test:e2e`를 실행하는 방법이 가장 안정적입니다.

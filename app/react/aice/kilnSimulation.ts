@@ -1,4 +1,5 @@
 import type { SourceType } from "./contract";
+import type { CoatingPreset } from "./thicknessView";
 
 export type SensorPlan = "single" | "three" | "multi";
 export type KilnScenario = "normal" | "sensor_bias" | "sensor_failure" | "overheat" | "layer_variance";
@@ -78,8 +79,9 @@ function layerAt(heightRatio: number): "top" | "middle" | "bottom" {
   return heightRatio > 0.67 ? "top" : heightRatio < 0.34 ? "bottom" : "middle";
 }
 
-export function simulateKilnFrame(input: { minute: number; sensors: SensorPlacement[]; scenario?: KilnScenario }): KilnFrame {
+export function simulateKilnFrame(input: { minute: number; sensors: SensorPlacement[]; scenario?: KilnScenario; coating?: CoatingPreset }): KilnFrame {
   const scenario = input.scenario ?? "normal";
+  const coating = input.coating ?? "target";
   const scheduled = schedule(input.minute);
   const intensity = clamp((scheduled.base - 20) / 1179, 0, 1);
   // These gradients are deterministic synthetic teaching coefficients, not calibrated kiln constants.
@@ -118,7 +120,7 @@ export function simulateKilnFrame(input: { minute: number; sensors: SensorPlacem
       segment: scheduled.segment,
       heaterOutputPercent: scheduled.output,
       layerTemperaturesC: { top: round(layers.top), middle: round(layers.middle), bottom: round(layers.bottom) },
-      estimatedWareTemperatureC: round((layers.top + layers.middle + layers.bottom) / 3 - 8 * intensity),
+      estimatedWareTemperatureC: round((layers.top + layers.middle + layers.bottom) / 3 - (coating === "thick" ? 12 : coating === "thin" ? 6 : 8) * intensity),
       layerSpreadC: round(layerSpreadC),
       sensorReadings,
       warnings,
