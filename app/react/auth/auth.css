@@ -1,24 +1,23 @@
 .account-panel {
-  margin: 16px auto;
-  padding: 20px;
-  max-width: 1160px;
+  margin: 8px 14px 24px;
+  padding: 16px 14px;
+  max-width: none;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
   position: relative;
 }
 .account-panel h2 {
-  margin: 0 0 12px;
-  font-size: 1.2rem;
+  display: none;
 }
 .account-panel p {
   margin: 10px 0;
 }
 .account-row,
 .account-form {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: end;
   margin-top: 12px;
@@ -28,7 +27,7 @@
   flex-direction: column;
   gap: 6px;
   flex: 1 1 180px;
-  max-width: 340px;
+  max-width: none;
 }
 .account-panel input {
   box-sizing: border-box;
@@ -36,7 +35,7 @@
   min-height: 40px;
   padding: 8px;
   border: 1px solid var(--border-2);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
 }
@@ -44,7 +43,7 @@
   min-height: 40px;
   padding: 8px 14px;
   border: 1px solid var(--border-2);
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
   background: var(--surface-2);
   color: var(--text);
