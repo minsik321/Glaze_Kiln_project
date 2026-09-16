@@ -152,3 +152,16 @@ class AiceRunPage(ApiModel):
     items: list[AiceRunResponse]
     limit: int
     offset: int
+
+
+class AicePublishConsent(ApiModel):
+    photo_rights_confirmed: bool
+    pii_reviewed: bool
+    location_removed: bool
+    withdrawal_understood: bool
+
+    @model_validator(mode="after")
+    def require_every_check(self) -> "AicePublishConsent":
+        if not all((self.photo_rights_confirmed, self.pii_reviewed, self.location_removed, self.withdrawal_understood)):
+            raise ValueError("all publication consent checks are required")
+        return self

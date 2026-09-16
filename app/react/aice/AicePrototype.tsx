@@ -11,6 +11,8 @@ import { CurveControlPanel } from "./CurveControlPanel";
 import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControlPreset } from "./curvePlan";
 import { RecommendationEvidence } from "./RecommendationEvidence";
 import { AI_RULE_VERSION } from "./aiMvp";
+import { ResultFeedback } from "./ResultFeedback";
+import type { ResultEvaluation } from "./feedback";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
@@ -29,6 +31,7 @@ type PrototypeState = {
   curveApproved: boolean;
   simulationCompleted: boolean;
   result?: "close" | "different";
+  evaluation: ResultEvaluation;
 };
 
 const initialState: PrototypeState = {
@@ -39,6 +42,7 @@ const initialState: PrototypeState = {
   simulationCompleted: false,
   sensors: [],
   controlPreset: "balanced",
+  evaluation: { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal" },
 };
 
 const screens = [
@@ -96,12 +100,12 @@ function Guidance({ reason, assumption, next }: { reason: string; assumption: st
   return <ExplanationPanel reason={reason} assumption={assumption} next={next} />;
 }
 
-export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
+export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun> }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
-    const run = sampleAiceRun();
+    const run = restoredRun ?? sampleAiceRun();
     const goal = state.goal === "clear-warm"
       ? { gloss: "gloss" as const, transparency: "transparent" as const, color: "#c7aa7d", texture: "smooth" }
       : state.goal === "matte-white"
@@ -141,9 +145,25 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
       },
       versions: { ...run.versions, rule_model: AI_RULE_VERSION, simulator: "aice-kiln-explanatory-1", predictor: null },
-      result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
+      result: {
+        ...run.result,
+        color: state.evaluation.color,
+        gloss: state.evaluation.gloss,
+        texture: state.evaluation.texture,
+        transparency: state.evaluation.transparency,
+        defects: state.evaluation.defects,
+        feedback_scope: state.result ? state.evaluation.scope : null,
+      },
     };
-  }, [state, step]);
+  }, [restoredRun, state, step]);
+
+  useEffect(() => {
+    if (!restoredRun) return;
+    const knownRecipe = RECIPE_CANDIDATES.some((candidate) => candidate.id === restoredRun.recipe.id) ? restoredRun.recipe.id as RecipeId : undefined;
+    const knownClay = CLAY_BODIES.some((body) => body.id === restoredRun.ware.clay_body) ? restoredRun.ware.clay_body as PrototypeState["clayBody"] : undefined;
+    setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), controlPreset: restoredRun.pid.preset, curveApproved: Boolean(restoredRun.curves.selected_id), simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
+    setStep(restoredRun.status === "evaluated" ? 8 : restoredRun.status === "simulated" ? 7 : 0);
+  }, [restoredRun]);
 
   useEffect(() => {
     onSnapshotReady?.(async () => snapshot);
@@ -270,17 +290,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         )}
 
         {step === 8 && (
-          <>
-            <div className="prototype-result-compare">
-              <div><span className="result-swatch target" /><strong>목표</strong></div>
-              <div><span className="result-swatch simulated" /><strong>합성 결과</strong></div>
-            </div>
-            <div className="prototype-grid compact">
-              <ChoiceCard title="목표에 가까워요" description="개인 기록에만 반영" visual="result-close" selected={state.result === "close"} onClick={() => setState({ ...state, result: "close" })} />
-              <ChoiceCard title="차이가 있어요" description="다음 후보 제안에 연결" visual="result-different" selected={state.result === "different"} onClick={() => setState({ ...state, result: "different" })} />
-            </div>
-            {state.result && <Guidance reason="이번 합성 결과와 선택한 평가를 함께 기록합니다." assumption="실제 소성 품질이나 재현성을 검증한 결과가 아닙니다." next="새 샘플을 시작하거나 기록 화면에서 스냅샷을 확인하세요." />}
-          </>
+          <><ResultFeedback value={state.evaluation} onChange={(evaluation) => setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined }))} />{state.result && <Guidance reason="이번 관찰 선택이 개인 기록의 다음 후보 비교에 연결됩니다." assumption="실제 소성 품질이나 재현성을 검증한 결과가 아닙니다." next="작업 기록에 저장한 뒤 영향 추적과 공유 동의를 확인하세요." />}</>
         )}
       </main>
 

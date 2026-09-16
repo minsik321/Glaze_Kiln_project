@@ -114,6 +114,15 @@ export const aiceRunsApi = {
     return { ...page, items: page.items.map(validateAiceRecord) };
   },
   get: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token)),
+  listPublic: async (token: string, offset = 0) => {
+    const page = await request<AiceRunPage>(`/public/aice-runs?limit=20&offset=${offset}`, token);
+    return { ...page, items: page.items.map(validateAiceRecord) };
+  },
+  getPublic: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/public/aice-runs/${id}`, token)),
   create: async (token: string, input: { title: string; run: AiceRun; is_public?: boolean }) =>
     validateAiceRecord(await request<AiceRunRecord>("/aice-runs", token, { method: "POST", body: JSON.stringify({ ...input, is_public: input.is_public ?? false }) })),
+  publish: async (token: string, id: string, consent: { photo_rights_confirmed: boolean; pii_reviewed: boolean; location_removed: boolean; withdrawal_understood: boolean }) =>
+    validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publish`, token, { method: "POST", body: JSON.stringify(consent) })),
+  withdraw: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publication`, token, { method: "DELETE" })),
+  remove: (token: string, id: string) => request<void>(`/aice-runs/${id}`, token, { method: "DELETE" }),
 };

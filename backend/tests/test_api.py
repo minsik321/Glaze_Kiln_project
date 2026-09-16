@@ -231,3 +231,74 @@ async def test_aice_run_rejects_unknown_source_and_public_without_consent() -> N
     assert bad_source.status_code == 422
     assert bad_public.status_code == 422
     await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aice_publish_requires_all_consent_and_withdraws_from_public_read() -> None:
+    payload = sample_aice_run().to_dict()
+    calls: list[tuple[str, str]] = []
+
+    def row(is_public: bool, run: dict) -> dict:
+        return {"id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample", "payload": run,
+                "schema_version": 2, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
+                "goal_transparency": run["goal"]["transparency"], "recipe_id": run["recipe"]["id"],
+                "ware_preset": run["ware"]["preset"], "is_public": is_public, "created_at": NOW, "updated_at": NOW}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(200, json=[row(False, payload)])
+        body = json.loads(request.content)
+        if request.url.path == "/rest/v1/aice_consents":
+            assert request.url.params["on_conflict"] == "run_id"
+            assert body["photo_rights_confirmed"] and body["pii_reviewed"] and body["location_removed"]
+            return httpx.Response(201, json=[body])
+        assert request.url.path == "/rest/v1/aice_runs"
+        assert body["is_public"] is True
+        assert body["payload"]["consent"]["share_allowed"] is True
+        return httpx.Response(200, json=[row(True, body["payload"])])
+
+    app, upstream = client_for(handler)
+    headers = {"Authorization": "Bearer valid-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        incomplete = await client.post(f"/api/v1/aice-runs/{RECORD_ID}/publish", headers=headers, json={"photo_rights_confirmed": True, "pii_reviewed": True, "location_removed": True, "withdrawal_understood": False})
+        published = await client.post(f"/api/v1/aice-runs/{RECORD_ID}/publish", headers=headers, json={"photo_rights_confirmed": True, "pii_reviewed": True, "location_removed": True, "withdrawal_understood": True})
+    assert incomplete.status_code == 422
+    assert published.status_code == 200
+    assert published.json()["is_public"] is True
+    assert ("POST", "/rest/v1/aice_consents") in calls
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aice_withdraw_sets_timestamp_before_private_transition() -> None:
+    payload = sample_aice_run().to_dict()
+    payload["consent"] = {"share_allowed": True, "photo_rights_confirmed": True, "pii_reviewed": True, "location_removed": True, "withdrawn_at": None}
+    consent_withdrawn = False
+
+    def row(is_public: bool, run: dict) -> dict:
+        return {"id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample", "payload": run,
+                "schema_version": 2, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
+                "goal_transparency": run["goal"]["transparency"], "recipe_id": run["recipe"]["id"],
+                "ware_preset": run["ware"]["preset"], "is_public": is_public, "created_at": NOW, "updated_at": NOW}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal consent_withdrawn
+        if request.method == "GET":
+            return httpx.Response(200, json=[row(True, payload)])
+        body = json.loads(request.content)
+        if request.url.path == "/rest/v1/aice_consents":
+            consent_withdrawn = bool(body["withdrawn_at"] and body["share_allowed"] is False)
+            return httpx.Response(200, json=[body])
+        assert consent_withdrawn
+        assert body["is_public"] is False
+        assert body["payload"]["consent"]["withdrawn_at"]
+        return httpx.Response(200, json=[row(False, body["payload"])])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        withdrawn = await client.delete(f"/api/v1/aice-runs/{RECORD_ID}/publication", headers={"Authorization": "Bearer valid-token"})
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["is_public"] is False
+    assert withdrawn.json()["run"]["consent"]["share_allowed"] is False
+    await upstream.aclose()

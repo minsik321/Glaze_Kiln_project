@@ -15,8 +15,8 @@
 | 5. 유약 두께 종단면 | 완료 | `cb3e200` |
 | 6. 가마·센서·열 시뮬레이터 | 완료 | `b866294` |
 | 7. 곡선 보상과 제어 설명 | 완료 | `7c980f2` |
-| 8. 특허·문헌 기반 AI MVP | 완료 | 커밋 후 기록 |
-| 9. 결과·피드백·공유 | 대기 | — |
+| 8. 특허·문헌 기반 AI MVP | 완료 | `87155bd` |
+| 9. 결과·피드백·공유 | 완료 | 커밋 후 기록 |
 | 10. 검증·성능·로컬 실행 | 대기 | — |
 
 ## Phase 0 — 새 브랜치와 기준선 격리
@@ -611,10 +611,85 @@ Phase 8 TODO와 완료 조건을 다시 읽고 방향 문서의 네 특허와 �
 
 ### 완료 커밋
 
-커밋 생성 후 해시를 보충한다.
+`87155bd` (`phase-8: deliver traceable rule and RAG MVP`)
 
 ### 다음 Phase 시작점
 
 Phase 9 TODO와 완료 조건을 다시 읽고 표준 촬영 가이드, 쉬운 결과 평가, 목표/결과
 비교, 개인/공통 개선 후보 분리, 공개 동의·철회와 공유 곡선의 내 조건 변환,
 AiceRun 목록·상세·페이지네이션·복원을 구현한다.
+
+## Phase 9 — 결과 관찰, 피드백, 공유
+
+상태: 완료
+
+### 완료한 작업
+
+- 중성 배경, 동일 5000K 조명, 약 50cm 거리, 색상 기준표를 포함한 촬영 가이드를
+  만들고 사진 입력은 실제 저장소 연결 전까지 비활성 상태로 명시했다.
+- 목표 스와치와 관찰 결과를 나란히 놓고 전체 인상, 색상, 광택, 질감, 투명도,
+  핀홀·기어감·잔금·흘러내림을 쉬운 선택으로 기록하게 했다.
+- 평가가 다음 개인 기록 검색과 후보 재비교에 미치는 영향을 추적하고 AiceRun
+  결과 모델에 선택값·결함·사용 범위를 보존했다.
+- 개인 보정과 익명 공통 개선 검토 후보를 분리하고 공통 모델 자동 갱신을 항상
+  `false`로 유지했다.
+- 사진 권리, 개인정보 검토, 위치정보 제거, 철회 이해를 모두 확인해야만 공개
+  버튼이 활성화되는 동의 흐름을 구현했다.
+- 공개 API는 동의 레코드를 먼저 upsert한 뒤 실행을 공개하며, 철회 API는
+  `withdrawn_at`과 공유 거부를 먼저 기록한 뒤 실행을 비공개로 전환한다.
+- 동의된 공개 실행 목록/상세는 기존 RLS의 활성 동의 조건을 그대로 사용한다.
+- 타인 곡선은 그대로 복사하지 않고 내 가마·적재 조건의 `inferred` 후보로
+  변환해 재시뮬레이션 필요 상태로 만든다.
+- AiceRun v2 비공개 저장, 내/공개 목록, 상세, 20개 페이지네이션, 복원, 공개,
+  철회, 삭제를 기록 화면에 추가하고 기존 v1 기록 UI도 별도로 보존했다.
+
+### 남은 작업
+
+- 실제 사진 업로드는 로컬 Storage/Auth가 동작하는 환경에서 파일 권리·메타데이터
+  삭제까지 함께 검증해야 하므로 비활성 안내 상태로 둔다.
+- 실제 Supabase 두 계정 공개/철회 수동 검증은 Docker/로컬 서비스 환경 제약으로
+  Phase 10의 미검증 항목으로 남긴다.
+
+### 주요 설계 결정
+
+- 공통 개선 범위를 사용자가 선택해도 검토 대기열 후보일 뿐 자동 학습하지 않는다.
+- 철회는 동의 비활성화가 공개 플래그 전환보다 먼저 일어나도록 해 중간 실패에도
+  외부 조회가 열리지 않게 한다.
+- 공유 곡선 변환은 원본과 다른 ID, `inferred` 출처, 재시뮬레이션 필요 이유를
+  반드시 가진다.
+
+### 주요 파일
+
+- `app/react/aice/feedback.ts`, `feedback.test.ts`
+- `app/react/aice/ResultFeedback.tsx`, `ResultFeedback.test.tsx`
+- `app/react/records/AiceRecordsPanel.tsx`, `AiceRecordsPanel.test.tsx`
+- `app/react/records/RecordsPanel.tsx`, `records.css`, `app/react/App.tsx`
+- `app/react/lib/api.ts`, `api.test.ts`
+- `backend/app/models.py`, `routes.py`, `supabase.py`, `backend/tests/test_api.py`
+- `docs/baseline/phase-9-result-feedback.png`, `phase-9-feedback-trace.png`
+
+### 테스트와 결과
+
+- `npm run typecheck`: 통과
+- `npm run test:react`: 50 passed
+- `npm run test:database`: 7 passed; 활성 동의 공개 후 타 계정 조회 및 철회 후 차단
+- `npm run test:backend`: 10 passed; 네 항목 동의 강제, 동의 upsert, 철회 순서 검증
+- `npm run build`: 통과
+- `npm run test:e2e`: 4 passed
+
+### 실패와 수정
+
+- 프론트 API 테스트가 동일한 `Response` 객체를 공개/철회 두 요청에 재사용해 두
+  번째 JSON 본문이 소진된 상태로 실패했다. 요청마다 새 응답을 생성하도록 고친 뒤
+  프론트 50건을 모두 통과했다.
+
+### 완료 커밋
+
+커밋 생성 후 해시를 보충한다.
+
+### 다음 Phase 시작점
+
+Phase 10 TODO와 완료 조건을 다시 읽고 전체 Python·DB·백엔드·프론트·E2E 회귀,
+버전 전파와 출처 표시 통합 테스트, 접근성·성능 점검, 로컬 마이그레이션과
+백업/복구 절차를 완성한다. 실행 불가능한 실제 두 계정 항목은 원인과 재현 절차를
+성공 항목과 분리해 기록한다.

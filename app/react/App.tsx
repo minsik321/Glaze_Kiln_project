@@ -4,6 +4,7 @@ import { RecordsPanel } from "./records/RecordsPanel";
 import type { SimulatorSnapshot } from "./Simulator";
 import { AicePrototype } from "./aice/AicePrototype";
 import { AppShell, BottomNavigation } from "./aice/ui";
+import type { AiceRun } from "./aice/contract";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "records" | "account";
@@ -19,6 +20,7 @@ function NavIcon({ children }: { children: ReactNode }) {
 export function App() {
   const [getSnapshot, setGetSnapshot] = useState<SnapshotGetter>();
   const [view, setView] = useState<AppView>("work");
+  const [restoredRun, setRestoredRun] = useState<AiceRun>();
   const connectSnapshot = useCallback((getter: SnapshotGetter) => {
     setGetSnapshot(() => getter);
   }, []);
@@ -32,7 +34,7 @@ export function App() {
   return (
     <AppShell navigation={<BottomNavigation current={view} items={navigation} onChange={setView} />}>
         <section className="app-view" hidden={view !== "work"}>
-          <AicePrototype onSnapshotReady={connectSnapshot} />
+          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">
@@ -40,7 +42,7 @@ export function App() {
             <h1>작업 기록</h1>
             <p>지난 실험과 소성 결과를 모아봅니다.</p>
           </div>
-          <RecordsPanel getSnapshot={getSnapshot} />
+          <RecordsPanel getSnapshot={getSnapshot} onRestore={(run) => { setRestoredRun(run); setView("work"); }} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "account"}>
           <div className="utility-header">

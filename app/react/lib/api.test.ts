@@ -73,4 +73,15 @@ describe("AiceRun API client", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.run.schema_version).toBe(2);
   });
+
+  it("sends all publication consent fields and supports withdrawal", async () => {
+    const run = sampleAiceRun();
+    const response = { id: "run-1", title: run.title, run, schema_version: 2, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: true, created_at: run.created_at, updated_at: run.updated_at };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(response), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await aiceRunsApi.publish("token", "run-1", { photo_rights_confirmed: true, pii_reviewed: true, location_removed: true, withdrawal_understood: true });
+    expect(fetchMock.mock.calls[0][0]).toContain("/aice-runs/run-1/publish");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ photo_rights_confirmed: true, pii_reviewed: true, location_removed: true, withdrawal_understood: true });
+    await aiceRunsApi.withdraw("token", "run-1");
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("DELETE");
+  });
 });

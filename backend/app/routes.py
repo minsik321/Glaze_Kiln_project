@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from .dependencies import access_token, authenticated_user, error_detail, get_gateway
 from .models import (
     AiceRunCreate,
+    AicePublishConsent,
     AiceRunPage,
     AiceRunResponse,
     AuthUser,
@@ -138,6 +140,64 @@ async def get_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway)
         "aice_run_not_found",
         "AICE 실행을 찾을 수 없습니다.",
     )
+
+
+@router.get("/public/aice-runs", response_model=AiceRunPage)
+async def list_public_aice_runs(token: Token, _user: User, gateway: Gateway, limit: Limit = 20, offset: Offset = 0) -> AiceRunPage:
+    try:
+        rows = await gateway.select("aice_runs", token, {"select": AICE_COLUMNS, "is_public": "eq.true", "order": "created_at.desc", "limit": limit, "offset": offset})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return AiceRunPage(items=[_validate(AiceRunResponse, row) for row in rows], limit=limit, offset=offset)
+
+
+@router.get("/public/aice-runs/{run_id}", response_model=AiceRunResponse)
+async def get_public_aice_run(run_id: UUID, token: Token, _user: User, gateway: Gateway) -> BaseModel:
+    try:
+        rows = await gateway.select("aice_runs", token, {"select": AICE_COLUMNS, "id": f"eq.{run_id}", "is_public": "eq.true", "limit": 1})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(rows, AiceRunResponse, "aice_run_not_found", "공개 AICE 실행을 찾을 수 없습니다.")
+
+
+@router.post("/aice-runs/{run_id}/publish", response_model=AiceRunResponse)
+async def publish_aice_run(run_id: UUID, body: AicePublishConsent, token: Token, user: User, gateway: Gateway) -> BaseModel:
+    try:
+        current = await gateway.select("aice_runs", token, {"select": AICE_COLUMNS, "id": f"eq.{run_id}", "user_id": f"eq.{user.id}", "limit": 1})
+        record = _one(current, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+        run = dict(record.run)
+        run["consent"] = {"share_allowed": True, "photo_rights_confirmed": body.photo_rights_confirmed, "pii_reviewed": body.pii_reviewed, "location_removed": body.location_removed, "withdrawn_at": None}
+        await gateway.insert("aice_consents", token, {"run_id": str(run_id), "user_id": str(user.id), "share_allowed": True, "photo_rights_confirmed": body.photo_rights_confirmed, "pii_reviewed": body.pii_reviewed, "location_removed": body.location_removed, "withdrawn_at": None}, upsert=True, conflict="run_id")
+        rows = await gateway.update("aice_runs", token, {"payload": run, "is_public": True}, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+
+
+@router.delete("/aice-runs/{run_id}/publication", response_model=AiceRunResponse)
+async def withdraw_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway) -> BaseModel:
+    withdrawn_at = datetime.now(UTC).isoformat()
+    try:
+        current = await gateway.select("aice_runs", token, {"select": AICE_COLUMNS, "id": f"eq.{run_id}", "user_id": f"eq.{user.id}", "limit": 1})
+        record = _one(current, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+        run = dict(record.run)
+        run["consent"] = {**run["consent"], "share_allowed": False, "withdrawn_at": withdrawn_at}
+        await gateway.update("aice_consents", token, {"share_allowed": False, "withdrawn_at": withdrawn_at}, {"run_id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+        rows = await gateway.update("aice_runs", token, {"payload": run, "is_public": False}, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+
+
+@router.delete("/aice-runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway) -> Response:
+    try:
+        rows = await gateway.delete("aice_runs", token, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    if not rows:
+        raise HTTPException(404, detail=error_detail("aice_run_not_found", "AICE 실행을 찾을 수 없습니다."))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me/profile", response_model=ProfileResponse)
