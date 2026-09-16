@@ -1,3 +1,5 @@
+import { assertAiceRun, type AiceRun } from "../aice/contract";
+
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
@@ -17,6 +19,23 @@ export type WorkRecordPage = {
   limit: number;
   offset: number;
 };
+
+export type AiceRunRecord = {
+  id: string;
+  title: string;
+  run: AiceRun;
+  schema_version: 2;
+  status: AiceRun["status"];
+  goal_gloss: string;
+  goal_transparency: string;
+  recipe_id: string;
+  ware_preset: string;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiceRunPage = { items: AiceRunRecord[]; limit: number; offset: number };
 
 export class ApiError extends Error {
   constructor(
@@ -81,4 +100,20 @@ export const recordsApi = {
     }),
   remove: (token: string, id: string) =>
     request<void>(`/work-records/${id}`, token, { method: "DELETE" }),
+};
+
+function validateAiceRecord(record: AiceRunRecord): AiceRunRecord {
+  assertAiceRun(record.run);
+  if (record.schema_version !== 2) throw new Error("AiceRun record schema_version must be 2");
+  return record;
+}
+
+export const aiceRunsApi = {
+  listMine: async (token: string, offset = 0) => {
+    const page = await request<AiceRunPage>(`/aice-runs?limit=20&offset=${offset}`, token);
+    return { ...page, items: page.items.map(validateAiceRecord) };
+  },
+  get: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token)),
+  create: async (token: string, input: { title: string; run: AiceRun; is_public?: boolean }) =>
+    validateAiceRecord(await request<AiceRunRecord>("/aice-runs", token, { method: "POST", body: JSON.stringify({ ...input, is_public: input.is_public ?? false }) })),
 };

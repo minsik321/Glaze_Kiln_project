@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
 import { Alert, AsyncState, DetailDrawer, ExplanationPanel, ProgressHeader, StateGallery, StatusBadge } from "./ui";
+import { sampleAiceRun } from "./contract";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 type Recipe = "coastal-satin" | "warm-clear" | "soft-matte";
@@ -82,17 +83,25 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
 
-  const snapshot = useMemo<SimulatorSnapshot>(() => ({
-    schema_version: 0,
-    prototype: true,
-    step,
-    ...state,
-    safety: {
-      simulation_only: true,
-      quality_guaranteed: false,
-      real_kiln_control: false,
-    },
-  }), [state, step]);
+  const snapshot = useMemo<SimulatorSnapshot>(() => {
+    const run = sampleAiceRun();
+    const goal = state.goal === "clear-warm"
+      ? { gloss: "gloss" as const, transparency: "transparent" as const, color: "#c7aa7d", texture: "smooth" }
+      : state.goal === "matte-white"
+        ? { gloss: "matte" as const, transparency: "opaque" as const, color: "#e7e5de", texture: "soft" }
+        : run.goal;
+    return {
+      ...run,
+      status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
+      revision: step + 1,
+      goal,
+      recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: state.recipe === "warm-clear" ? "웜 클리어 02" : state.recipe === "soft-matte" ? "소프트 매트 03" : run.recipe.name },
+      ware: { ...run.ware, preset: state.ware ?? run.ware.preset },
+      loading: { ...run.loading, sensor_plan: state.sensorPlan ?? run.loading.sensor_plan },
+      curves: { ...run.curves, selected_id: state.curveApproved ? run.curves.selected_id : null },
+      result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
+    };
+  }, [state, step]);
 
   useEffect(() => {
     onSnapshotReady?.(async () => snapshot);

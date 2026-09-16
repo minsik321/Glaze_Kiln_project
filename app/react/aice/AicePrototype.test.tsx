@@ -29,14 +29,15 @@ describe("AICE guided prototype", () => {
     expect(screen.getByText("실제 소성 품질이나 재현성을 검증한 결과가 아닙니다.")).toBeTruthy();
   });
 
-  it("exports a simulation-only snapshot", async () => {
+  it("exports a versioned AiceRun with provenance and private consent", async () => {
     const onSnapshotReady = vi.fn();
     render(<AicePrototype onSnapshotReady={onSnapshotReady} />);
     const getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({
-      prototype: true,
-      safety: { simulation_only: true, quality_guaranteed: false, real_kiln_control: false },
+      schema_version: 2,
+      sources: [{ source_type: "literature" }],
+      consent: { share_allowed: false },
+      versions: { rule_model: "rule-rank-1", predictor: null },
     });
   });
 });
-

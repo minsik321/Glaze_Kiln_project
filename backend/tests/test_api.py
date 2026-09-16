@@ -10,6 +10,7 @@ import pytest
 from backend.app.config import Settings
 from backend.app.main import create_app
 from backend.app.supabase import SupabaseGateway
+from kiln.aice import sample_aice_run
 
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")
 RECORD_ID = UUID("22222222-2222-2222-2222-222222222222")
@@ -177,4 +178,56 @@ async def test_validation_rejects_blank_title_and_large_page() -> None:
     assert blank.status_code == 422
     assert blank.json()["detail"]["code"] == "validation_error"
     assert page.status_code == 422
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
+    payload = sample_aice_run().to_dict()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/aice_runs"
+        if request.method == "POST":
+            body = json.loads(request.content)
+            assert body["user_id"] == str(USER_ID)
+            assert body["schema_version"] == 2
+            assert body["payload"]["sources"][0]["source_type"] == "literature"
+            assert body["payload"]["versions"]["rule_model"] == "rule-rank-1"
+            return httpx.Response(201, json=[{
+                "id": str(RECORD_ID), **body, "created_at": NOW, "updated_at": NOW,
+            }])
+        assert request.url.params["user_id"] == f"eq.{USER_ID}"
+        return httpx.Response(200, json=[{
+            "id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample",
+            "payload": payload, "schema_version": 2, "status": payload["status"],
+            "goal_gloss": payload["goal"]["gloss"], "goal_transparency": payload["goal"]["transparency"],
+            "recipe_id": payload["recipe"]["id"], "ware_preset": payload["ware"]["preset"],
+            "is_public": False, "created_at": NOW, "updated_at": NOW,
+        }])
+
+    app, upstream = client_for(handler)
+    headers = {"Authorization": "Bearer valid-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/v1/aice-runs", headers=headers, json={"title": " AICE sample ", "run": payload})
+        loaded = await client.get(f"/api/v1/aice-runs/{RECORD_ID}", headers=headers)
+    assert created.status_code == 201
+    assert loaded.status_code == 200
+    assert created.json()["run"]["sources"] == loaded.json()["run"]["sources"]
+    assert created.json()["run"]["versions"] == loaded.json()["run"]["versions"]
+    assert created.json()["run"]["schema_version"] == 2
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aice_run_rejects_unknown_source_and_public_without_consent() -> None:
+    app, upstream = client_for(lambda _: httpx.Response(500))
+    headers = {"Authorization": "Bearer valid-token"}
+    invalid_source = sample_aice_run().to_dict()
+    invalid_source["sources"][0]["source_type"] = "measured"
+    private_consent = sample_aice_run().to_dict()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        bad_source = await client.post("/api/v1/aice-runs", headers=headers, json={"title": "Bad", "run": invalid_source})
+        bad_public = await client.post("/api/v1/aice-runs", headers=headers, json={"title": "Public", "run": private_consent, "is_public": True})
+    assert bad_source.status_code == 422
+    assert bad_public.status_code == 422
     await upstream.aclose()

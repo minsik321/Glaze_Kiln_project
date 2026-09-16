@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, recordsApi } from "./api";
+import { sampleAiceRun } from "../aice/contract";
+import { ApiError, aiceRunsApi, recordsApi } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -58,5 +59,18 @@ describe("records API client", () => {
       code: "authentication_required",
       message: "로그인이 필요합니다.",
     });
+  });
+});
+
+describe("AiceRun API client", () => {
+  it("validates a create response without losing provenance", async () => {
+    const run = sampleAiceRun();
+    const response = { id: "run-1", title: run.title, run, schema_version: 2, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false, created_at: run.created_at, updated_at: run.updated_at };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(response), { status: 201, headers: { "Content-Type": "application/json" } }));
+    const saved = await aiceRunsApi.create("token", { title: run.title, run });
+    expect(saved.run.sources).toEqual(run.sources);
+    expect(saved.run.versions).toEqual(run.versions);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.run.schema_version).toBe(2);
   });
 });

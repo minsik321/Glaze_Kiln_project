@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from kiln.aice import AiceRun
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -89,5 +91,64 @@ class WorkRecordResponse(ApiModel):
 
 class WorkRecordPage(ApiModel):
     items: list[WorkRecordResponse]
+    limit: int
+    offset: int
+
+
+def validate_aice_payload(value: dict[str, Any]) -> dict[str, Any]:
+    """공유 Python 계약으로 AiceRun payload를 검증한다."""
+    AiceRun.from_dict(value)
+    return value
+
+
+class AiceRunCreate(ApiModel):
+    title: str = Field(min_length=1, max_length=200)
+    run: dict[str, Any]
+    is_public: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("title must not be blank")
+        return value
+
+    @field_validator("run")
+    @classmethod
+    def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_aice_payload(value)
+
+    @model_validator(mode="after")
+    def require_public_consent(self) -> "AiceRunCreate":
+        run = AiceRun.from_dict(self.run)
+        if self.is_public and not run.consent.active_public_consent:
+            raise ValueError("public AiceRun requires active consent")
+        return self
+
+
+class AiceRunResponse(ApiModel):
+    id: UUID
+    user_id: UUID | None = Field(default=None, exclude=True)
+    title: str
+    run: dict[str, Any] = Field(validation_alias="payload")
+    schema_version: int
+    status: str
+    goal_gloss: str
+    goal_transparency: str
+    recipe_id: str
+    ware_preset: str
+    is_public: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("run")
+    @classmethod
+    def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_aice_payload(value)
+
+
+class AiceRunPage(ApiModel):
+    items: list[AiceRunResponse]
     limit: int
     offset: int

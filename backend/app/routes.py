@@ -8,6 +8,9 @@ from pydantic import BaseModel, ValidationError
 
 from .dependencies import access_token, authenticated_user, error_detail, get_gateway
 from .models import (
+    AiceRunCreate,
+    AiceRunPage,
+    AiceRunResponse,
     AuthUser,
     ProfileResponse,
     ProfileUpdate,
@@ -25,6 +28,7 @@ Gateway = Annotated[SupabaseGateway, Depends(get_gateway)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
 RECORD_COLUMNS = "id,title,payload,schema_version,is_public,created_at,updated_at"
+AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,ware_preset,is_public,created_at,updated_at"
 
 
 def _raise_supabase(exc: SupabaseError) -> None:
@@ -49,6 +53,91 @@ def _one(rows: list[dict], model: type[BaseModel], code: str, message: str) -> B
     if not rows:
         raise HTTPException(404, detail=error_detail(code, message))
     return _validate(model, rows[0])
+
+
+@router.get("/aice-runs", response_model=AiceRunPage)
+async def list_aice_runs(
+    token: Token,
+    user: User,
+    gateway: Gateway,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> AiceRunPage:
+    try:
+        rows = await gateway.select(
+            "aice_runs",
+            token,
+            {
+                "select": AICE_COLUMNS,
+                "user_id": f"eq.{user.id}",
+                "order": "created_at.desc",
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return AiceRunPage(
+        items=[_validate(AiceRunResponse, row) for row in rows],
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/aice-runs",
+    response_model=AiceRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_aice_run(
+    body: AiceRunCreate, token: Token, user: User, gateway: Gateway
+) -> BaseModel:
+    run = body.run
+    values = {
+        "user_id": str(user.id),
+        "title": body.title,
+        "payload": run,
+        "schema_version": run["schema_version"],
+        "status": run["status"],
+        "goal_gloss": run["goal"]["gloss"],
+        "goal_transparency": run["goal"]["transparency"],
+        "recipe_id": run["recipe"]["id"],
+        "ware_preset": run["ware"]["preset"],
+        "is_public": body.is_public,
+    }
+    try:
+        rows = await gateway.insert("aice_runs", token, values)
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(
+        rows,
+        AiceRunResponse,
+        "aice_run_not_saved",
+        "AICE 실행을 저장하지 못했습니다.",
+    )
+
+
+@router.get("/aice-runs/{run_id}", response_model=AiceRunResponse)
+async def get_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway) -> BaseModel:
+    try:
+        rows = await gateway.select(
+            "aice_runs",
+            token,
+            {
+                "select": AICE_COLUMNS,
+                "id": f"eq.{run_id}",
+                "user_id": f"eq.{user.id}",
+                "limit": 1,
+            },
+        )
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(
+        rows,
+        AiceRunResponse,
+        "aice_run_not_found",
+        "AICE 실행을 찾을 수 없습니다.",
+    )
 
 
 @router.get("/me/profile", response_model=ProfileResponse)

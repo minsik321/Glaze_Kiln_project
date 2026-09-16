@@ -9,8 +9,8 @@
 |---|---|---|
 | 0. 브랜치와 기준선 격리 | 완료 | `dfe39f5` |
 | 1. 제품 범위와 사용자 흐름 | 완료 | `05568fa` |
-| 2. 디자인 시스템과 앱 뼈대 | 완료 | 커밋 후 기록 |
-| 3. AiceRun 계약과 DB | 대기 | — |
+| 2. 디자인 시스템과 앱 뼈대 | 완료 | `2836a5a` |
+| 3. AiceRun 계약과 DB | 완료 | 커밋 후 기록 |
 | 4. 목표·기물·레시피 경험 | 대기 | — |
 | 5. 유약 두께 종단면 | 대기 | — |
 | 6. 가마·센서·열 시뮬레이터 | 대기 | — |
@@ -208,10 +208,88 @@ Phase 2 TODO와 완료 조건을 다시 읽고, 프로토타입 요소를 청회
 
 ### 완료 커밋
 
-커밋 생성 후 해시를 보충한다.
+`2836a5a` (`phase-2: establish accessible responsive shell`)
 
 ### 다음 Phase 시작점
 
 Phase 3 TODO와 완료 조건을 다시 읽고 TS, Python, FastAPI, PostgreSQL이 공유하는
 버전 2 `AiceRun` 계약, legacy 변환, 정규화 필드, Storage 정책과 RLS 테스트를
 구현한다.
+
+## Phase 3 — AiceRun 데이터 계약과 DB 마이그레이션
+
+상태: 완료
+
+### 완료한 작업
+
+- TypeScript와 stdlib Python에 동일한 AiceRun v2 하위 모델을 정의하고 런타임
+  검증 및 결정적 샘플을 추가했다.
+- `observed`, `patent_example`, `patent_range`, `literature`, `inferred`,
+  `synthetic` 여섯 출처 유형과 단위·신뢰도·한계를 계약에 고정했다.
+- 프런트엔드 프로토타입 스냅샷을 정식 AiceRun v2로 전환했다.
+- FastAPI에 AiceRun 생성·목록·상세 API를 추가하고 공유 Python 계약으로 요청과
+  Supabase 응답을 검증한다.
+- `aice_runs`의 검색 필드를 정규화하고 출처, 동의, 개인 보정, 사진 메타데이터,
+  비공개 Storage 버킷과 RLS를 마이그레이션으로 추가했다.
+- v1→v2 및 v2→v1 읽기 전용 변환과 기존 기록 호환 뷰를 구현했다.
+- 공개 플래그만으로 외부 조회되지 않으며 활성 동의가 있어야 하고, 철회 즉시
+  실행·출처·사진 조회가 차단되는 것을 PGlite로 검증했다.
+
+### 남은 작업
+
+- 실제 Supabase CLI/Docker와 실제 Auth·Storage API 검증은 현재 환경 제약 때문에
+  Phase 10 수동 검증으로 남긴다.
+- 사진 업로드 UI와 철회 흐름은 Phase 9에서 연결한다.
+
+### 주요 설계 결정
+
+- 범용 `work_records`는 삭제하거나 자동 변환하지 않고 읽기 전용 호환 경로로
+  보존한다.
+- `is_public`과 동의를 분리하고 RLS 조회 조건에서 활성 동의를 필수로 한다.
+- 사진 버킷은 공개 버킷으로 만들지 않으며 사용자 UUID 경로와 메타데이터 정책을
+  함께 검사한다.
+- 개인 보정치는 공개 실행과 별도 테이블·소유자 전용 정책으로 격리한다.
+- v2→v1은 정보 손실을 숨기지 않도록 전체 v2 payload를 읽기 전용으로 감싼다.
+
+### 주요 파일
+
+- `app/react/aice/contract.ts`, `contract.test.ts`
+- `src/kiln/aice/contract.py`, `CLAUDE.md`, `tests/aice/test_contract.py`
+- `backend/app/models.py`, `backend/app/routes.py`, `backend/tests/test_api.py`
+- `app/react/lib/api.ts`, `api.test.ts`
+- `supabase/migrations/20260916010000_aice_runs.sql`
+- `scripts/aice-database.test.mjs`
+- `docs/AICE_MIGRATION.md`
+- `app/kiln-manifest.json`
+
+### 테스트와 결과
+
+- AiceRun Python 계약: 4 passed
+- 웹앱/manifest 포함 선택 테스트: 70 passed
+- 전체 Python 계산/계약 회귀: 625 passed
+- FastAPI: 8 passed
+- DB/RLS/Storage 정책: 신규 3 포함 7 passed
+- React/TS 계약·API: 19 passed
+- TypeScript 검사와 Vite 빌드: 통과
+
+### 실패와 수정
+
+- JSON 왕복 시 tuple이 list로 바뀌어 Python 객체 동등성이 깨졌다. 단위 범위 값을
+  복원할 때 tuple로 정규화했다.
+- legacy 변환이 frozen tuple에 append하려 해 실패했다. 새 tuple을 만들어
+  출처를 추가하도록 수정했다.
+- 브라우저 manifest 순수 stdlib 검사가 상대 import를 외부 모듈로 오인했다.
+  패키지 절대 import로 교체하고 재검증했다.
+- Windows에서 Playwright가 직접 시작한 Vite 자식 프로세스를 테스트 완료 뒤
+  종료하지 못해 대기했다. Vite를 명시적으로 시작한 뒤 동일 E2E를 실행해 4개
+  테스트 통과와 정상 종료를 확인하고 서버를 정리했다.
+
+### 완료 커밋
+
+커밋 생성 후 해시를 보충한다.
+
+### 다음 Phase 시작점
+
+Phase 4 TODO와 완료 조건을 다시 읽고 전체 7종+기타 기물 카탈로그, 사진/스와치
+목표 선택, 최대 3개 레시피 비교, 출처·불확실성·위험 요약을 AiceRun 상태에
+연결한다.
