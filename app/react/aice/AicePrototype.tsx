@@ -3,6 +3,8 @@ import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
 import { Alert, AsyncState, DetailDrawer, ExplanationPanel, ProgressHeader, StateGallery, StatusBadge } from "./ui";
 import { sampleAiceRun } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
+import { ThicknessSection } from "./ThicknessSection";
+import { buildThicknessView, type CoatingPreset } from "./thicknessView";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
@@ -13,6 +15,7 @@ type PrototypeState = {
   clayBody?: (typeof CLAY_BODIES)[number]["id"];
   customWareNote: string;
   customSilhouette: "round" | "tall" | "flat";
+  coating?: CoatingPreset;
   coatingConfirmed: boolean;
   sensorPlan?: "single" | "three";
   curveApproved: boolean;
@@ -94,6 +97,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
       : state.goal === "matte-white"
         ? { gloss: "matte" as const, transparency: "opaque" as const, color: "#e7e5de", texture: "soft" }
         : run.goal;
+    const thicknessView = buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", evidence: "mass_only", meanMm: null });
     return {
       ...run,
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
@@ -102,7 +106,8 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
       recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: RECIPE_CANDIDATES.find((item) => item.id === state.recipe)?.name ?? run.recipe.name },
       ware: { ...run.ware, preset: state.ware ?? run.ware.preset, clay_body: state.clayBody ?? run.ware.clay_body },
       loading: { ...run.loading, sensor_plan: state.sensorPlan ?? run.loading.sensor_plan },
-      curves: { ...run.curves, selected_id: state.curveApproved ? run.curves.selected_id : null },
+      thickness: { ...run.thickness, warning: `${run.thickness.warning} · ${thicknessView.risk}` },
+      curves: { ...run.curves, candidates: run.curves.candidates.map((curve) => ({ ...curve, reason: thicknessView.curveReason })), selected_id: state.curveApproved ? run.curves.selected_id : null },
       result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
     };
   }, [state, step]);
@@ -121,7 +126,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
     Boolean(state.goal),
     Boolean(state.recipe),
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
-    state.coatingConfirmed,
+    Boolean(state.coating && state.coatingConfirmed),
     Boolean(state.sensorPlan),
     state.curveApproved,
     state.simulationCompleted,
@@ -204,12 +209,10 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
 
         {step === 4 && (
           <>
-            <div className="prototype-section-figure" role="img" aria-label="사발의 형상 기반 가상 유약 단면">
-              <div className="section-glaze"><span>상단 얇음</span><span>바닥 상대적으로 두꺼움</span></div>
-            </div>
-            <Alert tone="unavailable" title="추정 시각화">두께 표현은 이해를 위해 과장됨 · 위치별 분포는 형상 기반 가상 분포</Alert>
-            <Guidance reason="선택한 대표 기물의 표면 구간을 비교합니다." assumption="실측 위치 데이터가 없어 평균 경향만 추정합니다." next="가상 분포를 확인하고 적재 화면으로 이동하세요." />
-            <button type="button" className="prototype-confirm" aria-pressed={state.coatingConfirmed} onClick={() => setState({ ...state, coatingConfirmed: true })}>가상 분포를 확인했어요</button>
+            <div className="coating-presets" aria-label="도포 상태 예시 선택">{(["thin", "target", "thick"] as const).map((preset) => <button type="button" className="choice-chip" aria-pressed={state.coating === preset} key={preset} onClick={() => setState({ ...state, coating: preset, coatingConfirmed: false })}>{preset === "thin" ? "얇게 도포" : preset === "target" ? "목표 근처" : "두껍게 도포"}</button>)}</div>
+            <ThicknessSection ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} evidence="mass_only" />
+            <Guidance reason={buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", meanMm: null }).risk} assumption="실제 무게·면적·건조밀도가 없어 평균은 판정 불가이며 위치별 값은 형상 기반 합성 분포입니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
+            <button type="button" className="prototype-confirm" disabled={!state.coating} aria-pressed={state.coatingConfirmed} onClick={() => setState({ ...state, coatingConfirmed: true })}>가상 분포와 위험을 확인했어요</button>
           </>
         )}
 

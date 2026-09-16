@@ -15,7 +15,8 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /사발/ }));
     fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: /가상 분포를 확인/ }));
+    fireEvent.click(screen.getByRole("button", { name: /목표 근처/ }));
+    fireEvent.click(screen.getByRole("button", { name: /가상 분포와 위험을 확인/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /상·중·하 3개/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
