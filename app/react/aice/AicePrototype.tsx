@@ -9,6 +9,8 @@ import { KilnSectionSimulator } from "./KilnSectionSimulator";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import { CurveControlPanel } from "./CurveControlPanel";
 import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControlPreset } from "./curvePlan";
+import { RecommendationEvidence } from "./RecommendationEvidence";
+import { AI_RULE_VERSION } from "./aiMvp";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
@@ -138,6 +140,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         samples: controlSamples.map((sample) => ({ minute: sample.minute, planned_c: sample.plannedC, sensor_c: sample.sensorC, estimated_ware_c: sample.estimatedWareC, heater_percent: sample.heaterPercent })),
         alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
       },
+      versions: { ...run.versions, rule_model: AI_RULE_VERSION, simulator: "aice-kiln-explanatory-1", predictor: null },
       result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
     };
   }, [state, step]);
@@ -216,7 +219,8 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
               ))}
             </div>
             <Guidance reason="선택한 광택·투명도와 규칙 점수가 가장 가깝습니다." assumption="사진 자리는 색상·질감 플레이스홀더이며 예상 실물 사진이 아닙니다." next="후보 하나를 선택하고 기물 모양을 고르세요." />
-            <DetailDrawer><p>이 프로토타입은 출처가 있는 규칙과 합성 예시만 사용합니다. 배합 수치는 다음 Phase의 데이터 계약 뒤 연결합니다.</p></DetailDrawer>
+            <RecommendationEvidence goal={state.goal ?? "satin-blue"} clayBody={state.clayBody} />
+            <DetailDrawer><p>이 MVP는 출처가 있는 규칙, 로컬 출처 검색과 합성 예시만 사용합니다. 학습 모델은 권리·표본·독립 평가 게이트를 통과하지 않아 제품 경로에서 차단됩니다.</p></DetailDrawer>
           </>
         )}
 

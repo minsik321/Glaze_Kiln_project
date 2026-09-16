@@ -14,8 +14,8 @@
 | 4. 목표·기물·레시피 경험 | 완료 | `d0dacea` |
 | 5. 유약 두께 종단면 | 완료 | `cb3e200` |
 | 6. 가마·센서·열 시뮬레이터 | 완료 | `b866294` |
-| 7. 곡선 보상과 제어 설명 | 완료 | 커밋 후 기록 |
-| 8. 특허·문헌 기반 AI MVP | 대기 | — |
+| 7. 곡선 보상과 제어 설명 | 완료 | `7c980f2` |
+| 8. 특허·문헌 기반 AI MVP | 완료 | 커밋 후 기록 |
 | 9. 결과·피드백·공유 | 대기 | — |
 | 10. 검증·성능·로컬 실행 | 대기 | — |
 
@@ -545,10 +545,76 @@ Phase 7 TODO와 완료 조건을 다시 읽고 기준·두께 수정·시뮬레�
 
 ### 완료 커밋
 
-커밋 생성 후 해시를 보충한다.
+`7c980f2` (`phase-7: explain curve compensation and control`)
 
 ### 다음 Phase 시작점
 
 Phase 8 TODO와 완료 조건을 다시 읽고 방향 문서의 네 특허와 참고문헌을 출처 카드로
 구조화한다. 규칙+검색+제약 랭킹, RAG 인터페이스, 구조가 다른 합성 생성기와 학습
 게이트를 분리하고, 게이트 미통과 시 학습 모델을 제품 경로에서 차단한다.
+
+## Phase 8 — 특허·문헌 기반 AI MVP
+
+상태: 완료
+
+### 완료한 작업
+
+- 방향 문서의 TW202533100A/TWI857914B, CN108931144A, US20240360039A1,
+  DE3320160C2 네 공보와 Glazy 도움말, GlazyBench를 구조화된 출처 카드로 만들었다.
+- 카드마다 공보/자료명, 위치, 원 조건, 변환 여부, AICE 해석, 적용 한계,
+  `source_type`과 원문 링크를 기록했다.
+- 확인되지 않은 문단·실시예 번호는 만들지 않고 `상세 문단 확인 전`으로 표시했다.
+- 목표 메타데이터 규칙, 로컬 출처 검색 인터페이스, 제약 기반 결정론적 랭킹을
+  구현하고 결과마다 `rule`/`rag` 생성 경로와 모델 버전을 표시했다.
+- RAG 검색은 별도 `EvidenceRetriever` 인터페이스로 분리해 현재는 내장 출처 카드만
+  검색하며 외부 사진·도면·본문을 복제하지 않는다.
+- 추천 랭커와 구조가 다른 시간영역 외란 합성 생성기를 별도 버전으로 구현했다.
+- baseline 목표, 권리·표본, 실행 단위 분리, 범위 밖 감지, 독립 평가셋을 검사하는
+  학습 게이트를 만들고 현재 조건에서는 `blocked`로 판정했다.
+- AiceRun의 rule model 버전을 `aice-rule-rag-1`, predictor를 `null`로 유지했다.
+
+### 남은 작업
+
+- 특허의 정확한 문단·청구항·실시예 위치와 국가별 법적 상태는 공식 등록부와
+  전문가 검토 전까지 확정하지 않는다.
+- 사용 권리가 확인된 충분한 표본과 독립 평가셋이 없으므로 학습 모델은 만들거나
+  제품 추천에 사용하지 않았다.
+
+### 주요 설계 결정
+
+- 특허 값은 관측값으로 승격하지 않고 현재 카드 모두 범위·방법 참고인
+  `patent_range`로 유지했다. 직접 실시예 수치를 수집할 때만 `patent_example`을 쓴다.
+- 학습 게이트를 통과해도 결과는 `evaluation_only`이며 별도 검증·승인 없이 제품에
+  활성화되지 않는다.
+- 외부 특허 사진·도면과 Glazy 결과 사진은 앱 자산/학습 데이터에 포함하지 않는다.
+
+### 주요 파일
+
+- `app/react/aice/aiMvp.ts`, `aiMvp.test.ts`
+- `app/react/aice/RecommendationEvidence.tsx`, `RecommendationEvidence.test.tsx`
+- `app/react/aice/AicePrototype.tsx`, `AicePrototype.test.tsx`
+- `app/react/aice/design-system.css`
+- `docs/baseline/phase-8-rule-rag-evidence.png`, `phase-8-source-cards.png`
+
+### 테스트와 결과
+
+- `npm run typecheck`: 통과
+- `npm run test:react`: 42 passed
+- `npm run build`: 통과, 번들 크기 경고는 Phase 10에서 조치
+- `npm run test:e2e`: 4 passed
+- AI 회귀: 동일 입력/버전 동일 순위, 명시적 rule/RAG 출처, trained_model 미사용,
+  학습 게이트 차단, seed 기반 합성 생성기 재현성을 검증했다.
+
+### 실패와 수정
+
+- 구현 및 검증 중 신규 실패는 없었다.
+
+### 완료 커밋
+
+커밋 생성 후 해시를 보충한다.
+
+### 다음 Phase 시작점
+
+Phase 9 TODO와 완료 조건을 다시 읽고 표준 촬영 가이드, 쉬운 결과 평가, 목표/결과
+비교, 개인/공통 개선 후보 분리, 공개 동의·철회와 공유 곡선의 내 조건 변환,
+AiceRun 목록·상세·페이지네이션·복원을 구현한다.

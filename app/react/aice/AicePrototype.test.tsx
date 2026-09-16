@@ -39,7 +39,7 @@ describe("AICE guided prototype", () => {
       schema_version: 2,
       sources: [{ source_type: "literature" }],
       consent: { share_allowed: false },
-      versions: { rule_model: "rule-rank-1", predictor: null },
+      versions: { rule_model: "aice-rule-rag-1", predictor: null },
     });
   });
 
