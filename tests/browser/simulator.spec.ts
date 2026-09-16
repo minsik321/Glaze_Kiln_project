@@ -1,42 +1,43 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test";
 
-test('six-stage simulator works through the real Python bridge', async ({ page }) => {
+test("nine-screen AICE sample finishes without numeric input", async ({ page }) => {
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
-  await expect(page.locator('#main')).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator('#target-out')).not.toBeEmpty();
-  await page.locator('#tabs [data-tab="firing"]').click();
-  await expect(page.locator('#btn-simulate')).toBeDisabled();
-  await page.locator('#tabs [data-tab="search"]').click();
-  await page.locator('#btn-propose').click();
-  await expect(page.locator('[data-adopt="0"]')).toBeVisible();
-  await page.locator('[data-inspect="0"]').click();
-  await expect(page.locator('[data-inspect-out="0"]')).not.toBeEmpty();
-  await page.locator('[data-adopt="0"]').click();
-  await page.locator('#tabs [data-tab="glazing"]').click();
-  await page.locator('#btn-density').click();
-  await expect(page.locator('#density-out')).not.toBeEmpty();
-  await page.locator('#btn-dip').click();
-  await expect(page.locator('#dip-out')).not.toBeEmpty();
-  await page.locator('#btn-ware').click();
-  await expect(page.locator('#ware-out')).not.toBeEmpty();
-  await page.locator('#btn-glaze').click();
-  await expect(page.locator('#glaze-out')).not.toBeEmpty();
-  await page.locator('#tabs [data-tab="risk"]').click();
-  await page.locator('#btn-risk').click();
-  await expect(page.locator('#risk-out')).not.toBeEmpty();
-  await page.locator('#tabs [data-tab="firing"]').click();
-  await page.locator('#btn-loading').click();
-  await page.locator('#btn-cooling').click();
-  await expect(page.locator('#cooling-out')).not.toBeEmpty();
-  await page.locator('#e-control-sim input[type="number"]').fill('300');
-  await expect(page.locator('#btn-simulate')).toBeEnabled();
-  await page.locator('#btn-simulate').click();
-  await expect(page.locator('#sim-out')).toContainText('가정');
-  await page.locator('#btn-record-run').click();
-  await page.locator('#tabs [data-tab="record"]').click();
-  await page.locator('#btn-result').click();
-  await expect(page.locator('#result-out')).toContainText('목표까지 거리');
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await expect(page.getByText("데모 · 시뮬레이션 전용")).toBeVisible();
+  await expect(page.getByTestId("aice-step-1")).toBeVisible();
+  await expect(page.locator('input[type="number"]')).toHaveCount(0);
+
+  await page.getByRole("button", { name: /샘플 실험 시작/ }).click();
+  await page.getByRole("button", { name: /사틴 청색/ }).click();
+  await page.getByRole("button", { name: /^다음/ }).click();
+  await page.getByRole("button", { name: /해안 사틴 01/ }).click();
+  await expect(page.getByText("왜 이 후보인지")).toBeVisible();
+  await expect(page.getByText("무엇이 가정인지")).toBeVisible();
+  await expect(page.getByText("다음 행동", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^다음/ }).click();
+
+  await page.getByRole("button", { name: /사발/ }).click();
+  await page.getByRole("button", { name: /^다음/ }).click();
+  await expect(page.getByRole("img", { name: /가상 유약 단면/ })).toBeVisible();
+  await page.getByRole("button", { name: /가상 분포를 확인/ }).click();
+  await page.getByRole("button", { name: /^다음/ }).click();
+
+  await expect(page.getByRole("img", { name: /가상 전기가마 종단면/ })).toBeVisible();
+  await page.getByRole("button", { name: /상·중·하 3개/ }).click();
+  await page.getByRole("button", { name: /^다음/ }).click();
+  await expect(page.getByRole("img", { name: /수정 계획 비교/ })).toBeVisible();
+  await page.getByRole("button", { name: /가상 소성 준비/ }).click();
+  await page.getByRole("button", { name: /^다음/ }).click();
+
+  await page.getByRole("button", { name: /가상 소성 재생/ }).click();
+  await expect(page.getByText("가상 소성 완료")).toBeVisible();
+  await page.getByRole("button", { name: /^다음/ }).click();
+  await page.getByRole("button", { name: /목표에 가까워요/ }).click();
+  await expect(page.getByTestId("aice-step-9")).toBeVisible();
+  await expect(page.getByText("실제 소성 품질이나 재현성을 검증한 결과가 아닙니다.")).toBeVisible();
+  await expect(page.locator('input[type="number"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

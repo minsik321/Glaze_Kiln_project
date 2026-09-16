@@ -1,7 +1,8 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { AuthPanel } from "./auth/AuthPanel";
 import { RecordsPanel } from "./records/RecordsPanel";
-import { Simulator, type SimulatorSnapshot } from "./Simulator";
+import type { SimulatorSnapshot } from "./Simulator";
+import { AicePrototype } from "./aice/AicePrototype";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "records" | "account";
@@ -25,7 +26,7 @@ export function App() {
     <div className="app-stage">
       <div className="app-shell">
         <section className="app-view" hidden={view !== "work"}>
-          <Simulator onSnapshotReady={connectSnapshot} />
+          <AicePrototype onSnapshotReady={connectSnapshot} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">
