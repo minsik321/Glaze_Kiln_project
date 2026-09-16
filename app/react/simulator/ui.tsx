@@ -122,13 +122,17 @@ export function Field({
   placeholder?: string;
   disabled?: boolean;
 }) {
+  const value = model.field(id);
   return (
     <label className="f">
-      {label}
+      <span className="field-label">
+        <span>{label}</span>
+        {type === "range" ? <output>{String(value)}</output> : null}
+      </span>
       <input
         id={id}
         type={type}
-        value={model.field(id)}
+        value={value}
         step={step}
         min={min}
         max={max}

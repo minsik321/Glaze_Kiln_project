@@ -10,12 +10,12 @@ export type SimulatorProps = {
 };
 
 const tabs = [
-  ["target", "① 목표"],
-  ["search", "② 레시피"],
-  ["glazing", "③ 시유"],
-  ["risk", "④ 점검"],
-  ["firing", "⑤ 소성"],
-  ["record", "⑥ 결과"],
+  ["target", "1", "목표"],
+  ["search", "2", "레시피"],
+  ["glazing", "3", "시유"],
+  ["risk", "4", "점검"],
+  ["firing", "5", "소성"],
+  ["record", "6", "결과"],
 ] as const;
 
 export const Simulator = memo(function Simulator({
@@ -63,7 +63,13 @@ export const Simulator = memo(function Simulator({
     <>
       <header className="top" id="top">
         <div className="top-row">
-          <h1>유약 실험 기록장</h1>
+          <div className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11Z" /></svg>
+          </div>
+          <div>
+            <span className="eyebrow">AICE KILN</span>
+            <h1>유약 작업</h1>
+          </div>
           <span className="spacer" />
           <button
             className="act ghost small"
@@ -71,11 +77,12 @@ export const Simulator = memo(function Simulator({
             type="button"
             onClick={model.actions["btn-registry"]}
           >
-            계수 정보
+            <span aria-hidden="true">ⓘ</span>
+            <span className="visually-hidden">계수 정보</span>
           </button>
         </div>
         <nav className="tabs" role="tablist" id="tabs" aria-label="실험 단계">
-          {tabs.map(([name, label]) => (
+          {tabs.map(([name, number, label]) => (
             <button
               key={name}
               id={`tab-${name}`}
@@ -87,29 +94,27 @@ export const Simulator = memo(function Simulator({
               tabIndex={model.tab === name ? 0 : -1}
               onClick={() => model.setTab(name)}
             >
-              {label}
+              <span className="tab-number">{number}</span>
+              <span>{label}</span>
             </button>
           ))}
         </nav>
       </header>
       <main id="main" aria-busy={model.busy}>
-        <div className="statebar" id="statebar" aria-label="현재 실험 상태">
-          <StateCell label="목표" value={S.targetLabel} blank="미지정" />
-          <StateCell label="유약" value={S.recipeName} />
-          <StateCell
-            label="기물"
-            value={S.wareId ? S.wareName : ""}
-            blank="미등록"
-          />
-          <StateCell label="시유 기록" value={S.recordId} />
-          <StateCell label="회차" value={S.runId} />
-          <StateCell
-            label="온도 가정값"
-            value={S.E === null ? "" : `${S.E} kJ/mol`}
-            blank="미입력"
-            na
-          />
-        </div>
+        <details className="work-context" id="statebar">
+          <summary>
+            <span>현재 작업 정보</span>
+            <strong>{S.targetLabel || "새 유약 실험"}</strong>
+          </summary>
+          <div className="statebar" aria-label="현재 실험 상태">
+            <StateCell label="목표" value={S.targetLabel} blank="미지정" />
+            <StateCell label="유약" value={S.recipeName} />
+            <StateCell label="기물" value={S.wareId ? S.wareName : ""} blank="미등록" />
+            <StateCell label="시유 기록" value={S.recordId} />
+            <StateCell label="회차" value={S.runId} />
+            <StateCell label="온도 가정값" value={S.E === null ? "" : `${S.E} kJ/mol`} blank="미입력" na />
+          </div>
+        </details>
         <Panels model={model} />
       </main>
       <aside

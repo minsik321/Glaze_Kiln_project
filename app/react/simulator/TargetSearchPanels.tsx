@@ -15,9 +15,13 @@ export function TargetPanel({ model }: { model: SimulatorModel }) {
   const typical = model.colorant?.typical_pct;
   return (
     <Panel model={model} name="target">
+      <div className="screen-intro">
+        <span className="eyebrow">STEP 01</span>
+        <h2>어떤 유약을 만들까요?</h2>
+        <p>원하는 마감과 색을 고르면 실험 조건을 준비해드려요.</p>
+      </div>
       <Card>
-        <h2>목표 설정</h2>
-        <p className="lede">이번 실험에서 원하는 유약 느낌을 골라주세요.</p>
+        <div className="card-kicker">마감 옵션</div>
         <div className="grid">
           <SelectField model={model} id="t-gloss" label="광택도">
             {axisOptions(P.gloss)}
@@ -26,19 +30,19 @@ export function TargetPanel({ model }: { model: SimulatorModel }) {
             {axisOptions(P.transparency)}
           </SelectField>
         </div>
-        <div className="row">
-          <Action model={model} id="btn-set-target">
-            목표 저장
-          </Action>
-        </div>
-        <Output model={model} id="target-out" />
       </Card>
       <Card>
-        <h3>참고 색상 (선택사항)</h3>
-        <p className="subtle">
-          착색 산화물 6종의 문헌 참고 색상입니다. 결과 예측이 아니며, 색과
-          첨가량을 가늠하는 참고용 도구예요.
-        </p>
+        <div className="card-kicker">참고 색상 <span>선택사항</span></div>
+        <div className="color-picker-layout">
+          <div
+            id="t-color-swatch"
+            className="color-swatch"
+            aria-label="참고 색상"
+            style={{ background: model.session.colorHex }}
+          >
+            <span>색상 미리보기</span>
+          </div>
+          <div className="color-selects">
         <div className="grid">
           <SelectField model={model} id="t-color-a" label="산화물 A">
             {colorants.map((c) => (
@@ -55,6 +59,8 @@ export function TargetPanel({ model }: { model: SimulatorModel }) {
               </option>
             ))}
           </SelectField>
+        </div>
+          </div>
         </div>
         <div className="grid">
           <Field
@@ -109,24 +115,19 @@ export function TargetPanel({ model }: { model: SimulatorModel }) {
             step="10"
           />
         </div>
-        <div className="row" style={{ alignItems: "center" }}>
-          <div
-            id="t-color-swatch"
-            aria-label="참고 색상"
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 8,
-              border: "1px solid var(--border-2)",
-              flex: "0 0 auto",
-              background: model.session.colorHex,
-            }}
-          />
-          <div style={{ flex: "1 1 auto" }}>
-            <Output model={model} id="t-color-out" />
-          </div>
-        </div>
+        <details className="source-detail">
+          <summary>색상 값의 출처와 계산 기준</summary>
+          <Output model={model} id="t-color-out" />
+        </details>
       </Card>
+      <details className="source-detail target-detail">
+        <summary>저장된 목표와 계산 기준</summary>
+        <Output model={model} id="target-out" />
+      </details>
+      <div className="screen-action">
+        <Action model={model} id="btn-set-target">목표 저장</Action>
+        <button className="act next" type="button" onClick={() => model.setTab("search")}>다음: 레시피 제작 <span aria-hidden="true">→</span></button>
+      </div>
     </Panel>
   );
 }
