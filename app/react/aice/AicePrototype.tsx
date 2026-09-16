@@ -2,15 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
 import { Alert, AsyncState, DetailDrawer, ExplanationPanel, ProgressHeader, StateGallery, StatusBadge } from "./ui";
 import { sampleAiceRun } from "./contract";
+import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
-type Recipe = "coastal-satin" | "warm-clear" | "soft-matte";
-type Ware = "bowl" | "plate" | "mug";
 
 type PrototypeState = {
   goal?: Goal;
-  recipe?: Recipe;
-  ware?: Ware;
+  recipe?: RecipeId;
+  ware?: WarePreset;
+  clayBody?: (typeof CLAY_BODIES)[number]["id"];
+  customWareNote: string;
+  customSilhouette: "round" | "tall" | "flat";
   coatingConfirmed: boolean;
   sensorPlan?: "single" | "three";
   curveApproved: boolean;
@@ -19,6 +21,8 @@ type PrototypeState = {
 };
 
 const initialState: PrototypeState = {
+  customWareNote: "",
+  customSilhouette: "round",
   coatingConfirmed: false,
   curveApproved: false,
   simulationCompleted: false,
@@ -95,8 +99,8 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
       revision: step + 1,
       goal,
-      recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: state.recipe === "warm-clear" ? "웜 클리어 02" : state.recipe === "soft-matte" ? "소프트 매트 03" : run.recipe.name },
-      ware: { ...run.ware, preset: state.ware ?? run.ware.preset },
+      recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: RECIPE_CANDIDATES.find((item) => item.id === state.recipe)?.name ?? run.recipe.name },
+      ware: { ...run.ware, preset: state.ware ?? run.ware.preset, clay_body: state.clayBody ?? run.ware.clay_body },
       loading: { ...run.loading, sensor_plan: state.sensorPlan ?? run.loading.sensor_plan },
       curves: { ...run.curves, selected_id: state.curveApproved ? run.curves.selected_id : null },
       result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
@@ -116,7 +120,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
     true,
     Boolean(state.goal),
     Boolean(state.recipe),
-    Boolean(state.ware),
+    Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
     state.coatingConfirmed,
     Boolean(state.sensorPlan),
     state.curveApproved,
@@ -161,10 +165,20 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
 
         {step === 2 && (
           <>
-            <div className="prototype-grid">
-              <ChoiceCard title="해안 사틴 01" description="목표와 가장 가까운 규칙 기반 후보" visual="recipe-blue" selected={state.recipe === "coastal-satin"} onClick={() => setState({ ...state, recipe: "coastal-satin" })} />
-              <ChoiceCard title="웜 클리어 02" description="투명도가 높고 광택 차이가 큼" visual="recipe-clear" selected={state.recipe === "warm-clear"} onClick={() => setState({ ...state, recipe: "warm-clear" })} />
-              <ChoiceCard title="소프트 매트 03" description="광택은 낮지만 색상 사례가 가까움" visual="recipe-white" selected={state.recipe === "soft-matte"} onClick={() => setState({ ...state, recipe: "soft-matte" })} />
+            <div className="prototype-grid recipe-grid">
+              {RECIPE_CANDIDATES.map((candidate) => (
+                <article className="recipe-card" key={candidate.id}>
+                  <button type="button" className="prototype-choice" aria-pressed={state.recipe === candidate.id} onClick={() => setState({ ...state, recipe: candidate.id })}>
+                    <span className={`prototype-visual ${candidate.visual}`} role="img" aria-label={`${candidate.name}의 실물 사진이 아닌 색상·질감 플레이스홀더`}><b>사진 없음 · 플레이스홀더</b></span>
+                    <strong>{candidate.name}</strong>
+                    <span>{candidate.similarityReason}</span>
+                    <span className="recipe-facts"><StatusBadge tone="unavailable">{SOURCE_LABELS[candidate.sourceType]}</StatusBadge><small>{candidate.firingRange}</small><small>데이터 {candidate.dataCount}건</small></span>
+                    <span className="recipe-uncertainty">불확실성: {candidate.uncertainty}</span>
+                    <span className="recipe-risk">위험: {candidate.risk}</span>
+                  </button>
+                  <DetailDrawer summary="배합·화학 상세 보기"><p>{candidate.detail}</p></DetailDrawer>
+                </article>
+              ))}
             </div>
             <Guidance reason="선택한 광택·투명도와 규칙 점수가 가장 가깝습니다." assumption="사진 자리는 색상·질감 플레이스홀더이며 예상 실물 사진이 아닙니다." next="후보 하나를 선택하고 기물 모양을 고르세요." />
             <DetailDrawer><p>이 프로토타입은 출처가 있는 규칙과 합성 예시만 사용합니다. 배합 수치는 다음 Phase의 데이터 계약 뒤 연결합니다.</p></DetailDrawer>
@@ -172,11 +186,20 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         )}
 
         {step === 3 && (
-          <div className="prototype-grid">
-            <ChoiceCard title="사발" description="중간 크기 · 안/밖 시유" visual="ware-bowl" selected={state.ware === "bowl"} onClick={() => setState({ ...state, ware: "bowl" })} />
-            <ChoiceCard title="접시" description="넓은 평면 · 윗면 시유" visual="ware-plate" selected={state.ware === "plate"} onClick={() => setState({ ...state, ware: "plate" })} />
-            <ChoiceCard title="컵/머그" description="중간 크기 · 안/밖 시유" visual="ware-mug" selected={state.ware === "mug"} onClick={() => setState({ ...state, ware: "mug" })} />
-          </div>
+          <>
+            <section aria-labelledby="ware-shape-heading">
+              <h3 id="ware-shape-heading">기물 모양</h3>
+              <div className="prototype-grid ware-grid">
+                {WARE_CATALOG.map((ware) => <ChoiceCard key={ware.id} title={ware.label} description={`${ware.size} · ${ware.glazing} 시유`} visual={ware.visual} selected={state.ware === ware.id} onClick={() => setState({ ...state, ware: ware.id })} />)}
+              </div>
+            </section>
+            <section className="ware-options" aria-labelledby="clay-body-heading">
+              <h3 id="clay-body-heading">소지 선택</h3>
+              <div className="choice-chip-row">{CLAY_BODIES.map((body) => <button type="button" className="choice-chip" aria-pressed={state.clayBody === body.id} key={body.id} onClick={() => setState({ ...state, clayBody: body.id })}><strong>{body.label}</strong><small>{body.note}</small></button>)}</div>
+              {state.ware === "other" && <div className="custom-ware"><label htmlFor="custom-ware-note">기타 기물 설명</label><textarea id="custom-ware-note" value={state.customWareNote} onChange={(event) => setState({ ...state, customWareNote: event.target.value })} placeholder="예: 낮고 넓은 손잡이 화병" /><fieldset><legend>가까운 실루엣</legend>{(["round", "tall", "flat"] as const).map((shape) => <button type="button" className="choice-chip" aria-pressed={state.customSilhouette === shape} key={shape} onClick={() => setState({ ...state, customSilhouette: shape })}>{shape === "round" ? "둥근형" : shape === "tall" ? "세로형" : "평판형"}</button>)}</fieldset></div>}
+              <Alert tone="unavailable" title="대표 형상에 근거한 추정">정밀 치수나 사용자 메시가 아닌 대표 형상으로 면적과 분포를 추정합니다.</Alert>
+            </section>
+          </>
         )}
 
         {step === 4 && (

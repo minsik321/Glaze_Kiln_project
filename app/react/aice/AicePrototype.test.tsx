@@ -13,6 +13,7 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /해안 사틴 01/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /사발/ }));
+    fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /가상 분포를 확인/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));

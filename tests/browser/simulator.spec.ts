@@ -20,6 +20,7 @@ test("nine-screen AICE sample finishes without numeric input", async ({ page }) 
   await page.getByRole("button", { name: /^다음/ }).click();
 
   await page.getByRole("button", { name: /사발/ }).click();
+  await page.getByRole("button", { name: /백색 석기 소지/ }).click();
   await page.getByRole("button", { name: /^다음/ }).click();
   await expect(page.getByRole("img", { name: /가상 유약 단면/ })).toBeVisible();
   await page.getByRole("button", { name: /가상 분포를 확인/ }).click();
