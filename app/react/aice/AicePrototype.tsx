@@ -7,6 +7,8 @@ import { ThicknessSection } from "./ThicknessSection";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
 import { KilnSectionSimulator } from "./KilnSectionSimulator";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
+import { CurveControlPanel } from "./CurveControlPanel";
+import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControlPreset } from "./curvePlan";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
@@ -21,6 +23,7 @@ type PrototypeState = {
   coatingConfirmed: boolean;
   sensorPlan?: SensorPlan;
   sensors: SensorPlacement[];
+  controlPreset: ControlPreset;
   curveApproved: boolean;
   simulationCompleted: boolean;
   result?: "close" | "different";
@@ -33,6 +36,7 @@ const initialState: PrototypeState = {
   curveApproved: false,
   simulationCompleted: false,
   sensors: [],
+  controlPreset: "balanced",
 };
 
 const screens = [
@@ -105,6 +109,10 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
     const kilnFrame = simulateKilnFrame({ minute: 320, sensors });
+    const curveSeries = buildCurveComparison(state.coating ?? "target");
+    const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
+    const controlPlan = CONTROL_PLANS[state.controlPreset];
+    const controlSamples = state.curveApproved ? simulateController(adjustedCurve, state.controlPreset) : [];
     return {
       ...run,
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
@@ -122,7 +130,14 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         })),
       },
       thickness: { ...run.thickness, warning: `${run.thickness.warning} · ${thicknessView.risk}` },
-      curves: { ...run.curves, candidates: run.curves.candidates.map((curve) => ({ ...curve, reason: thicknessView.curveReason })), selected_id: state.curveApproved ? run.curves.selected_id : null },
+      curves: { baseline: toFiringCurve(curveSeries[0], false), candidates: curveSeries.slice(1).map((curve) => toFiringCurve(curve, state.curveApproved && curve.role === "adjusted")), selected_id: state.curveApproved ? adjustedCurve.id : null },
+      pid: {
+        preset: state.controlPreset,
+        controller_kind: "pid",
+        parameters: state.curveApproved ? controlPlan.parameters : {},
+        samples: controlSamples.map((sample) => ({ minute: sample.minute, planned_c: sample.plannedC, sensor_c: sample.sensorC, estimated_ware_c: sample.estimatedWareC, heater_percent: sample.heaterPercent })),
+        alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
+      },
       result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
     };
   }, [state, step]);
@@ -236,16 +251,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         )}
 
         {step === 6 && (
-          <>
-            <div className="prototype-curves" role="img" aria-label="기준 계획과 두께 반영 수정 계획 비교 그래프">
-              <span className="curve baseline">기준 계획</span>
-              <span className="curve adjusted">두께 반영 수정 계획</span>
-              <span className="curve-note">완만한 승온 후보</span>
-            </div>
-            <Guidance reason="형상 기반 가상 분포에서 바닥 쪽 상대 두께가 커 보입니다." assumption="미정 계수의 기본값을 만들지 않고 설명용 후보만 비교합니다." next="후보를 승인하면 가상 제어기에만 전달됩니다." />
-            <button type="button" className="prototype-confirm" aria-pressed={state.curveApproved} onClick={() => setState({ ...state, curveApproved: true })}>이 후보로 가상 소성 준비</button>
-            <DetailDrawer summary="제어 상세 보기"><p>현재 화면은 PID 수치 입력이 아닌 설명용 계획입니다. 실제 가마 제어와 품질 보장을 제공하지 않습니다.</p></DetailDrawer>
-          </>
+          <CurveControlPanel coating={state.coating ?? "target"} approved={state.curveApproved} onApprove={(controlPreset) => setState((current) => ({ ...current, controlPreset, curveApproved: true }))} />
         )}
 
         {step === 7 && (
