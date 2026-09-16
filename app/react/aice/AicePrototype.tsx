@@ -5,6 +5,8 @@ import { sampleAiceRun } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
+import { KilnSectionSimulator } from "./KilnSectionSimulator";
+import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
@@ -17,7 +19,8 @@ type PrototypeState = {
   customSilhouette: "round" | "tall" | "flat";
   coating?: CoatingPreset;
   coatingConfirmed: boolean;
-  sensorPlan?: "single" | "three";
+  sensorPlan?: SensorPlan;
+  sensors: SensorPlacement[];
   curveApproved: boolean;
   simulationCompleted: boolean;
   result?: "close" | "different";
@@ -29,6 +32,7 @@ const initialState: PrototypeState = {
   coatingConfirmed: false,
   curveApproved: false,
   simulationCompleted: false,
+  sensors: [],
 };
 
 const screens = [
@@ -98,6 +102,9 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         ? { gloss: "matte" as const, transparency: "opaque" as const, color: "#e7e5de", texture: "soft" }
         : run.goal;
     const thicknessView = buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", evidence: "mass_only", meanMm: null });
+    const sensorPlan = state.sensorPlan ?? "three";
+    const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
+    const kilnFrame = simulateKilnFrame({ minute: 320, sensors });
     return {
       ...run,
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
@@ -105,7 +112,15 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
       goal,
       recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: RECIPE_CANDIDATES.find((item) => item.id === state.recipe)?.name ?? run.recipe.name },
       ware: { ...run.ware, preset: state.ware ?? run.ware.preset, clay_body: state.clayBody ?? run.ware.clay_body },
-      loading: { ...run.loading, sensor_plan: state.sensorPlan ?? run.loading.sensor_plan },
+      loading: {
+        ...run.loading,
+        sensor_plan: sensorPlan,
+        sensors: sensors.map((sensor, index) => ({
+          id: sensor.id,
+          height_ratio: sensor.heightRatio,
+          temperature: { value: kilnFrame.physical.sensorReadings[index]?.temperatureC ?? null, unit: "°C", source_type: "synthetic" as const, confidence: null, note: `설명용 합성 모델 ${kilnFrame.physical.modelVersion}; 불확실성 ±${kilnFrame.physical.sensorReadings[index]?.uncertaintyC ?? "판정 불가"} °C` },
+        })),
+      },
       thickness: { ...run.thickness, warning: `${run.thickness.warning} · ${thicknessView.risk}` },
       curves: { ...run.curves, candidates: run.curves.candidates.map((curve) => ({ ...curve, reason: thicknessView.curveReason })), selected_id: state.curveApproved ? run.curves.selected_id : null },
       result: { ...run.result, gloss: state.result, feedback_scope: state.result ? "personal" : null },
@@ -217,18 +232,7 @@ export function AicePrototype({ onSnapshotReady }: SimulatorProps) {
         )}
 
         {step === 5 && (
-          <>
-            <div className="prototype-kiln" role="img" aria-label="선반 세 단과 기물이 있는 가상 전기가마 종단면">
-              <span className="kiln-sensor top">센서</span><span className="kiln-shelf top" />
-              <span className="kiln-sensor middle">센서</span><span className="kiln-shelf middle" />
-              <span className="kiln-sensor bottom">센서</span><span className="kiln-shelf bottom" />
-            </div>
-            <div className="prototype-grid compact">
-              <ChoiceCard title="기본 1개" description="중앙을 대표 · 상하 사각지대 큼" visual="sensor-one" selected={state.sensorPlan === "single"} onClick={() => setState({ ...state, sensorPlan: "single" })} />
-              <ChoiceCard title="상·중·하 3개" description="층별 편차 관찰 · 합성 센서" visual="sensor-three" selected={state.sensorPlan === "three"} onClick={() => setState({ ...state, sensorPlan: "three" })} />
-            </div>
-            <Alert tone="unavailable" title="합성 시뮬레이션">센서와 열 분포는 실제 가마 측정이 아닙니다.</Alert>
-          </>
+          <KilnSectionSimulator ware={state.ware ?? "bowl"} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
         )}
 
         {step === 6 && (
