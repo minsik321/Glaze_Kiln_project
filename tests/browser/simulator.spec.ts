@@ -41,3 +41,21 @@ test("nine-screen AICE sample finishes without numeric input", async ({ page }) 
   await expect(page.locator('input[type="number"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 768, height: 900 },
+  { width: 1280, height: 900 },
+]) {
+  test(`responsive shell is usable at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await expect(page.getByTestId("aice-step-1")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    const shortControls = await page.locator("button:visible, summary:visible").evaluateAll((elements) =>
+      elements.filter((element) => element.getBoundingClientRect().height < 44).map((element) => element.textContent?.trim()),
+    );
+    expect(shortControls).toEqual([]);
+  });
+}
