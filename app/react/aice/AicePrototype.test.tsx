@@ -34,6 +34,28 @@ function imageResponse() {
   return jsonResponse({ image_base64: "Zm9v", media_type: "image/png" });
 }
 
+//: 5페이지(도포) 확인 버튼이 이제 실측 무게 계산 결과로만 켜지므로,
+//: 화면 흐름을 끝까지 타는 테스트는 이 응답도 필요하다 — total을 기본
+//: 안전 범위(0.8–1.3mm) 안에 둬 "target" 분류가 되게 한다(다른 값을 쓰는
+//: 테스트는 own thicknessProfile을 넘겨 검증하는 thicknessView.test.ts의 몫).
+function thicknessProfileResponse() {
+  const points = [0, 1, 2].map((index) => ({ z: index * 20, radius: 30 + index * 10, t_abs: 1.0, t_flow: 0, total: 1.0 }));
+  return jsonResponse({
+    points,
+    area_m2: 0.05,
+    mean_mm: 1.0,
+    areal_density_g_m2: 700,
+    glaze_weight_g: 35,
+    rho_dry: 1.5,
+    has_distribution: true,
+    within_model_scope: true,
+    local_max_mm: 1.0,
+    local_min_mm: 1.0,
+    spread_mm: 0,
+    provenance_notes: [],
+  });
+}
+
 //: RecipeChatScreen이 항상(hidden으로만) 마운트돼 있어 token이 있으면
 //: 마운트 즉시 이력을 부르고, 후보 제출 시 이미지도 후보마다 자동으로
 //: 부른다 — URL로 분기해야 실제 호출 패턴과 맞는다. image는 후보마다
@@ -46,11 +68,20 @@ function mockFetch({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     if (url.includes("/kiln/firing/simulate")) return kilnSimulateResponse();
+    if (url.includes("/kiln/thickness/profile")) return thicknessProfileResponse();
     if (url.includes("/recipe-candidates/image")) return imageResponse();
     if (url.includes("/aice/recipe-candidates")) return suggest;
     if (url.includes("/aice-runs")) return history;
     throw new Error(`unexpected fetch in test: ${url}`);
   });
+}
+
+//: 5페이지에서 도포 상태가 계산되려면 시유 전/후 무게(기본 방식이
+//: "담금"이라 담금시간도)를 입력해야 한다 — 선택 버튼이 없어졌으므로.
+function fillWeightInputs() {
+  fireEvent.change(screen.getByLabelText(/시유 전\(g\)/), { target: { value: "100" } });
+  fireEvent.change(screen.getByLabelText(/시유 후\(g\)/), { target: { value: "120" } });
+  fireEvent.change(screen.getByLabelText(/담금시간\(초\)/), { target: { value: "5" } });
 }
 
 afterEach(() => {
@@ -74,8 +105,10 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /^사발/ }));
     fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: /목표 근처/ }));
-    fireEvent.click(screen.getByRole("button", { name: /가상 분포와 위험을 확인/ }));
+    fillWeightInputs();
+    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
+    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(riskButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /상·중·하 3개/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
@@ -109,7 +142,14 @@ describe("AICE guided prototype", () => {
     const onSnapshotReady = vi.fn();
     render(<AicePrototype onSnapshotReady={onSnapshotReady} />);
     await skipToWare();
-    for (const name of [/^사발/, /백색 석기 소지/, /^다음/, /목표 근처/, /가상 분포와 위험을 확인/, /^다음/, /상·중·하 3개/, /^다음/]) {
+    for (const name of [/^사발/, /백색 석기 소지/, /^다음/]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+    fillWeightInputs();
+    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
+    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(riskButton);
+    for (const name of [/^다음/, /상·중·하 3개/, /^다음/]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
     let getter = onSnapshotReady.mock.calls.at(-1)?.[0];

@@ -28,8 +28,12 @@ type PrototypeState = {
   clayBody?: (typeof CLAY_BODIES)[number]["id"];
   customWareNote: string;
   customSilhouette: "round" | "tall" | "flat";
-  coating?: CoatingPreset;
-  coatingConfirmed: boolean;
+  //: v9: 도포 상태는 더 이상 버튼으로 고르지 않는다 — 실측 무게로 계산된
+  //: thicknessViewData.overallStatus에서 파생한다(아래 computedCoating).
+  //: 이 플래그는 사용자가 "위험을 줄이는 소성 계획 적용" 버튼을 눌렀는지만
+  //: 기록한다 — 다음(가마·소성곡선) 화면이 기준 계획 대신 두께 반영
+  //: 수정 계획을 기본으로 보여줄지 결정하는 데 쓰인다.
+  riskMitigationApplied: boolean;
   sensorPlan?: SensorPlan;
   sensors: SensorPlacement[];
   //: LLM 프런트도어 TODO Phase 3 — 시유 전/후 무게(§5-a). 문자열로 들고
@@ -58,7 +62,7 @@ const initialState: PrototypeState = {
   afterWeightG: "",
   glazingMethod: "담금",
   dipSeconds: "",
-  coatingConfirmed: false,
+  riskMitigationApplied: false,
   curveApproved: false,
   approvedControlSamples: [],
   approvedControlParameters: {},
@@ -182,6 +186,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
     [state.ware, thicknessProfile],
   );
   const arealDensity = arealDensityFromProfile(thicknessProfile);
+  //: v9: 5페이지 요구사항 — 도포 상태는 선택이 아니라 실측 무게로 계산된
+  //: 값이어야 한다. thicknessViewData.overallStatus(무게 미입력이면
+  //: "unavailable")를 그대로 따라가고, 아직 계산 전에는 이후 화면(가마·
+  //: 소성곡선)이 판단을 멈추지 않도록 "target"을 잠정값으로만 쓴다.
+  const computedCoating: CoatingPreset = thicknessViewData.overallStatus === "unavailable" ? "target" : thicknessViewData.overallStatus;
 
   // 사용자 요구사항: "소성이 그럼 기준 계획이 박힌게 아니라 레시피에 따른
   // 소성이 되어야지 그에 기반으로 두께에 따라 소성이 수정되어야 하는거고" —
@@ -252,11 +261,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
     const thicknessView = thicknessViewData;
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
-    const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: state.coating ?? "target" });
+    const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: computedCoating });
     const selectedRecipe = RECIPE_CANDIDATES.find((item) => item.id === state.recipe);
     const llmRange = state.llmCandidate?.predicted_firing_range.value;
     const prediction = predictNextRun({
-      coating: state.coating ?? "target",
+      coating: computedCoating,
       ware: state.ware ?? "bowl",
       recipeFiringRangeC: activeFiringRangeC,
       //: personal_calibrations에 저장된 실제 회차 수(위 useEffect) — 로그인
@@ -266,7 +275,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       //: 로그인 전이거나 관측이 아직 없으면 null.
       firingGlossBiasLevel: firingGlossBias,
     });
-    const curveSeries = buildCurveComparison(state.coating ?? "target", activeFiringRangeC, prediction.holdDeltaC, prediction.reason);
+    const curveSeries = buildCurveComparison(computedCoating, activeFiringRangeC, prediction.holdDeltaC, prediction.reason);
     const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
     const controlSamples = state.curveApproved ? state.approvedControlSamples : [];
     const controlParameters = state.curveApproved ? state.approvedControlParameters : {};
@@ -372,7 +381,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         approvedControlParameters = CONTROL_PLANS.balanced.parameters;
       }
       if (cancelled) return;
-      setState({ ...initialState, recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
+      setState({ ...initialState, recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, riskMitigationApplied: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
       setStep(restoredRun.status === "evaluated" ? 6 : restoredRun.status === "simulated" ? 5 : 0);
     })();
     return () => {
@@ -392,7 +401,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
   const canContinue = [
     true,
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
-    Boolean(state.coating && state.coatingConfirmed),
+    state.riskMitigationApplied,
     Boolean(state.sensorPlan),
     state.curveApproved,
     state.simulationCompleted,
@@ -458,10 +467,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
 
         {step === 2 && (
           <>
-            <div className="coating-presets" aria-label="도포 상태 예시 선택">{(["thin", "target", "thick"] as const).map((preset) => <button type="button" className="choice-chip" aria-pressed={state.coating === preset} key={preset} onClick={() => setState({ ...state, coating: preset, coatingConfirmed: false })}>{preset === "thin" ? "얇게 도포" : preset === "target" ? "목표 근처" : "두껍게 도포"}</button>)}</div>
-            <p className="coating-preset-note">이 선택은 아래 소성곡선 비교(다음 화면들)에만 반영됩니다 — 두께 종단면은 실제 무게로 계산됩니다.</p>
-            <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} />
-            {thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
+            {/* v9: 비중·담금시간 역산(무게 입력의 근원)을 위로, 그 계산
+                결과로 그려지는 종단면 이미지를 아래로 — 입력 → 결과 순서로
+                맞춘다. 도포 상태 버튼은 없앴다: 아래 종단면·위험 문장은
+                이 무게 입력에서 실제로 계산된 값이다. */}
             <WeightInputs
               beforeG={state.beforeWeightG}
               afterG={state.afterWeightG}
@@ -474,17 +483,27 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
               result={arealDensity}
             />
             <DensityCheck />
+            {thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
+            <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} />
             <Guidance reason={thicknessViewData.risk} assumption="실측 무게·형상 근사 기반 계산입니다. 담금 방식이 아니면 위치별 분포는 계산되지 않습니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
-            <button type="button" className="prototype-confirm" disabled={!state.coating} aria-pressed={state.coatingConfirmed} onClick={() => setState({ ...state, coatingConfirmed: true })}>가상 분포와 위험을 확인했어요</button>
+            <button
+              type="button"
+              className="prototype-confirm"
+              disabled={thicknessViewData.evidence === "unavailable"}
+              aria-pressed={state.riskMitigationApplied}
+              onClick={() => setState({ ...state, riskMitigationApplied: true })}
+            >
+              {computedCoating === "target" ? "이 상태로 소성 계획 확정하기" : "위험을 줄이는 소성 계획 적용하기"}
+            </button>
           </>
         )}
 
         {step === 3 && (
-          <KilnSectionSimulator ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
+          <KilnSectionSimulator ware={state.ware ?? "bowl"} coating={computedCoating} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
         )}
 
         {step === 4 && (
-          <CurveControlPanel coating={state.coating ?? "target"} recipeFiringRangeC={activeFiringRangeC} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
+          <CurveControlPanel coating={computedCoating} recipeFiringRangeC={activeFiringRangeC} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
         )}
 
         {step === 5 && (

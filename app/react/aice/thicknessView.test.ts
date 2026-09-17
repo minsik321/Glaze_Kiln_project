@@ -37,12 +37,19 @@ describe("thickness section model", () => {
     const view = buildThicknessView({ ware: "bowl", profile: profile([0.9, 1.0, 1.6]) });
     expect(view.segments[2].status).toBe("thick");
     expect(view.risk).toContain("흘러내림");
+    expect(view.overallStatus).toBe("thick");
   });
 
   it("flags a thin segment when the real total is below the safe lower bound", () => {
     const view = buildThicknessView({ ware: "bowl", profile: profile([0.3, 1.0, 1.0]) });
     expect(view.segments[0].status).toBe("thin");
     expect(view.risk).toContain("부족");
+    expect(view.overallStatus).toBe("thin");
+  });
+
+  it("prefers thick over thin as the overall status when both appear (worse risk first)", () => {
+    const view = buildThicknessView({ ware: "bowl", profile: profile([0.3, 1.0, 1.6]) });
+    expect(view.overallStatus).toBe("thick");
   });
 
   it("uses unavailable instead of a fake default when there is no profile yet", () => {
@@ -50,5 +57,6 @@ describe("thickness section model", () => {
     expect(view.mean.label).toBe("판정 불가");
     expect(view.segments.every((segment) => segment.status === "unavailable")).toBe(true);
     expect(view.evidence).toBe("unavailable");
+    expect(view.overallStatus).toBe("unavailable");
   });
 });

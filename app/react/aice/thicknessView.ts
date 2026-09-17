@@ -37,6 +37,10 @@ export type ThicknessView = {
   evidence: ThicknessEvidence;
   mean: { label: string; sourceType: SourceType; valueMm: number | null };
   segments: ReadonlyArray<{ label: string; status: ThicknessStatus; sourceType: SourceType }>;
+  //: v9: 5페이지가 더 이상 도포 상태를 버튼으로 고르지 않는다 — 세 구간
+  //: 중 가장 위험한 쪽(두꺼움 우선, 다음 얇음)을 계산해 이 화면과 이후
+  //: 화면(가마·소성곡선)이 함께 쓸 단일 값으로 내린다.
+  overallStatus: ThicknessStatus;
   positionClaim: string;
   uncertainty: string;
   risk: string;
@@ -63,6 +67,7 @@ export function buildThicknessView({ ware, profile }: { ware: WarePreset; profil
       evidence: "unavailable",
       mean: { label: "판정 불가", sourceType: "inferred", valueMm: null },
       segments: asset.labels.map((label) => ({ label, status: "unavailable" as const, sourceType: "inferred" as const })),
+      overallStatus: "unavailable",
       positionClaim: "위치별 판정 불가",
       uncertainty: "시유 전/후 무게를 모두 입력하면 계산됩니다",
       risk: "두께를 계산할 수 없어 위험을 판정할 수 없습니다.",
@@ -84,6 +89,7 @@ export function buildThicknessView({ ware, profile }: { ware: WarePreset; profil
     evidence: "mass_only",
     mean: { label: `평균 추정 ${profile.mean_mm.toFixed(2)} mm`, sourceType: "inferred", valueMm: profile.mean_mm },
     segments: asset.labels.map((label, index) => ({ label, status: statuses[index], sourceType: "inferred" as const })),
+    overallStatus: worst,
     positionClaim: profile.has_distribution
       ? "형상 적분(07절 t_abs+t_flow) 기반 위치별 추정"
       : "이 시유 방법은 분포 모델이 없어 평균값을 모든 위치에 표시",
