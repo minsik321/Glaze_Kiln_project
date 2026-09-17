@@ -85,6 +85,13 @@ class RecipeSelection:
     photo: PhotoAsset
     firing_range: SourcedValue
     source_ids: tuple[str, ...]
+    #: 확정된 배합(원료명 → 중량%). v3까지는 이 필드가 없어서 회차가
+    #: 저장된 뒤에는 어떤 조성으로 소성했는지가 통째로 사라졌다 —
+    #: `kiln.search.prior.Prior`에 과거 회차를 되먹임하려면 조성이
+    #: 필요한데 재구성할 방법이 없었다. 기본값 빈 딕셔너리는 이 필드가
+    #: 생기기 전에 저장된 기존 레코드와의 호환을 위한 것이고, 그런
+    #: 레코드는 되먹임 대상에서 제외된다(조성을 모르므로).
+    materials: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +120,13 @@ class RecipeCandidate:
     #: 실려 있다(`kiln.search.objective.Candidate.umf_note`). 빈 문자열이면
     #: 이 후보의 배합비 출처가 검색이 아니라는 뜻이다(레거시 변환 등).
     composition_note: str = ""
+    #: 이 후보를 낳은 목표 좌표(`kiln.domain.enums.Gloss`/`Transparency`의
+    #: ``.name``, 예: "MATTE"·"OPAQUE"). 화면 1의 1차 LLM 호출(목표 분류)
+    #: 결과가 여기 처음 저장된다 — 이전에는 배합 후보 생성에만 쓰이고
+    #: 버려져서, 이미지 생성이 "무광"을 요청받았는지조차 알 수 없었다.
+    #: 빈 문자열이면 목표 분류가 없었다는 뜻(레거시 변환 등).
+    target_gloss: str = ""
+    target_transparency: str = ""
 
     def __post_init__(self) -> None:
         _source(self.source_type)
@@ -153,6 +167,7 @@ class RecipeCandidateSet:
             photo=chosen.photo,
             firing_range=chosen.predicted_firing_range,
             source_ids=chosen.source_ids,
+            materials=dict(chosen.materials),
         )
 
 
@@ -379,7 +394,7 @@ def sample_aice_run(now: str = "2026-09-16T00:00:00+00:00") -> AiceRun:
         "사발에 어울리는 청록색 사틴 유약을 찾고 있어요", (),
         RecipeCandidateSet((candidate("cand-1", "후보 1"), candidate("cand-2", "후보 2")), "cand-1"),
     )
-    return AiceRun(run_id="sample-aice-run", revision=1, title="사틴 청색 사발 샘플", status="simulated", goal=Goal("satin", "opaque", "#668594", "smooth"), recipe=RecipeSelection("coastal-satin", "해안 사틴 01", PhotoAsset("recipe-placeholder", "recipe", None, True, "synthetic", True, "실물 사진이 아닌 플레이스홀더"), SourcedValue((1180, 1230), "°C", "literature", .4, "문헌 범위"), ("literature-firing-range",)), ware=WareSelection("bowl", "white-stoneware", "medium", "both", "inferred"), application=ApplicationRecord("dipping", inf(None, "g", "관측하지 않음"), inf(None, "g", "관측하지 않음"), inf(None, "g/mL", "관측하지 않음")), thickness=ThicknessEstimate(inf(None, "mm", "판정 불가"), "shape_based", syn((.7, 1.4), "relative", "형상 기반 가상 분포"), "두께 표현은 과장됨", inf(None, "g/m²", "판정 불가")), loading=LoadingPlan("virtual-electric-kiln", "three", tuple({"id": name, "height_ratio": ratio, "temperature": asdict(syn(None, "°C", "가상 소성 전"))} for name, ratio in (("top", 1.0), ("middle", .5), ("bottom", 0.0)))), curves=CurveBundle(curve("baseline", "baseline"), (curve("candidate-balanced", "candidate"),), "candidate-balanced"), pid=PidExecution("accepted", "feedforward_p", {}, (), ()), result=ResultEvaluation(None, None, None, None, None, (), None), sources=(SourceReference("literature", "kiln-plan-v7", "실물 가마 정확도와 품질을 보장하지 않음", "medium", locator="12절"),), consent=Consent(False, False, False, False, None), versions=ModelVersions("aice-sample-1", "rule-rank-1", "kiln-simulator-0.7", None), created_at=now, updated_at=now, intake=intake)
+    return AiceRun(run_id="sample-aice-run", revision=1, title="사틴 청색 사발 샘플", status="simulated", goal=Goal("satin", "opaque", "#668594", "smooth"), recipe=RecipeSelection("coastal-satin", "해안 사틴 01", PhotoAsset("recipe-placeholder", "recipe", None, True, "synthetic", True, "실물 사진이 아닌 플레이스홀더"), SourcedValue((1180, 1230), "°C", "literature", .4, "문헌 범위"), ("literature-firing-range",), materials={"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0}), ware=WareSelection("bowl", "white-stoneware", "medium", "both", "inferred"), application=ApplicationRecord("dipping", inf(None, "g", "관측하지 않음"), inf(None, "g", "관측하지 않음"), inf(None, "g/mL", "관측하지 않음")), thickness=ThicknessEstimate(inf(None, "mm", "판정 불가"), "shape_based", syn((.7, 1.4), "relative", "형상 기반 가상 분포"), "두께 표현은 과장됨", inf(None, "g/m²", "판정 불가")), loading=LoadingPlan("virtual-electric-kiln", "three", tuple({"id": name, "height_ratio": ratio, "temperature": asdict(syn(None, "°C", "가상 소성 전"))} for name, ratio in (("top", 1.0), ("middle", .5), ("bottom", 0.0)))), curves=CurveBundle(curve("baseline", "baseline"), (curve("candidate-balanced", "candidate"),), "candidate-balanced"), pid=PidExecution("accepted", "feedforward_p", {}, (), ()), result=ResultEvaluation(None, None, None, None, None, (), None), sources=(SourceReference("literature", "kiln-plan-v7", "실물 가마 정확도와 품질을 보장하지 않음", "medium", locator="12절"),), consent=Consent(False, False, False, False, None), versions=ModelVersions("aice-sample-1", "rule-rank-1", "kiln-simulator-0.7", None), created_at=now, updated_at=now, intake=intake)
 
 
 def legacy_to_aice_run(record: dict[str, Any]) -> AiceRun:

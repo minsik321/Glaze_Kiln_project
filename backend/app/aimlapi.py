@@ -24,6 +24,7 @@ aimlapi 고유의 것은 base_url·모델명·API 키뿐이다.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass
@@ -43,6 +44,13 @@ class AimlapiSettings:
     text_model: str = ""
     image_model: str = ""
     timeout_seconds: float = 30.0
+    #: aimlapi.com은 제3자 중계 게이트웨이라 장애 시 대체 경로가 없다
+    #: (docs/AICE_LLM_FRONTDOOR_PLAN.md §9). 순간적인 지연·과부하까지
+    #: 즉시 사용자 실패로 보여주지 않기 위해 일시적 오류(429·502·503·504)에
+    #: 한해 지수 백오프로 재시도한다. 인증·검증 오류(400·401·403·422 등)는
+    #: 재시도해도 결과가 달라지지 않으므로 재시도하지 않는다.
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
 
     @property
     def configured(self) -> bool:
@@ -206,36 +214,59 @@ class AimlapiClient:
                 503, "aimlapi_not_configured", "aimlapi.com 연동이 설정되지 않았습니다."
             )
 
+    #: 재시도 대상 상태코드 — 요청 쪽 문제(4xx 검증·인증 오류)가 아니라
+    #: 게이트웨이·상류 쪽의 일시적 문제로 보이는 것들만 재시도한다.
+    _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
+
+    async def _sleep_before_retry(self, attempt: int) -> None:
+        await asyncio.sleep(self.settings.retry_backoff_seconds * (2 ** attempt))
+
     async def _request(
         self, method: str, path: str, *, absolute: bool = False, **kwargs: Any
     ) -> httpx.Response:
         url = path if absolute else f"{self.settings.base_url.rstrip('/')}{path}"
         headers = None if absolute else self._headers()
-        try:
-            response = await self.client.request(method, url, headers=headers, **kwargs)
-        except httpx.TimeoutException as exc:
-            raise AimlapiError(
-                504, "aimlapi_timeout", "aimlapi.com 응답 시간이 초과되었습니다."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AimlapiError(
-                502, "aimlapi_unavailable", "aimlapi.com에 연결할 수 없습니다."
-            ) from exc
-        if response.status_code >= 400:
-            message, code = "aimlapi.com 요청을 처리하지 못했습니다.", "aimlapi_error"
+        attempt = 0
+        while True:
             try:
-                data = response.json()
-                err = data.get("error")
-                if isinstance(err, dict):
-                    message = str(err.get("message") or message)
-                elif isinstance(err, str):
-                    message = err
-            except ValueError:
-                pass
-            status = (
-                response.status_code
-                if response.status_code in {400, 401, 403, 404, 422, 429}
-                else 502
-            )
-            raise AimlapiError(status, code, message)
-        return response
+                response = await self.client.request(
+                    method, url, headers=headers, **kwargs
+                )
+            except httpx.TimeoutException as exc:
+                if attempt >= self.settings.max_retries:
+                    raise AimlapiError(
+                        504, "aimlapi_timeout", "aimlapi.com 응답 시간이 초과되었습니다."
+                    ) from exc
+                await self._sleep_before_retry(attempt)
+                attempt += 1
+                continue
+            except httpx.HTTPError as exc:
+                if attempt >= self.settings.max_retries:
+                    raise AimlapiError(
+                        502, "aimlapi_unavailable", "aimlapi.com에 연결할 수 없습니다."
+                    ) from exc
+                await self._sleep_before_retry(attempt)
+                attempt += 1
+                continue
+            if response.status_code >= 400:
+                message, code = "aimlapi.com 요청을 처리하지 못했습니다.", "aimlapi_error"
+                try:
+                    data = response.json()
+                    err = data.get("error")
+                    if isinstance(err, dict):
+                        message = str(err.get("message") or message)
+                    elif isinstance(err, str):
+                        message = err
+                except ValueError:
+                    pass
+                status = (
+                    response.status_code
+                    if response.status_code in {400, 401, 403, 404, 422, 429}
+                    else 502
+                )
+                if status in self._RETRYABLE_STATUSES and attempt < self.settings.max_retries:
+                    await self._sleep_before_retry(attempt)
+                    attempt += 1
+                    continue
+                raise AimlapiError(status, code, message)
+            return response

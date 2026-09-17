@@ -208,6 +208,11 @@ class RecipeImageRequest(ApiModel):
     materials: dict[str, float]
     colorants: dict[str, float] = Field(default_factory=dict)
     style_note: str = Field(default="", max_length=500)
+    #: RecipeCandidate.target_gloss/target_transparency 그대로 전달
+    #: (kiln.domain.enums.Gloss/Transparency의 .name, 예: "MATTE"). 비어
+    #: 있으면 질감 지정 없이 생성한다 — routes._texture_instruction 참고.
+    target_gloss: str = Field(default="", max_length=32)
+    target_transparency: str = Field(default="", max_length=32)
 
 
 class RecipeImageResponse(ApiModel):
@@ -358,6 +363,12 @@ class CoefficientTableOut(ApiModel):
     calibration_runs: int
     calibrated_bisque_c: float | None
     provenance_notes: list[str]
+    #: 소성조건 개인화 보정(kiln.calibration.firing) — 목표 광택 vs 실제
+    #: 결과 광택의 누적 오차. None이면 아직 관측이 없다(0과 다른 진술).
+    #: 두께 계수(k1 등)와 별개 신호라 calibration_runs와도 다른 카운터를
+    #: 쓴다.
+    gloss_bias_level: float | None = None
+    firing_calibration_runs: int = 0
 
 
 class CalibrationRunRequest(ApiModel):

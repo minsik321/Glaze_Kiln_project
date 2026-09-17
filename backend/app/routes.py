@@ -5,12 +5,14 @@ from typing import Annotated
 from uuid import UUID
 
 import base64
+import logging
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ValidationError
 
-from kiln.domain.models import SearchState
+from kiln.domain.enums import Gloss, Transparency
+from kiln.domain.models import SearchState, TargetCoordinate
 from kiln.firing.simulator import Disturbance
 from kiln.llm import (
     RecipeCandidateValidationError,
@@ -24,7 +26,14 @@ from kiln.search.prior import Prior, propose
 from . import kiln_bridge
 from .aimlapi import AimlapiClient, AimlapiError
 
-from .dependencies import access_token, authenticated_user, error_detail, get_gateway, get_llm
+from .dependencies import (
+    access_token,
+    authenticated_user,
+    error_detail,
+    get_gateway,
+    get_llm,
+    get_vectorstore,
+)
 from .models import (
     AiceRunCreate,
     AicePublishConsent,
@@ -54,12 +63,24 @@ from .models import (
     WorkRecordUpdate,
 )
 from .supabase import SupabaseError, SupabaseGateway
+from .vectorstore import (
+    AiceVectorStore,
+    SOURCE_CORRELATION_NOTE,
+    SOURCE_MATERIAL_CHEMISTRY,
+    SOURCE_PERSONAL_RECIPE,
+    VectorDocument,
+    VectorStoreUnavailable,
+    format_retrieved_context,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 Token = Annotated[str, Depends(access_token)]
 User = Annotated[AuthUser, Depends(authenticated_user)]
 Gateway = Annotated[SupabaseGateway, Depends(get_gateway)]
 Llm = Annotated[AimlapiClient, Depends(get_llm)]
+VectorStore = Annotated["AiceVectorStore | None", Depends(get_vectorstore)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
 RECORD_COLUMNS = "id,title,payload,schema_version,is_public,created_at,updated_at"
@@ -125,7 +146,7 @@ async def list_aice_runs(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_aice_run(
-    body: AiceRunCreate, token: Token, user: User, gateway: Gateway
+    body: AiceRunCreate, token: Token, user: User, gateway: Gateway, vectorstore: VectorStore
 ) -> BaseModel:
     run = body.run
     values = {
@@ -144,12 +165,15 @@ async def create_aice_run(
         rows = await gateway.insert("aice_runs", token, values)
     except SupabaseError as exc:
         _raise_supabase(exc)
-    return _one(
+    result = _one(
         rows,
         AiceRunResponse,
         "aice_run_not_saved",
         "AICE 실행을 저장하지 못했습니다.",
     )
+    _index_personal_recipe_best_effort(vectorstore, user, result)
+    await _index_firing_calibration_best_effort(gateway, token, user, result)
+    return result
 
 
 @router.get("/aice-runs/{run_id}", response_model=AiceRunResponse)
@@ -422,19 +446,204 @@ async def get_public_record(
     )
 
 
+#: ResultFeedback.tsx의 결함 칩 id — 하나라도 기록돼 있으면 그 회차는
+#: "이상치"로 보고 조성 추천 되먹임(Prior/SearchState.observations)에
+#: 긍정 신호로 먹이지 않는다. kiln.search.objective.DISQUALIFYING_FAILURES
+#: 와 같은 취지이나, 이 앱의 결과 기록은 FailureType 열거형이 아니라
+#: 이 영어 id로 저장되므로(kiln.aice.contract.ResultEvaluation.defects)
+#: 별도 표로 둔다 — 고정 표 조회일 뿐 자연어 추론은 하지 않는다.
+_OUTLIER_DEFECT_IDS = ("pinholes", "crawling", "crazing", "running")
+
+#: 되먹임에 쓸 과거 회차를 몇 건까지 볼지. 사용자당 조성 추천 개인화
+#: 목적이므로 최근 것 위주로 충분하다 — 전체 이력 스캔은 불필요하다.
+_SEARCH_HISTORY_LIMIT = 200
+
+
+def _goal_to_coordinate(goal_gloss: str, goal_transparency: str) -> TargetCoordinate | None:
+    """저장된 목표 라벨(예: "satin"/"opaque")을 (Gloss, Transparency)로.
+
+    프런트엔드 문자열과 열거형 멤버 이름이 대문자 스네이크케이스로만
+    다르므로(``satin`` → ``SATIN``, ``semi_gloss`` → ``SEMI_GLOSS``) 별도
+    변환표 없이 바로 매핑된다. 모르는 값이면 그 회차는 되먹임에서 조용히
+    제외한다(부록 D: 판정 불가를 지어내지 않는다)."""
+    try:
+        return TargetCoordinate(
+            gloss=Gloss[goal_gloss.strip().upper()],
+            transparency=Transparency[goal_transparency.strip().upper()],
+        )
+    except (KeyError, AttributeError):
+        return None
+
+
+def _personal_search_history(
+    rows: list[dict],
+) -> list[tuple[dict[str, float], TargetCoordinate]]:
+    """저장된 회차에서 조성 추천 되먹임에 쓸 (배합, 목표 결과) 관측을 복원한다.
+
+    v9는 지금까지 매 요청마다 빈 ``Prior()``로 시작해 사용자의 과거
+    결과·이상치가 다음 추천에 전혀 반영되지 않았다(레시피 조성 자체가
+    ``RecipeSelection``에 저장되지도 않았다 — 이번에 ``materials`` 필드를
+    추가해 해결). 이 함수가 그 되먹임의 첫 단계다:
+
+    - ``status == "evaluated"``(결과를 실제로 기록한 회차)만 본다.
+    - 배합이 비어 있으면(``materials`` 필드가 생기기 전에 저장된 레거시
+      회차) 재구성할 수 없으므로 제외한다.
+    - :data:`_OUTLIER_DEFECT_IDS` 중 하나라도 기록돼 있으면 **이상치로
+      보고 제외한다** — 결함이 있었던 배합을 "이 목표에 가깝다"는 긍정
+      신호로 다시 추천에 쓰면 안 된다.
+    """
+    history: list[tuple[dict[str, float], TargetCoordinate]] = []
+    for row in rows:
+        if row.get("status") != "evaluated":
+            continue
+        payload = row.get("payload") or {}
+        materials = ((payload.get("recipe") or {}).get("materials")) or {}
+        if not materials:
+            continue
+        defects = ((payload.get("result") or {}).get("defects")) or []
+        if any(defect in _OUTLIER_DEFECT_IDS for defect in defects):
+            continue
+        coord = _goal_to_coordinate(
+            str(row.get("goal_gloss") or ""), str(row.get("goal_transparency") or "")
+        )
+        if coord is None:
+            continue
+        history.append(({str(k): float(v) for k, v in materials.items()}, coord))
+    return history
+
+
+def _index_personal_recipe_best_effort(
+    vectorstore: AiceVectorStore | None, user: AuthUser, result: AiceRunResponse
+) -> None:
+    """저장된 회차를 그 사용자의 개인 레시피 RAG 코퍼스에 색인한다.
+
+    수정 사항 정리 3번: "데이터를 저장하면 벡터 db에 저장되는 방식" — 별도
+    배치/스크립트가 아니라 회차가 저장되는 이 시점에 바로 색인한다.
+    :func:`_personal_search_history`와 같은 기준으로 결과를 기록한
+    (``status == "evaluated"``) 회차만, 배합이 있고 이상치가 아닌 것만
+    넣는다 — 조성 추천 되먹임에 쓰는 신뢰 기준과 RAG 코퍼스 신뢰 기준을
+    다르게 둘 이유가 없다.
+
+    회차 저장은 이미 끝난 뒤 호출되므로, 이 함수는 절대 예외를 밖으로
+    던지지 않는다 — Qdrant가 꺼져 있어도 사용자의 저장 요청 자체는
+    이미 성공했어야 한다(부록 D와 같은 "판단 주체가 아니다" 원칙의
+    운영적 형태: RAG 색인 실패가 핵심 기능을 막지 않는다).
+    """
+    if vectorstore is None or result.status != "evaluated":
+        return
+    run = result.run
+    materials = ((run.get("recipe") or {}).get("materials")) or {}
+    if not materials:
+        return
+    defects = ((run.get("result") or {}).get("defects")) or []
+    if any(defect in _OUTLIER_DEFECT_IDS for defect in defects):
+        return
+    materials_desc = ", ".join(f"{name} {amount:.1f}%" for name, amount in materials.items())
+    goal = run.get("goal") or {}
+    text = (
+        f"목표 광택 {goal.get('gloss', '?')}·투명도 {goal.get('transparency', '?')} — "
+        f"배합 {materials_desc}. 실측 평가 회차(결함 기록 없음 · 이상치 아님)."
+    )
+    try:
+        vectorstore.upsert_documents([
+            VectorDocument(
+                doc_id=f"run-{result.id}",
+                text=text,
+                metadata={
+                    "source_type": SOURCE_PERSONAL_RECIPE,
+                    "user_id": str(user.id),
+                    "recipe_id": (run.get("recipe") or {}).get("id"),
+                },
+            )
+        ])
+    except VectorStoreUnavailable as exc:
+        logger.warning("개인 레시피 RAG 색인 실패(회차 저장 자체는 성공): %s", exc)
+
+
+async def _index_firing_calibration_best_effort(
+    gateway: SupabaseGateway, token: str, user: AuthUser, result: AiceRunResponse
+) -> None:
+    """평가 완료 회차로 그 레시피의 소성조건 개인화 편향을 갱신한다.
+
+    사용자 요구사항: "Optimization Model은 실제 결과와 목표 결과의 오차를
+    누적하여 다음 소성조건을 개인화 보정하는 역할을 담당" —
+    `kiln.calibration.firing.update_after_evaluated_run`이 목표 광택 vs
+    실제 결과 광택의 오차를 누적하고, `predictionModel.ts`가 그 누적치를
+    다음 회차 유지온도 제안에 반영한다(`GET /aice/calibration/{recipe_id}`
+    의 `gloss_bias_level`을 프런트엔드가 읽는다).
+
+    `_index_personal_recipe_best_effort`와 같은 태도: 회차 저장은 이미
+    끝난 뒤 호출되므로, Supabase 오류든 판정 불가(광택 미기록 등)든
+    절대 예외를 밖으로 던지지 않는다."""
+    if result.status != "evaluated":
+        return
+    run = result.run
+    goal_gloss = (run.get("goal") or {}).get("gloss")
+    if not goal_gloss:
+        return
+    recipe_id = (run.get("recipe") or {}).get("id")
+    if not recipe_id:
+        return
+    result_gloss = (run.get("result") or {}).get("gloss")
+    defects = tuple((run.get("result") or {}).get("defects") or ())
+
+    try:
+        raw = await _select_calibration_row(gateway, token, user, recipe_id)
+    except SupabaseError as exc:
+        logger.warning("소성조건 개인화 갱신을 위한 계수 조회 실패(회차 저장 자체는 성공): %s", exc)
+        return
+
+    table = kiln_bridge.firing_coefficient_table_from_dict(recipe_id, raw.get("firing"))
+    update = kiln_bridge.apply_firing_calibration_update(
+        table, goal_gloss=goal_gloss, result_gloss=result_gloss, defects=defects
+    )
+    if not update.applied:
+        return
+
+    raw["firing"] = kiln_bridge.firing_coefficient_table_to_dict(update.table)
+    ware = run.get("ware") or {}
+    values = {
+        "user_id": str(user.id),
+        "recipe_id": recipe_id,
+        "kiln_profile_id": "aice-default",
+        "clay_body": ware.get("clay_body") or ware.get("preset") or "unspecified",
+        "coefficients": raw,
+        "provenance": list(update.notes),
+        "version": 1,
+    }
+    try:
+        await gateway.insert(
+            "personal_calibrations", token, values, upsert=True, conflict="user_id,recipe_id,version"
+        )
+    except SupabaseError as exc:
+        logger.warning("소성조건 개인화 갱신 저장 실패(회차 저장 자체는 성공): %s", exc)
+
+
 @router.post("/aice/recipe-candidates", response_model=RecipeSuggestResponse)
 async def suggest_recipe_candidates(
-    body: RecipeSuggestRequest, _token: Token, _user: User, llm: Llm
+    body: RecipeSuggestRequest,
+    token: Token,
+    user: User,
+    llm: Llm,
+    gateway: Gateway,
+    vectorstore: VectorStore,
 ) -> RecipeSuggestResponse:
     """화면 1(LLM 채팅) — 자연어 입력에서 레시피 후보를 만든다 (LLM 프런트도어
-    TODO Phase 2, v9).
+    TODO Phase 2, v9 후속).
 
     배합비는 LLM이 발명하지 않는다(부록 D: 판단 주체는 규칙). 1차 LLM
     호출은 목표를 (광택도, 투명도)로 분류만 하고, `kiln.search.prior
-    .propose`가 그 좌표로 배합 후보를 규칙대로 낸다(콜드스타트 — 개인
-    사전분포 없이 격자+공간채움). 2차 LLM 호출은 그 고정 배합에 이름·
-    착색·소성 메모만 붙인다. 두 단계 모두 LLM 원문은 kiln.chem/kiln.search
-    로 교차 검증하고, 화학적으로 성립하지 않는 후보는 통째로 버린다."""
+    .propose`가 그 좌표로 배합 후보를 규칙대로 낸다. 2차 LLM 호출은 그
+    고정 배합에 이름·착색·소성 메모만 붙인다. 두 단계 모두 LLM 원문은
+    kiln.chem/kiln.search로 교차 검증하고, 화학적으로 성립하지 않는
+    후보는 통째로 버린다.
+
+    **조성 추천 피드백 루프**: 매 요청마다 빈 사전분포로 시작하지 않고,
+    사용자의 과거 회차(:func:`_personal_search_history`, 이상치 제외)를
+    ``Prior``와 ``SearchState.observations``에 채운 뒤 제시한다. 이력
+    조회가 실패해도(``SupabaseError``) 추천 자체를 막지 않고 콜드스타트로
+    대체한다 — 개인화는 있으면 좋은 것이지 없다고 기능이 죽으면 안 된다.
+    """
     target_messages = build_target_messages(body.prompt_text)
     try:
         target_raw = await llm.chat_json(target_messages)
@@ -447,16 +656,60 @@ async def suggest_recipe_candidates(
             502, detail=error_detail("invalid_recipe_target", str(exc))
         ) from exc
 
-    search_state = SearchState(target=target, grid_step=10.0)
-    search_candidates = propose(search_state, Prior(), n=body.candidate_count)
+    try:
+        history_rows = await gateway.select(
+            "aice_runs",
+            token,
+            {
+                "select": AICE_COLUMNS,
+                "user_id": f"eq.{user.id}",
+                "order": "created_at.desc",
+                "limit": _SEARCH_HISTORY_LIMIT,
+            },
+        )
+        history = _personal_search_history(history_rows)
+    except SupabaseError:
+        history = []
 
-    messages = build_messages(body.prompt_text, search_candidates)
+    prior = Prior()
+    for materials, coord in history:
+        prior.update(materials, coord)
+
+    observations = tuple(
+        (tuple(sorted(materials.items())), coord) for materials, coord in history
+    )
+    search_state = SearchState(target=target, grid_step=10.0, observations=observations)
+    search_candidates = propose(search_state, prior, n=body.candidate_count)
+
+    #: RAG(수정 사항 정리 3번) — 원료 화학·성분 상관관계(전역)와 본인의
+    #: 과거 레시피(개인, user_id로 좁힘)를 검색해 2차 LLM 호출의 참고
+    #: 자료로 덧붙인다. vectorstore가 없거나(Qdrant 미설정) 검색이
+    #: 실패해도(search()는 예외를 던지지 않고 빈 리스트를 반환한다)
+    #: retrieved_context는 그냥 빈 문자열이 되고, 추천 자체는 막히지 않는다.
+    retrieved_context = ""
+    if vectorstore is not None:
+        general_docs = vectorstore.search(
+            body.prompt_text,
+            limit=4,
+            source_types=(SOURCE_MATERIAL_CHEMISTRY, SOURCE_CORRELATION_NOTE),
+        )
+        personal_docs = vectorstore.search(
+            body.prompt_text,
+            limit=3,
+            source_types=(SOURCE_PERSONAL_RECIPE,),
+            user_id=str(user.id),
+        )
+        retrieved_context = format_retrieved_context(general_docs + personal_docs)
+
+    messages = build_messages(body.prompt_text, search_candidates, retrieved_context=retrieved_context)
     try:
         raw = await llm.chat_json(messages)
     except AimlapiError as exc:
         raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
     try:
-        candidate_set, dropped = build_recipe_candidates(raw, search_candidates)
+        candidate_set, dropped = build_recipe_candidates(
+            raw, search_candidates, target=target
+        )
     except RecipeCandidateValidationError as exc:
         raise HTTPException(
             502, detail=error_detail("invalid_recipe_candidates", str(exc))
@@ -466,6 +719,35 @@ async def suggest_recipe_candidates(
         candidates=[asdict(candidate) for candidate in candidate_set.candidates],
         dropped=list(dropped),
     )
+
+
+#: 화면 1 이미지 생성 프롬프트용 한국어 질감 지시문 (LLM 프런트도어 v9 후속
+#: 수정) — 목표 분류(1차 LLM 호출)가 낸 (광택도, 투명도)가 이전에는 배합
+#: 후보를 고르는 데만 쓰이고 이미지 생성에는 전달되지 않아, "매트 레시피인데
+#: 이미지는 유광"처럼 목표와 무관한 이미지가 나올 수 있었다. 고정 표 조회일
+#: 뿐 LLM이 질감을 추론하게 두지 않는다(부록 D와 같은 태도).
+_GLOSS_TEXTURE_KO: dict[str, str] = {
+    "DRY": "완전 무광, 유리질 광택이 전혀 없는 건조하고 거친 듯한 표면",
+    "MATTE": "무광(매트) 표면, 빛 반사가 거의 없음",
+    "SATIN": "은은한 반광택(사틴), 부드럽게 퍼지는 하이라이트",
+    "SEMI_GLOSS": "반광택, 뚜렷하지만 강하지 않은 하이라이트",
+    "GLOSS": "강한 유광, 표면에 뚜렷한 반사·하이라이트가 있는 광택 표면",
+}
+_TRANSPARENCY_TEXTURE_KO: dict[str, str] = {
+    "OPAQUE": "완전 불투명, 바탕 소지가 전혀 비치지 않음",
+    "SEMI_OPAQUE": "반불투명, 바탕이 희미하게만 비침",
+    "TRANSLUCENT": "반투명, 바탕 질감이 은은하게 비쳐 보임",
+    "TRANSPARENT": "투명, 바탕 소지와 색이 유리처럼 비쳐 보임",
+}
+
+
+def _texture_instruction(target_gloss: str, target_transparency: str) -> str:
+    gloss_desc = _GLOSS_TEXTURE_KO.get(target_gloss.strip().upper())
+    transparency_desc = _TRANSPARENCY_TEXTURE_KO.get(target_transparency.strip().upper())
+    parts = [desc for desc in (gloss_desc, transparency_desc) if desc]
+    if not parts:
+        return "특별히 지정된 목표 질감 없음 — 배합·발색 설명에 맞춰 자연스럽게 표현"
+    return ", ".join(parts)
 
 
 @router.post("/aice/recipe-candidates/image", response_model=RecipeImageResponse)
@@ -479,9 +761,12 @@ async def generate_recipe_candidate_image(
     (``source_type="synthetic"``), 실제 소성 결과를 보여주지 않는다."""
     materials_desc = ", ".join(f"{name} {pct}%" for name, pct in body.materials.items())
     colorants_desc = ", ".join(f"{name} {pct}%" for name, pct in body.colorants.items()) or "없음"
+    texture_desc = _texture_instruction(body.target_gloss, body.target_transparency)
     prompt = (
         f"도예 유약 참고 이미지. 기본 배합: {materials_desc}. "
-        f"발색 산화물 외배합: {colorants_desc}. {body.style_note}. "
+        f"발색 산화물 외배합: {colorants_desc}. "
+        f"표면 마감 목표(가장 중요, 반드시 반영): {texture_desc}. "
+        f"{body.style_note}. "
         "이 배합이 입혀진 도자기 표면 클로즈업, 사실적인 사진 스타일. "
         "실제 소성 결과를 정확히 예측한 것이 아니라 참고용 상상 이미지임."
     )
@@ -610,26 +895,46 @@ async def suggest_dip_time(body: DipTimeRequest) -> DipTimeResponse:
 _CALIBRATION_COLUMNS = "coefficients"
 
 
+async def _select_calibration_row(
+    gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str
+) -> dict:
+    """(user, recipe_id)의 `personal_calibrations.coefficients` 원본 사전
+    (없으면 ``{}``). `SupabaseError`는 그대로 올린다 — 반드시 성공해야
+    하는 호출부(캘리브레이션 라우트)는 그대로 전파하고, best-effort
+    호출부(`create_aice_run`)는 자기 자리에서 잡아 삼킨다.
+
+    두께 계수(`coefficient_table_from_dict`)와 소성조건 개인화 편향
+    (`firing_coefficient_table_from_dict`)이 **같은 행의 같은 jsonb
+    컬럼**에 서로 다른 키로 공존하므로(두께는 평면 키, 소성조건은
+    `"firing"` 키 아래), 한쪽을 갱신해 이 컬럼을 다시 쓸 때는 반드시
+    이 원본 사전에서 시작해 상대방 키를 보존해야 한다 — 그러지 않으면
+    나중에 실행한 갱신이 먼저 쌓인 다른 쪽 데이터를 조용히 지운다.
+    """
+    rows = await gateway.select(
+        "personal_calibrations",
+        token,
+        {
+            "select": "coefficients",
+            "user_id": f"eq.{user.id}",
+            "recipe_id": f"eq.{recipe_id}",
+            "version": "eq.1",
+            "limit": 1,
+        },
+    )
+    if rows and rows[0].get("coefficients"):
+        return dict(rows[0]["coefficients"])
+    return {}
+
+
 async def _load_coefficient_table(gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str):
     try:
-        rows = await gateway.select(
-            "personal_calibrations",
-            token,
-            {
-                "select": _CALIBRATION_COLUMNS,
-                "user_id": f"eq.{user.id}",
-                "recipe_id": f"eq.{recipe_id}",
-                "version": "eq.1",
-                "limit": 1,
-            },
-        )
+        raw = await _select_calibration_row(gateway, token, user, recipe_id)
     except SupabaseError as exc:
         _raise_supabase(exc)
-    data = rows[0]["coefficients"] if rows else None
-    return kiln_bridge.coefficient_table_from_dict(recipe_id, data)
+    return kiln_bridge.coefficient_table_from_dict(recipe_id, raw)
 
 
-def _coefficient_table_out(table) -> CoefficientTableOut:
+def _coefficient_table_out(table, firing_table) -> CoefficientTableOut:
     return CoefficientTableOut(
         recipe_id=table.recipe_id,
         k1=table.k1,
@@ -641,6 +946,8 @@ def _coefficient_table_out(table) -> CoefficientTableOut:
         calibration_runs=table.calibration_runs,
         calibrated_bisque_c=table.calibrated_bisque_c,
         provenance_notes=list(table.provenance_notes),
+        gloss_bias_level=firing_table.gloss_bias_level,
+        firing_calibration_runs=firing_table.calibration_runs,
     )
 
 
@@ -649,9 +956,17 @@ async def get_calibration(recipe_id: str, token: Token, user: User, gateway: Gat
     """레시피별 계수 계열 조회(Phase 5) — 없으면 전부 미동정인 기본 테이블.
 
     `predictionModel.ts`의 `priorRunCount`가 여기(`calibration_runs`)로
-    이어진다 — 회차 자체를 다시 세지 않고, 이미 저장된 값을 낸다."""
-    table = await _load_coefficient_table(gateway, token, user, recipe_id)
-    return _coefficient_table_out(table)
+    이어진다 — 회차 자체를 다시 세지 않고, 이미 저장된 값을 낸다.
+    `gloss_bias_level`/`firing_calibration_runs`는 소성조건 개인화 보정
+    (`kiln.calibration.firing`) — 평가 완료 회차를 저장할 때마다
+    `create_aice_run`이 자동으로 갱신한다(별도 제출 라우트 없음)."""
+    try:
+        raw = await _select_calibration_row(gateway, token, user, recipe_id)
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    table = kiln_bridge.coefficient_table_from_dict(recipe_id, raw)
+    firing_table = kiln_bridge.firing_coefficient_table_from_dict(recipe_id, raw.get("firing"))
+    return _coefficient_table_out(table, firing_table)
 
 
 @router.post("/aice/calibration/{recipe_id}/runs", response_model=CalibrationRunResponse)
@@ -661,7 +976,11 @@ async def submit_calibration_run(
     """시유 회차 1건으로 k1을 갱신한다 — `kiln.calibration.update.run_update`
     그대로. 다른 레시피의 계수는 건드리지 않는다(레시피별 저장소 격리,
     calibration/registry.py 참고)."""
-    table = await _load_coefficient_table(gateway, token, user, recipe_id)
+    try:
+        raw = await _select_calibration_row(gateway, token, user, recipe_id)
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    table = kiln_bridge.coefficient_table_from_dict(recipe_id, raw)
     try:
         result = kiln_bridge.apply_calibration_run(
             table,
@@ -680,12 +999,19 @@ async def submit_calibration_run(
     except ValueError as exc:
         raise HTTPException(422, detail=error_detail("invalid_calibration_input", str(exc))) from exc
 
+    new_coefficients = kiln_bridge.coefficient_table_to_dict(result.table)
+    if "firing" in raw:
+        # 소성조건 개인화 편향(create_aice_run이 채워 넣는 "firing" 키)을
+        # 두께 계수 갱신이 조용히 지우지 않는다 — 같은 jsonb 컬럼을 공유
+        # 하므로 원본 사전에서 시작해 상대방 키를 보존해야 한다.
+        new_coefficients["firing"] = raw["firing"]
+
     values = {
         "user_id": str(user.id),
         "recipe_id": recipe_id,
         "kiln_profile_id": "aice-default",
         "clay_body": body.ware_preset,
-        "coefficients": kiln_bridge.coefficient_table_to_dict(result.table),
+        "coefficients": new_coefficients,
         "provenance": list(result.notes),
         "version": 1,
     }
@@ -696,8 +1022,9 @@ async def submit_calibration_run(
     except SupabaseError as exc:
         _raise_supabase(exc)
 
+    firing_table = kiln_bridge.firing_coefficient_table_from_dict(recipe_id, raw.get("firing"))
     return CalibrationRunResponse(
-        table=_coefficient_table_out(result.table),
+        table=_coefficient_table_out(result.table, firing_table),
         applied=result.applied,
         k1_estimate=result.k1_estimate,
         notes=list(result.notes),

@@ -149,3 +149,100 @@ async def test_generate_image_without_model_configured_raises() -> None:
         await client.generate_image("a bowl")
     assert excinfo.value.code == "aimlapi_image_not_configured"
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_json_retries_on_503_then_succeeds() -> None:
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] < 3:
+            return httpx.Response(503, json={"error": "일시적 과부하"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({"candidates": []})}}]},
+        )
+
+    client = _client(handler)
+    client.settings = AimlapiSettings(
+        api_key="test-key",
+        text_model="test/text-model",
+        image_model="test/image-model",
+        retry_backoff_seconds=0.001,
+    )
+    result = await client.chat_json([{"role": "user", "content": "hi"}])
+    assert result == {"candidates": []}
+    assert calls["count"] == 3
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_json_gives_up_after_max_retries() -> None:
+    calls = {"count": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(503, json={"error": "계속 과부하"})
+
+    client = _client(handler)
+    client.settings = AimlapiSettings(
+        api_key="test-key",
+        text_model="test/text-model",
+        image_model="test/image-model",
+        max_retries=2,
+        retry_backoff_seconds=0.001,
+    )
+    with pytest.raises(AimlapiError) as exc_info:
+        await client.chat_json([{"role": "user", "content": "hi"}])
+    assert exc_info.value.status_code == 502
+    assert calls["count"] == 3  # 최초 시도 + 재시도 2회
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_json_does_not_retry_on_client_error() -> None:
+    calls = {"count": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(401, json={"error": "invalid api key"})
+
+    client = _client(handler)
+    client.settings = AimlapiSettings(
+        api_key="test-key",
+        text_model="test/text-model",
+        image_model="test/image-model",
+        retry_backoff_seconds=0.001,
+    )
+    with pytest.raises(AimlapiError) as exc_info:
+        await client.chat_json([{"role": "user", "content": "hi"}])
+    assert exc_info.value.status_code == 401
+    assert calls["count"] == 1  # 재시도 없음
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_json_retries_on_timeout_then_succeeds() -> None:
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({"candidates": []})}}]},
+        )
+
+    client = _client(handler)
+    client.settings = AimlapiSettings(
+        api_key="test-key",
+        text_model="test/text-model",
+        image_model="test/image-model",
+        retry_backoff_seconds=0.001,
+    )
+    result = await client.chat_json([{"role": "user", "content": "hi"}])
+    assert result == {"candidates": []}
+    assert calls["count"] == 2
+    await client.close()

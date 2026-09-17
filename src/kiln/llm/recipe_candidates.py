@@ -67,6 +67,7 @@ def build_recipe_candidates(
     candidates: list[Candidate],
     *,
     source_ids: tuple[str, ...] = (),
+    target: TargetCoordinate | None = None,
 ) -> tuple[RecipeCandidateSet, tuple[str, ...]]:
     """LLM ``chat_json()`` 서술 원문 + 검색 배합 → 검증된 ``RecipeCandidateSet``.
 
@@ -76,6 +77,12 @@ def build_recipe_candidates(
     불변식(비율 합 100%)을 통과해야 하고, (2)
     ``kiln.chem.unity_formula_from_materials``로 UMF 계산이 가능해야
     한다. 실패한 후보는 통째로 버린다.
+
+    ``target``(1차 LLM 호출이 분류한 목표 좌표)이 주어지면 모든 후보의
+    ``target_gloss``/``target_transparency``에 그대로 실린다 — 이 값이
+    이미지 생성 프롬프트까지 전달되어야 "매트 레시피인데 유광 이미지"
+    같은 불일치가 나지 않는다(이전에는 이 좌표가 배합 후보를 고르는 데만
+    쓰이고 버려졌다).
     """
     raw_candidates = raw.get("candidates")
     if not isinstance(raw_candidates, list) or not raw_candidates:
@@ -132,6 +139,8 @@ def build_recipe_candidates(
                 colorants=colorants,
                 colorant_note=colorant_note,
                 composition_note=search_candidate.umf_note,
+                target_gloss=target.gloss.name if target is not None else "",
+                target_transparency=target.transparency.name if target is not None else "",
             )
         except (KeyError, ValueError, TypeError) as exc:
             errors.append(f"{cid}: {exc}")

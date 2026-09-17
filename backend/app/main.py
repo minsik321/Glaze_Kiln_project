@@ -14,6 +14,7 @@ from .dependencies import error_detail
 from .models import HealthResponse, ReadinessResponse
 from .routes import router
 from .supabase import SupabaseGateway
+from .vectorstore import AiceVectorStore, VectorStoreUnavailable
 
 
 def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
@@ -23,17 +24,35 @@ def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
         text_model=settings.aimlapi_text_model,
         image_model=settings.aimlapi_image_model,
         timeout_seconds=settings.aimlapi_timeout_seconds,
+        max_retries=settings.aimlapi_max_retries,
+        retry_backoff_seconds=settings.aimlapi_retry_backoff_seconds,
     )
+
+
+def _vectorstore(settings: Settings) -> AiceVectorStore | None:
+    """RAG(수정 사항 정리 3번) — QDRANT_URL이 비어 있거나 qdrant-client가
+    설치되지 않았으면 ``None``. 앱 기동 자체를 막지 않는다(aimlapi_configured
+    와 같은 콜드스타트 태도) — ``QdrantClient(url=...)`` 생성자는 즉시
+    연결하지 않으므로, Docker가 아직 안 떠 있어도 여기서는 실패하지 않고
+    첫 검색/색인 호출에서만 ``VectorStoreUnavailable``이 난다."""
+    if not settings.qdrant_configured:
+        return None
+    try:
+        return AiceVectorStore(url=settings.qdrant_url, collection=settings.qdrant_collection)
+    except VectorStoreUnavailable:
+        return None
 
 
 def create_app(
     settings: Settings | None = None,
     gateway: SupabaseGateway | None = None,
     llm: AimlapiClient | None = None,
+    vectorstore: AiceVectorStore | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
     resolved_gateway = gateway or SupabaseGateway(resolved_settings)
     resolved_llm = llm or AimlapiClient(_aimlapi_settings(resolved_settings))
+    resolved_vectorstore = vectorstore or _vectorstore(resolved_settings)
     owns_gateway = gateway is None
     owns_llm = llm is None
 
@@ -49,6 +68,7 @@ def create_app(
     app.state.settings = resolved_settings
     app.state.supabase = resolved_gateway
     app.state.llm = resolved_llm
+    app.state.vectorstore = resolved_vectorstore
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved_settings.cors_origins),

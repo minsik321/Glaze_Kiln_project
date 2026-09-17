@@ -23,6 +23,11 @@ from datetime import datetime, timezone
 
 from kiln import constants
 from kiln.batch.dip_time import DipRecommendation, recommend_dip_time as _recommend_dip_time
+from kiln.calibration.firing import (
+    FiringCoefficientTable,
+    FiringRunUpdate,
+    update_after_evaluated_run,
+)
 from kiln.calibration.update import RunUpdate, run_update
 from kiln.domain.enums import GlazingMethod
 from kiln.domain.models import (
@@ -49,6 +54,9 @@ __all__ = [
     "coefficient_table_to_dict",
     "coefficient_table_from_dict",
     "apply_calibration_run",
+    "firing_coefficient_table_to_dict",
+    "firing_coefficient_table_from_dict",
+    "apply_firing_calibration_update",
 ]
 
 #: 7개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
@@ -361,6 +369,52 @@ def apply_calibration_run(
         drying_complete=drying_complete,
     )
     return run_update(table, record, ware)
+
+
+# ─── 소성조건 개인화 보정 — 목표-실제 광택 오차 누적 (kiln.calibration.firing) ──
+
+#: `FiringCoefficientTable`의 필드 이름 그대로 jsonb에 직렬화한다 —
+#: `personal_calibrations.coefficients`의 **같은 행 안에 `"firing"` 키로
+#: 중첩**한다(별도 테이블·마이그레이션 없이 기존 jsonb 컬럼을 그대로 쓴다).
+#: 두께 계수(coefficient_table_to_dict가 만드는 평면 키들)와 이름이
+#: 겹치지 않아 한 행에 공존할 수 있다.
+_FIRING_COEFFICIENT_FIELDS = ("recipe_id", "gloss_bias_level", "calibration_runs", "provenance_notes")
+
+
+def firing_coefficient_table_to_dict(table: FiringCoefficientTable) -> dict:
+    """`personal_calibrations.coefficients["firing"]`에 그대로 넣을 사전."""
+    data = asdict(table)
+    data["provenance_notes"] = list(data["provenance_notes"])
+    return data
+
+
+def firing_coefficient_table_from_dict(recipe_id: str, data: dict | None) -> FiringCoefficientTable:
+    """저장된 `coefficients["firing"]`(없으면 빈 사전)에서 복원한다.
+
+    `coefficient_table_from_dict`와 같은 이유로 `recipe_id`는 호출부가
+    정본이다."""
+    if not data:
+        return FiringCoefficientTable(recipe_id=recipe_id)
+    return FiringCoefficientTable(
+        recipe_id=recipe_id,
+        gloss_bias_level=data.get("gloss_bias_level"),
+        calibration_runs=data.get("calibration_runs", 0),
+        provenance_notes=tuple(data.get("provenance_notes", ())),
+    )
+
+
+def apply_firing_calibration_update(
+    table: FiringCoefficientTable,
+    *,
+    goal_gloss: str | None,
+    result_gloss: str | None,
+    defects: tuple[str, ...] = (),
+) -> FiringRunUpdate:
+    """평가 완료 회차 1건으로 `table`을 갱신한다 —
+    `kiln.calibration.firing.update_after_evaluated_run` 그대로."""
+    return update_after_evaluated_run(
+        table, goal_gloss=goal_gloss, result_gloss=result_gloss, defects=defects
+    )
 
 
 def _now() -> datetime:

@@ -57,6 +57,11 @@ export type RecipeCandidate = {
   //: 있다(src/kiln/search/objective.py::Candidate.umf_note). 빈 문자열이면
   //: 이 후보의 배합비 출처가 검색이 아니다(레거시 샘플 등).
   composition_note?: string;
+  //: 이 후보를 낳은 목표 좌표(kiln.domain.enums.Gloss/Transparency의 .name,
+  //: 예: "MATTE"·"OPAQUE"). 예상 이미지 생성 요청에 그대로 실어 보내야
+  //: "매트 레시피인데 유광 이미지" 같은 불일치가 나지 않는다.
+  target_gloss?: string;
+  target_transparency?: string;
 };
 
 export type RecipeCandidateSet = {
@@ -97,6 +102,10 @@ export type AiceRun = {
     photo: PhotoAsset;
     firing_range: SourcedValue<[number, number]>;
     source_ids: string[];
+    //: 확정된 배합(원료명 → 중량%). 조성 추천 피드백 루프(Prior 되먹임)가
+    //: 과거 회차의 조성을 다시 읽으려면 필요하다 — 기존 레코드는 비어
+    //: 있을 수 있고, 그런 레코드는 되먹임 대상에서 제외된다.
+    materials: Record<string, number>;
   };
   ware: {
     preset: "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "tile" | "other";
@@ -204,7 +213,7 @@ export function sampleAiceRun(now = "2026-09-16T00:00:00.000Z"): AiceRun {
   return {
     schema_version: 3, run_id: "sample-aice-run", revision: 1, title: "사틴 청색 사발 샘플", status: "simulated",
     goal: { gloss: "satin", transparency: "opaque", color: "#668594", texture: "smooth" },
-    recipe: { id: "coastal-satin", name: "해안 사틴 01", photo: { id: "recipe-placeholder", kind: "recipe", storage_path: null, placeholder: true, source_type: "synthetic", rights_confirmed: true, alt: "실물 사진이 아닌 청회색 질감 플레이스홀더" }, firing_range: { value: [1180, 1230], unit: "°C", source_type: "literature", confidence: .4, note: "문헌 범위이며 이 레시피의 품질 보장이 아님" }, source_ids: ["literature-firing-range"] },
+    recipe: { id: "coastal-satin", name: "해안 사틴 01", photo: { id: "recipe-placeholder", kind: "recipe", storage_path: null, placeholder: true, source_type: "synthetic", rights_confirmed: true, alt: "실물 사진이 아닌 청회색 질감 플레이스홀더" }, firing_range: { value: [1180, 1230], unit: "°C", source_type: "literature", confidence: .4, note: "문헌 범위이며 이 레시피의 품질 보장이 아님" }, source_ids: ["literature-firing-range"], materials: { "장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0 } },
     ware: { preset: "bowl", clay_body: "white-stoneware", size_category: "medium", glazing: "both", geometry_source: "inferred" },
     application: { method: "dipping", before_weight: inferred<number>(null, "g", "샘플 흐름에서는 관측하지 않음", 0), after_weight: inferred<number>(null, "g", "샘플 흐름에서는 관측하지 않음", 0), density: inferred<number>(null, "g/mL", "샘플 흐름에서는 관측하지 않음", 0) },
     thickness: { mean: inferred<number>(null, "mm", "면적과 건조밀도 관측이 없어 판정 불가", 0), distribution: "shape_based", uncertainty: synthetic<[number, number]>([0.7, 1.4], "relative", "형상 기반 가상 분포"), warning: "두께 표현은 이해를 위해 과장됨", areal_density: inferred<number>(null, "g/m²", "판정 불가", 0) },

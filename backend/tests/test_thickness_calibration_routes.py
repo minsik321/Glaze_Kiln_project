@@ -165,3 +165,78 @@ async def test_calibration_routes_require_auth() -> None:
         response = await client.get("/api/v1/aice/calibration/coastal-satin")
     assert response.status_code == 401
     await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_get_calibration_reports_firing_bias_when_present() -> None:
+    """GET 응답에 소성조건 개인화 편향(gloss_bias_level)이 실려 나가야
+    predictionModel.ts가 다음 회차 제안에 반영할 수 있다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/personal_calibrations"
+        assert request.method == "GET"
+        return httpx.Response(200, json=[{
+            "coefficients": {
+                "recipe_id": "coastal-satin", "k1": 0.55, "calibration_runs": 3,
+                "firing": {"recipe_id": "coastal-satin", "gloss_bias_level": 1.25, "calibration_runs": 4, "provenance_notes": []},
+            }
+        }])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/v1/aice/calibration/coastal-satin",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["k1"] == 0.55
+    assert body["gloss_bias_level"] == 1.25
+    assert body["firing_calibration_runs"] == 4
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_submit_calibration_run_preserves_existing_firing_bias() -> None:
+    """두께 계수(k1) 갱신이 같은 행의 소성조건 개인화 편향("firing" 키)을
+    지워버리면 안 된다 — 두 신호가 같은 jsonb 컬럼을 공유하기 때문."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[{
+                "coefficients": {
+                    "firing": {"recipe_id": "coastal-satin", "gloss_bias_level": 2.0, "calibration_runs": 1, "provenance_notes": ["기존 편향"]},
+                },
+            }])
+        assert request.method == "POST"
+        body = json.loads(request.content)
+        # 두께 계수는 새로 갱신되면서도, 기존 firing 편향은 그대로 남아 있어야 한다.
+        assert body["coefficients"]["calibration_runs"] == 1
+        assert body["coefficients"]["firing"]["gloss_bias_level"] == 2.0
+        return httpx.Response(200, json=[{**body, "id": "row-1"}])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/aice/calibration/coastal-satin/runs",
+            json={
+                "ware_preset": "bowl",
+                "bisque_temperature_c": 950.0,
+                "weight_before_g": 200.0,
+                "weight_after_g": 296.0,
+                "method": "담금",
+                "dip_seconds": 9.0,
+                "specific_gravity": 1.45,
+            },
+            headers={"Authorization": "Bearer valid-token"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # 응답에도 보존된 firing 편향이 함께 실려 나가야 한다.
+    assert body["table"]["gloss_bias_level"] == 2.0
+    assert body["table"]["firing_calibration_runs"] == 1
+    await upstream.aclose()

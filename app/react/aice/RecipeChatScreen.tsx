@@ -70,6 +70,10 @@ export function RecipeChatScreen({
         materials: candidate.materials,
         colorants: candidate.colorants,
         style_note: `${candidate.predicted_firing_note} ${candidate.colorant_note ?? ""}`.trim(),
+        // 목표 분류(광택도·투명도)를 이미지 생성까지 넘긴다 — 이전에는 여기서
+        // 끊겨서 "매트 레시피인데 유광 이미지" 같은 불일치가 났다.
+        target_gloss: candidate.target_gloss ?? "",
+        target_transparency: candidate.target_transparency ?? "",
       });
       setImages((prev) => ({
         ...prev,

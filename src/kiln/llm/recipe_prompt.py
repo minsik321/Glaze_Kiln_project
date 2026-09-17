@@ -80,7 +80,20 @@ _SCHEMA_DESCRIPTION = """
 """.strip()
 
 
-def build_messages(prompt_text: str, candidates: list[Candidate]) -> list[dict[str, str]]:
+def build_messages(
+    prompt_text: str,
+    candidates: list[Candidate],
+    *,
+    #: RAG(수정 사항 정리 3번)로 검색해 온 참고 문서 — 원료 화학, 성분
+    #: 상관관계, 사용자 본인의 과거 레시피 코퍼스에서 뽑힌 텍스트 조각을
+    #: 이미 한국어 문자열로 합쳐 받는다. 이 모듈은 "순수 stdlib" 경계라
+    #: (패키지 docstring 참고) 벡터 DB 클라이언트를 직접 import하지 않는다
+    #: — 검색·포매팅은 backend/app/vectorstore.py·routes.py 몫이고, 여기는
+    #: 이미 만들어진 문자열을 프롬프트에 참고 자료로 덧붙이기만 한다.
+    #: 빈 문자열이면(RAG 꺼짐·검색 결과 없음) 기존과 동일하게 아무것도
+    #: 덧붙이지 않는다 — 이전 프롬프트와 100% 하위호환.
+    retrieved_context: str = "",
+) -> list[dict[str, str]]:
     """화면 1 채팅 입력 + 검색이 낸 고정 배합 → 서술 요청 메시지.
 
     ``candidates``(``kiln.search.prior.propose`` 결과)의 배합비는 이미
@@ -93,11 +106,17 @@ def build_messages(prompt_text: str, candidates: list[Candidate]) -> list[dict[s
         f"{_format_materials(candidate.materials)}"
         for index, candidate in enumerate(candidates)
     )
+    rag_block = (
+        f"\n참고 자료(검색된 문서 — 근거로만 참고하고, 배합비를 바꾸는 데 쓰지 않는다):\n{retrieved_context}\n"
+        if retrieved_context
+        else ""
+    )
     system = (
         "당신은 도예 유약 레시피 후보를 서술하는 보조 도구다. 아래에 각 후보의 "
         "배합비(wt%)가 이미 정해져 있다 — 이 숫자를 절대 바꾸거나 새로 지어내지 "
         f"않는다. 정확히 이 순서·id로 {len(candidates)}개 후보를 서술한다.\n"
         f"{listing}\n"
+        f"{rag_block}"
         "각 후보에 대해 짧은 이름과 근거만 제안한다. 발색 산화물은 기본 원료 "
         "합계에 넣지 말고 건조 기본 유약 100g 대비 외배합 wt%로 colorants에 "
         f"따로 쓴다. 허용 산화물은 {', '.join(_COLORANT_NAMES)}뿐이다. 무색 후보는 "

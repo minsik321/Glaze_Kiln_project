@@ -1,0 +1,33 @@
+# RAG용 Docker 벡터 DB (수정 사항 정리 3번 — "Pc에 docker가 깔려 있으니 그걸
+# 통해서 벡터 db 만들어서 연결", "db는 도커가 더 편한것 같은데 그렇게 적용해").
+#
+# 엔진: Qdrant (Claude가 고름 — backend/app/vectorstore.py 모듈 docstring에
+# 이유가 적혀 있다: 공식 이미지 하나로 뜨고, fastembed로 로컬 임베딩을
+# 계산해서 별도 임베딩 서버·API 키가 필요 없다).
+#
+# 사용법 (최초 1회):
+#   1) docker compose up -d
+#   2) backend/.env 에 QDRANT_URL=http://localhost:6333 확인(기본값 그대로면 됨)
+#   3) 원료 화학·성분 상관관계 코퍼스 시딩:
+#        cd backend && pip install -e ".[backend-dev]"
+#        python ../scripts/ingest_corpus.py
+#      (과거 레시피 코퍼스는 이 스크립트가 아니라, 회차를 저장할 때마다
+#      backend/app/routes.py의 create_aice_run이 자동으로 인덱싱한다 —
+#      "데이터를 저장하면 벡터 db에 저장되는 방식" 요구사항)
+#
+# 이후로는 백엔드(uvicorn)를 띄우기 전에 `docker compose up -d`만 실행하면
+# 된다. 컨테이너를 내려도(`docker compose down`) 데이터는 `qdrant_storage`
+# 볼륨에 남는다 — 완전히 지우려면 `docker compose down -v`.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: aice-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API + 대시보드(http://localhost:6333/dashboard)
+      - "6334:6334"   # gRPC (qdrant-client가 상황에 따라 사용)
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

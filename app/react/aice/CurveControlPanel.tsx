@@ -17,14 +17,22 @@ function samplePath(samples: ControllerSample[], field: "plannedC" | "sensorC" |
 
 export function CurveControlPanel({
   coating,
+  //: 레시피의 예상 소성범위 — "기준 계획이 박힌게 아니라 레시피에 따른
+  //: 소성" 요구사항에 따라 기준 계획을 여기서 유도한다. 생략하면(테스트 등)
+  //: buildCurveComparison의 기본값(레시피 없음 → 고정 기준 계획)을 쓴다.
+  recipeFiringRangeC,
   approved,
   onApprove,
 }: {
   coating: CoatingPreset;
+  recipeFiringRangeC?: readonly [number, number] | null;
   approved: boolean;
   onApprove: (decision: ControlDecision, samples: ControllerSample[], parameters: Record<string, SourcedValue<number>>) => void;
 }) {
-  const curves = useMemo(() => buildCurveComparison(coating), [coating]);
+  const curves = useMemo(
+    () => buildCurveComparison(coating, recipeFiringRangeC ?? null),
+    [coating, recipeFiringRangeC],
+  );
   const [visible, setVisible] = useState<Record<CurveRole, boolean>>({ baseline: true, adjusted: true, actual: true, next: true });
   // LLM 프런트도어 TODO Phase 3: 사용자에게는 더 이상 이름 붙은 프리셋을
   // 고르게 하지 않는다 — "다시 추천"을 누를 때마다 내부적으로 다음 외란

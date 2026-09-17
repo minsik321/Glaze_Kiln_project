@@ -62,10 +62,39 @@ export type ControllerRun = {
 
 const round = (value: number, digits = 1) => Number(value.toFixed(digits));
 
-const BASE = [
+//: 예전에는 고정 배열이었다("기준 계획이 박힌" 문제). 사용자 요구사항:
+//: "소성이 그럼 기준 계획이 박힌게 아니라 레시피에 따른 소성이 되어야지" —
+//: 이제 기준 계획 자체를 레시피의 예상 소성범위에서 유도한다. 범위를 모를
+//: 때만(레시피 미선택 등) 예전 고정값(최고온도 1199 °C)으로 안전하게
+//: 대체한다.
+const DEFAULT_PEAK_C = 1199;
+
+const FALLBACK_BASE_SHAPE: ReadonlyArray<{ minute: number; temperatureC: number }> = [
   { minute: 0, temperatureC: 20 }, { minute: 60, temperatureC: 110 }, { minute: 300, temperatureC: 980 },
   { minute: 360, temperatureC: 1199 }, { minute: 400, temperatureC: 1199 }, { minute: 480, temperatureC: 631 },
 ];
+
+//: 레시피의 예상 소성범위(catalog.ts 표시용 문자열을 parseFiringRangeC로
+//: 파싱한 값, 또는 LLM 후보의 predicted_firing_range)가 있으면 그 중앙값을
+//: 최고온도로 삼아 기준 계획을 다시 그린다. 300분·480분 지점은 기존 곡선의
+//: 형태(최고온도 대비 비율)를 그대로 유지하도록 스케일한다 — 절대
+//: 오프셋이 아니다. 범위가 없으면 예전 고정 기준 계획으로 대체한다.
+function buildBaselinePoints(recipeFiringRangeC: readonly [number, number] | null): CurveSeries["points"] {
+  if (!recipeFiringRangeC) {
+    return FALLBACK_BASE_SHAPE.map((point) => ({ ...point }));
+  }
+  const [lo, hi] = recipeFiringRangeC;
+  const peakC = round((lo + hi) / 2, 0);
+  const scale = peakC / DEFAULT_PEAK_C;
+  return [
+    { minute: 0, temperatureC: 20 },
+    { minute: 60, temperatureC: 110 },
+    { minute: 300, temperatureC: round(980 * scale, 0) },
+    { minute: 360, temperatureC: peakC },
+    { minute: 400, temperatureC: peakC },
+    { minute: 480, temperatureC: round(631 * scale, 0) },
+  ];
+}
 
 // 내부 구현 전용 — 화면에 이 순서·이름을 노출하지 않는다. "다시 추천"을 누를
 // 때마다 다음 항목으로 순환한다.
@@ -110,19 +139,25 @@ export const CONTROL_PLANS: Record<ControlPreset, ControlPlan> = {
 
 export function buildCurveComparison(
   coating: CoatingPreset,
+  //: 레시피의 예상 소성범위 — 기준 계획을 이 값에서 유도한다("레시피에
+  //: 따른 소성"). 없으면(레시피 미선택 등) 고정 기준 계획으로 대체한다.
+  recipeFiringRangeC: readonly [number, number] | null = null,
   //: LLM 프런트도어 TODO Phase 3 — Prediction Model 초안(predictionModel.ts)이
   //: 계산한 "다음 실행 제안" 보정값. 생략하면 기존 고정값(-3 °C)을 쓴다 —
   //: 예측 입력(레시피·기물·이력)이 없는 호출부(예: 테스트)도 그대로 동작한다.
   nextHoldDeltaC = -3,
   nextReason = "합성 추종오차를 줄이기 위한 미승인 제안",
 ): CurveSeries[] {
+  const base = buildBaselinePoints(recipeFiringRangeC);
+  const baselineSourceType: SourceType = recipeFiringRangeC ? "inferred" : "synthetic";
+  const baselineReason = recipeFiringRangeC ? "레시피의 예상 소성범위에서 유도한 기준 계획" : "레시피 정보가 없어 대체한 설명용 기준 계획";
   const adjustedDelta = coating === "thick" ? -12 : coating === "thin" ? 6 : -4;
   const reason = coating === "thick" ? "두꺼운 형상 기반 분포를 반영해 최고 구간을 낮추고 완만하게 만든 합성 후보" : coating === "thin" ? "얇은 형상 기반 분포를 반영해 유지 구간을 줄인 합성 후보" : "목표 근처 도포의 불확실성을 반영한 완만한 합성 후보";
-  const adjusted = BASE.map((point) => point.minute >= 300 && point.minute <= 400 ? { ...point, temperatureC: point.temperatureC + adjustedDelta } : point);
+  const adjusted = base.map((point) => point.minute >= 300 && point.minute <= 400 ? { ...point, temperatureC: point.temperatureC + adjustedDelta } : point);
   const actual = adjusted.map((point, index) => ({ ...point, temperatureC: round(point.temperatureC + (index % 2 ? -7 : 3)) }));
   const next = adjusted.map((point) => point.minute === 360 || point.minute === 400 ? { ...point, temperatureC: point.temperatureC + nextHoldDeltaC } : point);
   return [
-    { id: "baseline-v1", role: "baseline", label: "기준 계획", sourceType: "synthetic", points: BASE, reason: "비교를 위한 설명용 기준 계획" },
+    { id: "baseline-v1", role: "baseline", label: "기준 계획", sourceType: baselineSourceType, points: base, reason: baselineReason },
     { id: `thickness-${coating}-v1`, role: "adjusted", label: "두께 반영 수정 계획", sourceType: "synthetic", points: adjusted, reason, annotation: { minute: 340, temperatureC: 1100 + adjustedDelta, text: reason } },
     { id: `actual-${coating}-v1`, role: "actual", label: "시뮬레이션 실제", sourceType: "synthetic", points: actual, reason: "합성 센서 응답으로 재현한 실행선" },
     { id: `next-${coating}-v1`, role: "next", label: "다음 실행 제안", sourceType: "inferred", points: next, reason: nextReason },

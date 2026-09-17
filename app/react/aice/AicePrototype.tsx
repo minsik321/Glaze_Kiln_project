@@ -191,25 +191,53 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
   );
   const arealDensity = arealDensityFromProfile(thicknessProfile);
 
+  // 사용자 요구사항: "소성이 그럼 기준 계획이 박힌게 아니라 레시피에 따른
+  // 소성이 되어야지 그에 기반으로 두께에 따라 소성이 수정되어야 하는거고" —
+  // curvePlan.ts의 기준 계획과 predictNextRun의 예측 입력이 함께 참조할
+  // "지금 활성 레시피의 예상 소성범위" 하나를 여기서 계산한다. LLM 후보가
+  // 있으면 그 predicted_firing_range를 우선하고(가장 최신 추천), 없으면
+  // 카탈로그에서 고른 레시피의 표시용 범위를 파싱해 대체한다.
+  const selectedRecipeForFiring = useMemo(
+    () => RECIPE_CANDIDATES.find((item) => item.id === state.recipe),
+    [state.recipe],
+  );
+  const activeFiringRangeC = useMemo<readonly [number, number] | null>(() => {
+    const llmRange = state.llmCandidate?.predicted_firing_range.value;
+    if (llmRange?.[0] != null && llmRange[1] != null) return [llmRange[0], llmRange[1]];
+    return selectedRecipeForFiring ? parseFiringRangeC(selectedRecipeForFiring.firingRange) : null;
+  }, [state.llmCandidate, selectedRecipeForFiring]);
+
   // Phase 5: predictNextRun의 priorRunCount는 더 이상 0으로 고정된
   // 초안이 아니다 — kiln.calibration.registry.CoefficientTableStore에
   // 저장된 실제 calibration_runs를 backend/app 경유로 읽는다(레시피별
   // 저장소 격리, personal_calibrations 참고).
   const activeRecipeId = state.llmCandidate?.id ?? state.recipe ?? null;
   const [calibrationRuns, setCalibrationRuns] = useState(0);
+  //: Phase 5 후속(kiln.calibration.firing) — 이 레시피로 평가 완료된
+  //: 회차들의 (실제 광택 − 목표 광택) 누적 편향. 아직 관측이 없으면
+  //: null(0과 다른 진술)이며, predictNextRun이 이 값을 다음 유지온도
+  //: 제안에 부호를 뒤집어 반영한다.
+  const [firingGlossBias, setFiringGlossBias] = useState<number | null>(null);
   useEffect(() => {
     if (!token || !activeRecipeId) {
       setCalibrationRuns(0);
+      setFiringGlossBias(null);
       return;
     }
     let cancelled = false;
     calibrationApi
       .get(token, activeRecipeId)
       .then((table) => {
-        if (!cancelled) setCalibrationRuns(table.calibration_runs);
+        if (!cancelled) {
+          setCalibrationRuns(table.calibration_runs);
+          setFiringGlossBias(table.gloss_bias_level);
+        }
       })
       .catch(() => {
-        if (!cancelled) setCalibrationRuns(0);
+        if (!cancelled) {
+          setCalibrationRuns(0);
+          setFiringGlossBias(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -232,12 +260,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
     const prediction = predictNextRun({
       coating: state.coating ?? "target",
       ware: state.ware ?? "bowl",
-      recipeFiringRangeC: selectedRecipe ? parseFiringRangeC(selectedRecipe.firingRange) : null,
+      recipeFiringRangeC: activeFiringRangeC,
       //: personal_calibrations에 저장된 실제 회차 수(위 useEffect) — 로그인
       //: 전이거나 아직 캘리브레이션 이력이 없으면 0.
       priorRunCount: calibrationRuns,
+      //: kiln.calibration.firing이 누적한 실측 광택 편향(위 useEffect) —
+      //: 로그인 전이거나 관측이 아직 없으면 null.
+      firingGlossBiasLevel: firingGlossBias,
     });
-    const curveSeries = buildCurveComparison(state.coating ?? "target", prediction.holdDeltaC, prediction.reason);
+    const curveSeries = buildCurveComparison(state.coating ?? "target", activeFiringRangeC, prediction.holdDeltaC, prediction.reason);
     const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
     const controlSamples = state.curveApproved ? state.approvedControlSamples : [];
     const controlParameters = state.curveApproved ? state.approvedControlParameters : {};
@@ -255,6 +286,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
           ? { ...state.llmCandidate.predicted_firing_range, value: [llmRange[0], llmRange[1]] as [number, number] }
           : run.recipe.firing_range,
         source_ids: state.llmCandidate.source_ids,
+        //: 조성 추천 피드백 루프가 저장된 회차에서 배합을 다시 읽어야
+        //: 하므로(Prior 되먹임), 확정 시점에 materials를 함께 저장한다 —
+        //: 이전에는 여기서 배합이 통째로 사라졌다.
+        materials: { ...state.llmCandidate.materials },
       } : { ...run.recipe, id: state.recipe ?? run.recipe.id, name: selectedRecipe?.name ?? run.recipe.name },
       ware: { ...run.ware, preset: state.ware ?? run.ware.preset, clay_body: state.clayBody ?? run.ware.clay_body },
       loading: {
@@ -300,7 +335,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         feedback_scope: state.result ? state.evaluation.scope : null,
       },
     };
-  }, [restoredRun, state, step, thicknessViewData, arealDensity, calibrationRuns]);
+  }, [restoredRun, state, step, thicknessViewData, arealDensity, calibrationRuns, firingGlossBias, activeFiringRangeC]);
 
   useEffect(() => {
     if (!restoredRun) return;
@@ -315,7 +350,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       let approvedControlSamples: ControllerSample[] = [];
       let approvedControlParameters: Record<string, SourcedValue<number>> = {};
       if (curveApproved) {
-        const curveSeries = buildCurveComparison("target");
+        const curveSeries = buildCurveComparison("target", restoredRun.recipe.firing_range.value);
         const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
         const run = await simulateController(adjustedCurve, "balanced");
         approvedControlSamples = run.samples;
@@ -469,7 +504,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         )}
 
         {step === 6 && (
-          <CurveControlPanel coating={state.coating ?? "target"} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
+          <CurveControlPanel coating={state.coating ?? "target"} recipeFiringRangeC={activeFiringRangeC} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
         )}
 
         {step === 7 && (
