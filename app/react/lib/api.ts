@@ -175,7 +175,7 @@ export type KilnSimulateResponse = {
 };
 
 export const kilnFiringApi = {
-  //: 가상 제어기 패널(CurveControlPanel.tsx) — `kiln.firing.controller`·
+  //: 가상 제어기 패널(KilnFiringScreen.tsx) — `kiln.firing.controller`·
   //: `kiln.firing.simulator`를 그대로 돌린다. 사용자 데이터를 다루지 않는
   //: 순수 계산이라 로그인 없이 부른다.
   simulate: (schedule: ReadonlyArray<readonly [number, number]>, disturbance: KilnDisturbance = {}, dtS = 60) =>

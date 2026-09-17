@@ -795,7 +795,7 @@ async def generate_recipe_candidate_image(
 
 @router.post("/kiln/firing/simulate", response_model=KilnSimulateResponse)
 async def simulate_kiln_firing(body: KilnSimulateRequest) -> KilnSimulateResponse:
-    """가상 제어기 패널(CurveControlPanel.tsx) — 실제 사용자 데이터를 다루지
+    """가상 제어기 패널(KilnFiringScreen.tsx) — 실제 사용자 데이터를 다루지
     않는 순수 계산이라 로그인 없이 연다(예전 브라우저 내 Pyodide 실행과
     같은 접근성). `kiln.firing.controller.SegmentedController`와
     `kiln.firing.simulator.KilnSimulator`를 그대로 돌린다 — 이 경로는

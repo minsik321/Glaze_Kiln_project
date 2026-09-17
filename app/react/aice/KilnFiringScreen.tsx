@@ -121,7 +121,10 @@ export function KilnFiringScreen({
   const heatHue = 210 - frame.visual.heatLevel * 196;
 
   const curves = useMemo(() => buildCurveComparison(coating, recipeFiringRangeC ?? null), [coating, recipeFiringRangeC]);
-  const [visible, setVisible] = useState<Record<CurveRole, boolean>>({ baseline: true, adjusted: true, actual: true, next: true });
+  //: riskMitigationApplied가 true면(5페이지에서 위험을 줄이는 소성 계획을
+  //: 이미 적용했으면) "기준 계획" 대신 "두께 반영 수정 계획"을 기본으로
+  //: 강조한다 — 기준 계획 자체는 지워지지 않고 체크박스로 다시 켤 수 있다.
+  const [visible, setVisible] = useState<Record<CurveRole, boolean>>({ baseline: !riskMitigationApplied, adjusted: true, actual: true, next: true });
   const [run, setRun] = useState<ControllerRun | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "complete">("loading");
   const [error, setError] = useState<string | null>(null);

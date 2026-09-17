@@ -47,7 +47,7 @@ type PrototypeState = {
   glazingMethod: string;
   dipSeconds: string;
   curveApproved: boolean;
-  // LLM 프런트도어 TODO Phase 3: 승인 시점에 CurveControlPanel이 실제로
+  // LLM 프런트도어 TODO Phase 3: 승인 시점에 KilnFiringScreen이 실제로
   // 사용한 합성 게인·샘플을 그대로 받아 기록한다 — 이름 붙은 프리셋을 부모가
   // 다시 고르지 않는다(§2-1 참고).
   approvedControlSamples: ControllerSample[];
@@ -135,7 +135,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
 
   // 07절 두께 계산은 이제 백엔드 `/kiln/thickness/profile`(kiln.thickness
   // .profile.compute_profile)을 실제로 돌리므로 비동기다. requestId로
-  // 오래된 응답이 최신 입력을 덮어쓰지 않게 막는다(CurveControlPanel.tsx와
+  // 오래된 응답이 최신 입력을 덮어쓰지 않게 막는다(KilnFiringScreen.tsx와
   // 같은 패턴).
   const [thicknessProfile, setThicknessProfile] = useState<ThicknessComputeResponse | null>(null);
   const [thicknessStatus, setThicknessStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
