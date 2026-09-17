@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
@@ -57,6 +58,24 @@ async def test_chat_json_rejects_non_json_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_json_accepts_provider_markdown_fence() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "요청한 JSON입니다.\n```json\n{\"candidates\": []}\n```"}}
+                ]
+            },
+        )
+
+    client = _client(handler)
+    result = await client.chat_json([{"role": "user", "content": "hi"}])
+    assert result == {"candidates": []}
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_chat_json_maps_upstream_error() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": {"message": "invalid api key"}})
@@ -81,8 +100,6 @@ async def test_not_configured_raises_before_request() -> None:
 @pytest.mark.asyncio
 async def test_generate_image_decodes_b64_json() -> None:
     raw = b"fake-image-bytes"
-    import base64
-
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/images/generations"
         return httpx.Response(
@@ -92,6 +109,36 @@ async def test_generate_image_decodes_b64_json() -> None:
     client = _client(handler)
     image = await client.generate_image("a bowl")
     assert image == raw
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_decodes_data_url_b64_json() -> None:
+    raw = b"\x89PNG\r\n\x1a\nimage"
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        encoded = base64.b64encode(raw).decode()
+        return httpx.Response(200, json={"data": [{"b64_json": f"data:image/png;base64,{encoded}"}]})
+
+    client = _client(handler)
+    assert await client.generate_image("a bowl") == raw
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_follows_cdn_redirect() -> None:
+    raw = b"\x89PNG\r\n\x1a\nimage"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/images/generations":
+            return httpx.Response(200, json={"data": [{"url": "https://cdn.test/image"}]})
+        if request.url.host == "cdn.test":
+            return httpx.Response(302, headers={"Location": "https://storage.test/image.png"})
+        assert request.url.host == "storage.test"
+        return httpx.Response(200, content=raw, headers={"Content-Type": "image/png"})
+
+    client = _client(handler)
+    assert await client.generate_image("a bowl") == raw
     await client.close()
 
 

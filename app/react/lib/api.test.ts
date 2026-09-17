@@ -113,7 +113,7 @@ describe("recipe candidates API client", () => {
 
   it("requests a candidate image and returns base64", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ image_base64: "Zm9v" }), {
+      new Response(JSON.stringify({ image_base64: "Zm9v", media_type: "image/webp" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -127,6 +127,7 @@ describe("recipe candidates API client", () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain("/aice/recipe-candidates/image");
     expect(result.image_base64).toBe("Zm9v");
+    expect(result.media_type).toBe("image/webp");
   });
 
   it("surfaces the backend error when the LLM call fails", async () => {

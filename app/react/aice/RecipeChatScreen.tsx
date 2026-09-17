@@ -19,11 +19,13 @@ import { Alert, AsyncState, DetailDrawer, StatusBadge } from "./ui";
 export function RecipeChatScreen({
   token,
   onSelect,
+  onIntake,
+  disabled = false,
 }: {
   token: string;
-  //: 후보 선택 시 상위(화면 흐름)로 전달 — 아직 AicePrototype에 배선되지
-  //: 않았다(별도 통합 작업).
   onSelect?: (candidate: RecipeCandidate) => void;
+  onIntake?: (promptText: string, candidates: RecipeCandidate[]) => void;
+  disabled?: boolean;
 }) {
   const [promptText, setPromptText] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "complete">("idle");
@@ -31,13 +33,14 @@ export function RecipeChatScreen({
   const [candidates, setCandidates] = useState<RecipeCandidate[]>([]);
   const [dropped, setDropped] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [images, setImages] = useState<Record<string, string>>({});
+  const [images, setImages] = useState<Record<string, { base64: string; mediaType: string }>>({});
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
+  const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const trimmed = promptText.trim();
-    if (!trimmed || status === "loading") return;
+    if (!trimmed || status === "loading" || disabled) return;
     setStatus("loading");
     setError(null);
     try {
@@ -55,19 +58,27 @@ export function RecipeChatScreen({
   function selectCandidate(candidate: RecipeCandidate) {
     setSelectedId(candidate.id);
     onSelect?.(candidate);
+    onIntake?.(promptText.trim(), candidates);
   }
 
   async function requestImage(candidate: RecipeCandidate) {
     setImageLoading((prev) => ({ ...prev, [candidate.id]: true }));
+    setImageErrors((prev) => ({ ...prev, [candidate.id]: "" }));
     try {
       const result = await recipeCandidatesApi.image(token, {
         candidate_name: candidate.name,
         materials: candidate.materials,
         style_note: candidate.predicted_firing_note,
       });
-      setImages((prev) => ({ ...prev, [candidate.id]: result.image_base64 }));
-    } catch {
-      // 이미지 실패는 카드 전체를 막지 않는다 — 배합 정보는 여전히 유효하다.
+      setImages((prev) => ({
+        ...prev,
+        [candidate.id]: { base64: result.image_base64, mediaType: result.media_type },
+      }));
+    } catch (err) {
+      setImageErrors((prev) => ({
+        ...prev,
+        [candidate.id]: err instanceof ApiError ? err.message : "이미지를 생성하지 못했습니다.",
+      }));
     } finally {
       setImageLoading((prev) => ({ ...prev, [candidate.id]: false }));
     }
@@ -90,8 +101,9 @@ export function RecipeChatScreen({
           onChange={(event) => setPromptText(event.target.value)}
           placeholder="예: 사발에 어울리는 청록색 사틴 유약을 찾고 있어요"
           rows={3}
+          disabled={disabled}
         />
-        <button type="submit" disabled={status === "loading" || !promptText.trim()}>
+        <button type="submit" disabled={disabled || status === "loading" || !promptText.trim()}>
           {status === "loading" ? "후보 만드는 중…" : "후보 만들기"}
         </button>
       </form>
@@ -118,10 +130,15 @@ export function RecipeChatScreen({
                 </div>
                 {images[candidate.id] && (
                   <img
-                    src={`data:image/png;base64,${images[candidate.id]}`}
+                    src={`data:${images[candidate.id].mediaType};base64,${images[candidate.id].base64}`}
                     alt={`${candidate.name} AI 예상 이미지 — 실물 사진 아님`}
                     className="recipe-candidate-image"
                   />
+                )}
+                {imageErrors[candidate.id] && (
+                  <Alert tone="danger" title="이미지를 만들지 못했어요">
+                    {imageErrors[candidate.id]}
+                  </Alert>
                 )}
                 <h4>배합</h4>
                 <dl>

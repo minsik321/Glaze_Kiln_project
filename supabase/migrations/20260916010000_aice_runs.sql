@@ -1,4 +1,4 @@
--- AiceRun v2 normalized envelope, provenance, consent, photo metadata and RLS.
+-- AiceRun v3 normalized envelope, provenance, consent, photo metadata and RLS.
 -- Legacy work_records remains readable and unchanged for compatibility.
 
 create table public.aice_runs (
@@ -6,7 +6,7 @@ create table public.aice_runs (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   title text not null check (char_length(trim(title)) between 1 and 200),
   payload jsonb not null check (jsonb_typeof(payload) = 'object'),
-  schema_version integer not null default 2 check (schema_version = 2),
+  schema_version integer not null default 3 check (schema_version = 3),
   status text not null check (status in ('draft', 'simulated', 'evaluated')),
   goal_gloss text not null,
   goal_transparency text not null,
@@ -15,7 +15,7 @@ create table public.aice_runs (
   is_public boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (payload ->> 'schema_version' = '2')
+  check (payload ->> 'schema_version' = '3')
 );
 create index aice_runs_owner_date on public.aice_runs(user_id, created_at desc);
 create index aice_runs_discovery on public.aice_runs(goal_gloss, goal_transparency, recipe_id, ware_preset, created_at desc);

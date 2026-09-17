@@ -1,10 +1,11 @@
-# AiceRun v2 마이그레이션과 호환성
+# AiceRun v3 마이그레이션과 호환성
 
 ## 적용 순서
 
 1. 기존 `work_records`를 백업한다.
 2. `20260915000000_initial.sql` 뒤에
-   `20260916010000_aice_runs.sql`을 적용한다.
+   `20260916010000_aice_runs.sql`을 적용한다. 이 파일은 신규 DB에 AiceRun v3
+   테이블과 정책을 바로 생성한다.
 3. 새 실행은 `aice_runs`에 저장한다. 검색에 필요한 목표, 레시피, 기물, 상태만
    정규화하고 전체 계약은 `payload`에 보존한다.
 4. 기존 `work_records`는 수정하지 않으며 `legacy_work_records_readonly` 뷰와

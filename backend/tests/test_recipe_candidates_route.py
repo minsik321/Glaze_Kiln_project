@@ -128,7 +128,7 @@ async def test_suggest_recipe_candidates_maps_llm_error() -> None:
 
 @pytest.mark.asyncio
 async def test_generate_recipe_candidate_image_returns_base64() -> None:
-    raw = b"fake-png-bytes"
+    raw = b"\x89PNG\r\n\x1a\nfake-png-bytes"
 
     def llm_handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/images/generations"
@@ -151,5 +151,6 @@ async def test_generate_recipe_candidate_image_returns_base64() -> None:
         )
     assert response.status_code == 200, response.text
     assert base64.b64decode(response.json()["image_base64"]) == raw
+    assert response.json()["media_type"] == "image/png"
     await auth_upstream.aclose()
     await llm_upstream.aclose()

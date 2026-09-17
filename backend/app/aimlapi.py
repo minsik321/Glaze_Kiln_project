@@ -85,6 +85,30 @@ class AimlapiClient:
             "Content-Type": "application/json",
         }
 
+    @staticmethod
+    def _parse_json_object(content: Any) -> dict[str, Any]:
+        """Parse an object even when a provider wraps it in prose or fences."""
+        if not isinstance(content, str):
+            raise AimlapiError(
+                502, "invalid_llm_json", "LLM 응답이 JSON 문자열이 아닙니다."
+            )
+        start = content.find("{")
+        if start < 0:
+            raise AimlapiError(
+                502, "invalid_llm_json", "LLM이 고정 JSON 스키마로 응답하지 않았습니다."
+            )
+        try:
+            parsed, _ = json.JSONDecoder().raw_decode(content[start:])
+        except json.JSONDecodeError as exc:
+            raise AimlapiError(
+                502, "invalid_llm_json", "LLM이 고정 JSON 스키마로 응답하지 않았습니다."
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise AimlapiError(
+                502, "invalid_llm_json", "LLM 응답이 JSON 객체가 아닙니다."
+            )
+        return parsed
+
     async def chat_json(
         self, messages: list[dict[str, Any]], *, temperature: float = 0.4
     ) -> dict[str, Any]:
@@ -110,17 +134,7 @@ class AimlapiClient:
             raise AimlapiError(
                 502, "invalid_upstream_response", "LLM 응답 형식이 올바르지 않습니다."
             ) from exc
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise AimlapiError(
-                502, "invalid_llm_json", "LLM이 고정 JSON 스키마로 응답하지 않았습니다."
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise AimlapiError(
-                502, "invalid_llm_json", "LLM 응답이 JSON 객체가 아닙니다."
-            )
-        return parsed
+        return self._parse_json_object(content)
 
     async def generate_image(
         self,
@@ -155,9 +169,32 @@ class AimlapiClient:
                 502, "invalid_upstream_response", "이미지 생성 응답 형식이 올바르지 않습니다."
             ) from exc
         if item.get("b64_json"):
-            return base64.b64decode(item["b64_json"])
+            encoded = item["b64_json"]
+            if not isinstance(encoded, str):
+                raise AimlapiError(
+                    502, "invalid_upstream_response", "이미지 base64 응답 형식이 올바르지 않습니다."
+                )
+            # Some OpenAI-compatible gateways return a complete data URL in
+            # b64_json instead of the bare base64 payload.
+            if encoded.startswith("data:"):
+                try:
+                    encoded = encoded.split(",", 1)[1]
+                except IndexError as exc:
+                    raise AimlapiError(
+                        502, "invalid_upstream_response", "이미지 data URL 형식이 올바르지 않습니다."
+                    ) from exc
+            try:
+                return base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError) as exc:
+                raise AimlapiError(
+                    502, "invalid_upstream_response", "이미지 base64를 해석하지 못했습니다."
+                ) from exc
         if item.get("url"):
-            image_response = await self._request("GET", item["url"], absolute=True)
+            # AIMLAPI commonly returns a CDN URL. CDN download URLs may redirect
+            # to the final object-storage URL, so the image fetch must follow it.
+            image_response = await self._request(
+                "GET", item["url"], absolute=True, follow_redirects=True
+            )
             return image_response.content
         raise AimlapiError(
             502, "invalid_upstream_response", "이미지 생성 응답에 데이터가 없습니다."

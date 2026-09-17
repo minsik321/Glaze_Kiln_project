@@ -44,8 +44,9 @@ Docker가 없는 환경에서는 이 방법을 실행할 수 없습니다.
 ### Supabase 클라우드
 
 1. 자신의 Supabase 프로젝트를 생성합니다.
-2. SQL Editor에서 `supabase/migrations/20260915000000_initial.sql`과
-   `20260916010000_aice_runs.sql`을 순서대로 한 번 실행합니다.
+2. SQL Editor에서 아래 파일을 순서대로 한 번씩 실행합니다.
+   - `supabase/migrations/20260915000000_initial.sql`
+   - `supabase/migrations/20260916010000_aice_runs.sql`
 3. Project URL과 publishable key를 아래 값에 넣습니다.
 4. 인증을 구현할 때 Auth URL Configuration의 Site URL과 Redirect URLs를 개발/운영 주소에 맞춥니다.
 
@@ -62,7 +63,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
 - profiles: Auth 사용자 ID, 표시 이름, 생성 시간. 현재 본인만 접근.
 - work_records: 작성자 ID, 제목, JSONB payload, schema_version, is_public, 생성/수정 시간.
-- aice_runs: AiceRun v2 전체 payload와 목표·레시피·기물·상태 검색 필드.
+- aice_runs: AiceRun v3 전체 payload와 목표·레시피·기물·상태 검색 필드.
 - aice_run_sources / aice_consents / aice_photos: 출처, 공개 동의·철회, 비공개 사진
   메타데이터. 공개 조회에는 활성 동의와 사진 권리가 모두 필요합니다.
 - personal_calibrations: 사용자 소유 가마·소지 보정. 공개 실행과 분리됩니다.

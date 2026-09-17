@@ -29,7 +29,13 @@ def auth_response(request: httpx.Request) -> httpx.Response | None:
         return None
     if request.headers.get("authorization") != "Bearer valid-token":
         return httpx.Response(401, json={"message": "bad token"})
-    return httpx.Response(200, json={"id": str(USER_ID)})
+    return httpx.Response(200, json={
+        "id": str(USER_ID),
+        "email": "kiln@example.com",
+        "role": "authenticated",
+        "user_metadata": {"display_name": "Kiln tester"},
+        "identities": [],
+    })
 
 
 def client_for(handler):

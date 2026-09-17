@@ -79,7 +79,7 @@ describe("RecipeChatScreen (화면 1)", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(mockSuggestResponse())
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ image_base64: "Zm9v" }), {
+        new Response(JSON.stringify({ image_base64: "Zm9v", media_type: "image/png" }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),

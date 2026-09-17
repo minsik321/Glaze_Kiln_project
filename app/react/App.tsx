@@ -4,6 +4,7 @@ import type { SimulatorSnapshot } from "./Simulator";
 import { AicePrototype } from "./aice/AicePrototype";
 import { AppShell, BottomNavigation } from "./aice/ui";
 import type { AiceRun } from "./aice/contract";
+import { useAuth } from "./auth/AuthProvider";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "records" | "account";
@@ -18,6 +19,7 @@ function NavIcon({ children }: { children: ReactNode }) {
 }
 
 export function App() {
+  const { session } = useAuth();
   const [getSnapshot, setGetSnapshot] = useState<SnapshotGetter>();
   const [view, setView] = useState<AppView>("work");
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
@@ -34,7 +36,7 @@ export function App() {
   return (
     <AppShell navigation={<BottomNavigation current={view} items={navigation} onChange={setView} />}>
         <section className="app-view" hidden={view !== "work"}>
-          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} />
+          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} token={session?.access_token} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">

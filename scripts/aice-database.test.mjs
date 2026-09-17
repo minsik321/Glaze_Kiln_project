@@ -37,7 +37,7 @@ async function withDatabase(run) {
 }
 
 const payload = {
-  schema_version: 2, run_id: "sample", revision: 1, title: "sample", status: "simulated",
+  schema_version: 3, run_id: "sample", revision: 1, title: "sample", status: "simulated",
   goal: { gloss: "satin", transparency: "opaque" }, recipe: { id: "recipe-1" }, ware: { preset: "bowl" },
   application: {}, thickness: {}, loading: {}, curves: {}, pid: {}, result: {}, sources: [], consent: {}, versions: {},
   created_at: "2026-09-16T00:00:00Z", updated_at: "2026-09-16T00:00:00Z",

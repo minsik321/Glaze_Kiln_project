@@ -446,4 +446,20 @@ async def generate_recipe_candidate_image(
         image_bytes = await llm.generate_image(prompt)
     except AimlapiError as exc:
         raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
-    return RecipeImageResponse(image_base64=base64.b64encode(image_bytes).decode())
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        media_type = "image/png"
+    elif image_bytes.startswith(b"\xff\xd8\xff"):
+        media_type = "image/jpeg"
+    elif image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+        media_type = "image/webp"
+    elif image_bytes.startswith((b"GIF87a", b"GIF89a")):
+        media_type = "image/gif"
+    else:
+        raise HTTPException(
+            502,
+            detail=error_detail("invalid_image_data", "이미지 응답의 파일 형식을 확인하지 못했습니다."),
+        )
+    return RecipeImageResponse(
+        image_base64=base64.b64encode(image_bytes).decode(),
+        media_type=media_type,
+    )

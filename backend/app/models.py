@@ -23,6 +23,9 @@ class ReadinessResponse(ApiModel):
 
 
 class AuthUser(ApiModel):
+    # Supabase Auth returns the full user document (email, role, metadata,
+    # identities, timestamps, ...). The API only needs the stable user id.
+    model_config = ConfigDict(extra="ignore")
     id: UUID
 
 
@@ -210,3 +213,4 @@ class RecipeImageResponse(ApiModel):
     #: PNG 원본 바이트의 base64 인코딩. ``source_type="synthetic"`` 로만
     #: 표시해야 한다(``PhotoAsset``) — 실물 사진이 아니다.
     image_base64: str
+    media_type: str

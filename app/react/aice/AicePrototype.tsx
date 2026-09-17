@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
-import { Alert, AsyncState, DetailDrawer, ExplanationPanel, ProgressHeader, StateGallery, StatusBadge } from "./ui";
-import { sampleAiceRun, type SourcedValue } from "./contract";
+import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
+import { sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
@@ -17,12 +17,16 @@ import { RecommendationEvidence } from "./RecommendationEvidence";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
 import type { ResultEvaluation } from "./feedback";
+import { RecipeChatScreen } from "./RecipeChatScreen";
 
 type Goal = "satin-blue" | "clear-warm" | "matte-white";
 
 type PrototypeState = {
   goal?: Goal;
-  recipe?: RecipeId;
+  recipe?: string;
+  llmCandidate?: RecipeCandidate;
+  intakePrompt?: string;
+  intakeCandidates: RecipeCandidate[];
   ware?: WarePreset;
   clayBody?: (typeof CLAY_BODIES)[number]["id"];
   customWareNote: string;
@@ -57,11 +61,12 @@ const initialState: PrototypeState = {
   approvedControlParameters: {},
   simulationCompleted: false,
   sensors: [],
+  intakeCandidates: [],
   evaluation: { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal" },
 };
 
 const screens = [
-  "홈",
+  "AI 제안",
   "결과",
   "레시피",
   "기물",
@@ -73,7 +78,7 @@ const screens = [
 ] as const;
 
 const screenTitles = [
-  ["한 번의 가상 실험을 시작해요", "사진과 쉬운 선택으로 끝까지 안내합니다."],
+  ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
   ["원하는 모습을 골라주세요", "정확한 수치 대신 가장 가까운 결과를 선택합니다."],
   ["근거가 있는 후보를 비교해요", "결과를 보장하지 않는 참고 후보입니다."],
   ["자주 쓰는 기물에서 골라요", "대표 형상을 사용한 추정임을 계속 표시합니다."],
@@ -123,7 +128,7 @@ function Guidance({ reason, assumption, next }: { reason: string; assumption: st
   );
 }
 
-export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun> }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
   const arealDensity = computeArealDensity(Number(state.beforeWeightG), Number(state.afterWeightG), state.ware ?? "bowl");
@@ -140,6 +145,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
     const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: state.coating ?? "target" });
     const selectedRecipe = RECIPE_CANDIDATES.find((item) => item.id === state.recipe);
+    const llmRange = state.llmCandidate?.predicted_firing_range.value;
     const prediction = predictNextRun({
       coating: state.coating ?? "target",
       ware: state.ware ?? "bowl",
@@ -157,7 +163,16 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
       revision: step + 1,
       goal,
-      recipe: { ...run.recipe, id: state.recipe ?? run.recipe.id, name: RECIPE_CANDIDATES.find((item) => item.id === state.recipe)?.name ?? run.recipe.name },
+      recipe: state.llmCandidate ? {
+        ...run.recipe,
+        id: state.llmCandidate.id,
+        name: state.llmCandidate.name,
+        photo: state.llmCandidate.photo,
+        firing_range: llmRange?.[0] != null && llmRange[1] != null
+          ? { ...state.llmCandidate.predicted_firing_range, value: [llmRange[0], llmRange[1]] as [number, number] }
+          : run.recipe.firing_range,
+        source_ids: state.llmCandidate.source_ids,
+      } : { ...run.recipe, id: state.recipe ?? run.recipe.id, name: selectedRecipe?.name ?? run.recipe.name },
       ware: { ...run.ware, preset: state.ware ?? run.ware.preset, clay_body: state.clayBody ?? run.ware.clay_body },
       loading: {
         ...run.loading,
@@ -187,6 +202,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
         alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
       },
       versions: { ...run.versions, rule_model: AI_RULE_VERSION, simulator: "aice-kiln-explanatory-1", predictor: PREDICTOR_VERSION },
+      intake: state.intakePrompt ? {
+        prompt_text: state.intakePrompt,
+        prompt_photos: [],
+        candidates: { candidates: state.intakeCandidates, selected_id: state.llmCandidate?.id ?? null },
+      } : run.intake,
       result: {
         ...run.result,
         color: state.evaluation.color,
@@ -201,7 +221,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
 
   useEffect(() => {
     if (!restoredRun) return;
-    const knownRecipe = RECIPE_CANDIDATES.some((candidate) => candidate.id === restoredRun.recipe.id) ? restoredRun.recipe.id as RecipeId : undefined;
+    const knownRecipe = RECIPE_CANDIDATES.some((candidate) => candidate.id === restoredRun.recipe.id) ? restoredRun.recipe.id as RecipeId : restoredRun.recipe.id;
     const knownClay = CLAY_BODIES.some((body) => body.id === restoredRun.ware.clay_body) ? restoredRun.ware.clay_body as PrototypeState["clayBody"] : undefined;
     const curveApproved = Boolean(restoredRun.curves.selected_id);
     // 복원된 기록에는 승인 당시 내부적으로 어떤 합성 게인 세트가 쓰였는지
@@ -259,11 +279,21 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
 
         {step === 0 && (
           <section className="prototype-home">
-            <div className="prototype-hero" aria-hidden="true"><span>9단계</span></div>
-            <p><strong>초보자용 샘플 실험</strong></p>
-            <p>사틴 청색 목표와 사발 예시로 추천, 도포, 가상 소성, 결과 기록을 체험합니다.</p>
-            <AsyncState kind="empty" />
-            <DetailDrawer summary="화면 상태 예시"><StateGallery /></DetailDrawer>
+            {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
+            <RecipeChatScreen
+              token={token}
+              disabled={!token}
+              onSelect={(candidate) => setState((current) => ({
+                ...current,
+                recipe: candidate.id,
+                llmCandidate: candidate,
+              }))}
+              onIntake={(promptText, candidates) => setState((current) => ({
+                ...current,
+                intakePrompt: promptText,
+                intakeCandidates: candidates,
+              }))}
+            />
           </section>
         )}
 
@@ -277,10 +307,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
 
         {step === 2 && (
           <>
+            {state.llmCandidate && (
+              <Alert tone="warning" title="AI 검증 후보가 선택되어 있어요">
+                {state.llmCandidate.name} 후보가 현재 작업 레시피에 연결됩니다. 아래 기존 후보를 선택하면 변경할 수 있습니다.
+              </Alert>
+            )}
             <div className="prototype-grid recipe-grid">
               {RECIPE_CANDIDATES.map((candidate) => (
                 <article className="recipe-card" key={candidate.id}>
-                  <button type="button" className="prototype-choice" aria-pressed={state.recipe === candidate.id} onClick={() => setState({ ...state, recipe: candidate.id })}>
+                  <button type="button" className="prototype-choice" aria-pressed={state.recipe === candidate.id} onClick={() => setState({ ...state, recipe: candidate.id, llmCandidate: undefined })}>
                     <span className={`prototype-visual ${candidate.visual}`} role="img" aria-label={`${candidate.name}의 실물 사진이 아닌 색상·질감 플레이스홀더`}><b>사진 없음 · 플레이스홀더</b></span>
                     <strong>{candidate.name}</strong>
                     <span>{candidate.similarityReason}</span>
@@ -352,7 +387,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
 
       <footer className="prototype-actions">
         {step > 0 && step < 8 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
-        {step < 8 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? "샘플 실험 시작" : "다음"}<span aria-hidden="true">→</span></button>}
+        {step < 8 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
         {step === 8 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
       </footer>
     </div>

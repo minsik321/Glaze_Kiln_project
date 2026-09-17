@@ -155,7 +155,7 @@ caveat을 달아 두었다) 이번에 새로 채택하는 계산·설계 근거�
   두 제공사를 포함한 여러 모델을 중계하는 단일 게이트웨이 역할을 한다.
   - 텍스트: `https://api.aimlapi.com/v1/chat/completions` (OpenAI 호환 포맷),
     `Authorization: Bearer <AIMLAPI_API_KEY>` 헤더, `model` 필드로 공급사·모델을
-    지정(예: `anthropic/claude-4.6-sonnet`).
+    지정(예: `anthropic/claude-sonnet-4.6`).
   - 이미지: `https://api.aimlapi.com/v1/images/generations`, 같은 인증 방식,
     `model` 필드로 이미지 모델 지정. **기본값은 `google/nano-banana`**
     (Google의 텍스트+이미지 프롬프트 겸용 네이티브 이미지 모델, 장당 약
