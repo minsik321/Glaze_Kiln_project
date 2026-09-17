@@ -150,7 +150,23 @@ describe("RecipeChatScreen (화면 1)", () => {
     await waitFor(() => expect(screen.getByText("선택됨")).toBeTruthy());
 
     fireEvent.click(screen.getByText("선택됨"));
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "cand-1" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0][0]).toEqual(expect.objectContaining({ id: "cand-1" }));
+  });
+
+  it("passes the candidate's generated image along with the selection once it arrives", async () => {
+    const onSelect = vi.fn();
+    mockFetch();
+    render(<RecipeChatScreen token="user-token" onSelect={onSelect} />);
+    fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), { target: { value: "유약" } });
+    fireEvent.click(screen.getByText("후보 만들기"));
+    await waitFor(() => expect(screen.getByAltText(/AI 예상 이미지/)).toBeTruthy());
+
+    fireEvent.click(screen.getByText("선택됨"));
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "cand-1" }),
+      { base64: "Zm9v", mediaType: "image/png" },
+    );
   });
 
   it("calls onGenerated only for a fresh submit, not for a restore", async () => {

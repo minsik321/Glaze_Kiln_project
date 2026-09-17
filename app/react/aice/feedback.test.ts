@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sampleAiceRun } from "./contract";
 import { canPublish, feedbackTrace, transformSharedCurve, type ResultEvaluation } from "./feedback";
 
-const evaluation: ResultEvaluation = { match: "different", color: "darker", gloss: "satin", texture: "smooth", transparency: "opaque", defects: ["pinholes"], scope: "common_candidate" };
+const evaluation: ResultEvaluation = { match: "different", color: "darker", gloss: "satin", texture: "smooth", transparency: "opaque", defects: ["pinholes"], scope: "common_candidate", resultPhoto: null };
 
 describe("feedback and sharing boundaries", () => {
   it("never applies common feedback automatically", () => {

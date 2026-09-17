@@ -30,7 +30,9 @@ export function RecipeChatScreen({
   disabled = false,
 }: {
   token: string;
-  onSelect?: (candidate: RecipeCandidate) => void;
+  //: 9페이지(결과 기록)의 "목표" 사진이 이 후보의 자동 생성 이미지를 그대로
+  //: 보여줄 수 있도록, 선택 시점에 그 후보의 이미지(있으면)도 함께 넘긴다.
+  onSelect?: (candidate: RecipeCandidate, image?: { base64: string; mediaType: string }) => void;
   //: 부모(AicePrototype)의 `intakePrompt`/`intakeCandidates`를 최신 상태로
   //: 맞추기 위한 콜백 — 새로 생성했을 때도, 이력에서 복원했을 때도 부른다.
   onIntake?: (promptText: string, candidates: RecipeCandidate[]) => void;
@@ -135,7 +137,7 @@ export function RecipeChatScreen({
 
   function selectCandidate(candidate: RecipeCandidate) {
     setSelectedId(candidate.id);
-    onSelect?.(candidate);
+    onSelect?.(candidate, images[candidate.id]);
   }
 
   async function restoreFromHistory(record: AiceRunRecord) {

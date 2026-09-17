@@ -36,7 +36,7 @@ export function App() {
   return (
     <AppShell navigation={<BottomNavigation current={view} items={navigation} onChange={setView} />}>
         <section className="app-view" hidden={view !== "work"}>
-          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} token={session?.access_token} userId={session?.user.id} />
+          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} token={session?.access_token} userId={session?.user.id} onSaved={() => setView("records")} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">

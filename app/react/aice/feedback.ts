@@ -8,6 +8,9 @@ export type ResultEvaluation = {
   transparency: "opaque" | "translucent" | "transparent" | null;
   defects: string[];
   scope: "personal" | "common_candidate";
+  //: 9페이지 — 첨부한 관찰 사진(파일 첨부, 로컬 데이터URL). 클라우드
+  //: 스토리지 연동 없이 작업기록 payload(jsonb)에 그대로 실려 저장된다.
+  resultPhoto: { dataUrl: string; name: string } | null;
 };
 
 export type ShareConsent = { photoRights: boolean; piiReviewed: boolean; locationRemoved: boolean; withdrawalUnderstood: boolean };

@@ -21,6 +21,9 @@ import { RecipeChatScreen } from "./RecipeChatScreen";
 type PrototypeState = {
   recipe?: string;
   llmCandidate?: RecipeCandidate;
+  //: 9페이지 "목표" 사진 — 화면 1에서 후보를 선택할 때 그 후보의 자동
+  //: 생성 이미지가 있었다면 함께 받아둔다(RecipeChatScreen.tsx onSelect).
+  llmCandidateImage?: { base64: string; mediaType: string };
   intakePrompt?: string;
   intakeCandidates: RecipeCandidate[];
   ware?: WarePreset;
@@ -68,7 +71,7 @@ const initialState: PrototypeState = {
   simulationCompleted: false,
   sensors: [],
   intakeCandidates: [],
-  evaluation: { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal" },
+  evaluation: { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal", resultPhoto: null },
 };
 
 const screens = [
@@ -126,7 +129,7 @@ function Guidance({ reason, assumption, next }: { reason: string; assumption: st
   );
 }
 
-export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
 
@@ -356,6 +359,26 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     void aiceRunsApi.create(token, { title: state.intakePrompt, run: snapshot, is_public: false }).catch(() => {});
   }, [intakeGeneration, token, state.intakePrompt, snapshot]);
 
+  // 9페이지: "저장" 버튼이 지금까지 만든 AiceRun 전체를 작업기록(AiceRun v2
+  // 목록)에 저장하고, 성공하면 작업기록 화면으로 넘어간다(onSaved).
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  async function saveResultToRecords() {
+    if (!token || saveStatus === "saving") return;
+    setSaveStatus("saving");
+    setSaveError(null);
+    try {
+      assertAiceRun(snapshot);
+      const title = state.intakePrompt?.trim() || `${state.llmCandidate?.name ?? "유약 실험"} 결과`;
+      await aiceRunsApi.create(token, { title, run: snapshot, is_public: false });
+      setSaveStatus("idle");
+      onSaved?.();
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "저장하지 못했습니다.");
+      setSaveStatus("error");
+    }
+  }
+
   useEffect(() => {
     if (!restoredRun) return;
     let cancelled = false;
@@ -428,10 +451,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
           <RecipeChatScreen
             token={token}
             disabled={!token}
-            onSelect={(candidate) => setState((current) => ({
+            onSelect={(candidate, image) => setState((current) => ({
               ...current,
               recipe: candidate.id,
               llmCandidate: candidate,
+              llmCandidateImage: image,
             }))}
             onIntake={(promptText, candidates) => setState((current) => ({
               ...current,
@@ -516,7 +540,22 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         )}
 
         {step === 4 && (
-          <><ResultFeedback value={state.evaluation} onChange={(evaluation) => setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined }))} />{state.result && <Guidance reason="이번 관찰 선택이 개인 기록의 다음 후보 비교에 연결됩니다." assumption="실제 소성 품질이나 재현성을 검증한 결과가 아닙니다." next="작업 기록에 저장한 뒤 영향 추적과 공유 동의를 확인하세요." />}</>
+          <>
+            <ResultFeedback
+              value={state.evaluation}
+              onChange={(evaluation) => setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined }))}
+              targetPhoto={state.llmCandidateImage}
+            />
+            {state.result && (
+              <>
+                {saveStatus === "error" && <Alert tone="danger" title="저장하지 못했어요">{saveError}</Alert>}
+                {!token && <Alert tone="unavailable" title="로그인이 필요해요">로그인하면 작업기록에 저장할 수 있습니다.</Alert>}
+                <button type="button" className="prototype-confirm" disabled={!token || saveStatus === "saving"} onClick={() => void saveResultToRecords()}>
+                  {saveStatus === "saving" ? "저장 중…" : "저장하고 작업기록으로 이동"}
+                </button>
+              </>
+            )}
+          </>
         )}
       </main>
 

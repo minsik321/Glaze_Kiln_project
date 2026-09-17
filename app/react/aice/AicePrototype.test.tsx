@@ -65,13 +65,35 @@ function mockFetch({
   suggest = jsonResponse({ prompt_text: "", candidates: [], dropped: [] }),
   history = historyPage(),
 }: { suggest?: Response; history?: Response } = {}) {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.includes("/kiln/firing/simulate")) return kilnSimulateResponse();
     if (url.includes("/kiln/thickness/profile")) return thicknessProfileResponse();
     if (url.includes("/recipe-candidates/image")) return imageResponse();
     if (url.includes("/aice/recipe-candidates")) return suggest;
-    if (url.includes("/aice-runs")) return history;
+    if (url.includes("/aice-runs")) {
+      //: 1페이지 자동 저장과 9페이지 "저장" 버튼 둘 다 POST /aice-runs를
+      //: 부른다 — 보낸 run을 그대로 AiceRunRecord 모양으로 감싸 돌려준다
+      //: (검증(assertAiceRun)을 통과하려면 완전한 AiceRun이어야 한다).
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "saved-run-1",
+          title: body.title,
+          run: body.run,
+          schema_version: 3,
+          status: body.run.status,
+          goal_gloss: body.run.goal.gloss,
+          goal_transparency: body.run.goal.transparency,
+          recipe_id: body.run.recipe.id,
+          ware_preset: body.run.ware.preset,
+          is_public: body.is_public ?? false,
+          created_at: "2026-09-18T00:00:00.000Z",
+          updated_at: "2026-09-18T00:00:00.000Z",
+        });
+      }
+      return history;
+    }
     throw new Error(`unexpected fetch in test: ${url}`);
   });
 }
@@ -119,7 +141,8 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
     expect(screen.getByTestId("aice-step-5")).toBeTruthy();
     expect(screen.queryByRole("spinbutton")).toBeNull();
-    expect(screen.getByText("실제 소성 품질이나 재현성을 검증한 결과가 아닙니다.")).toBeTruthy();
+    // v9: 로그인 없는 데모 흐름에서는 저장 버튼이 비활성 상태로 나타난다.
+    expect(screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ })).toBeTruthy();
   });
 
   it("exports a versioned AiceRun with provenance and private consent", async () => {
@@ -211,5 +234,37 @@ describe("AICE guided prototype", () => {
     expect(warmClearNext.points).not.toEqual(coastalNext.points);
     // 레시피가 바뀌어도 곡선 개수·역할 구조(CurveBundle) 자체는 그대로다.
     expect(warmClearRun.curves.candidates.map((curve: { role: string }) => curve.role)).toEqual(coastalRun.curves.candidates.map((curve: { role: string }) => curve.role));
+  });
+
+  it("saves the finished run to work records and navigates there (9페이지)", async () => {
+    const fetchMock = mockFetch();
+    const onSaved = vi.fn();
+    render(<AicePrototype token="test-token" onSaved={onSaved} />);
+    await skipToWare();
+    for (const name of [/^사발/, /백색 석기 소지/, /^다음/]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+    fillWeightInputs();
+    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
+    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(riskButton);
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });
+    await waitFor(() => expect((proceedButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(proceedButton);
+    fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
+
+    const saveButton = screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ });
+    expect((saveButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const saveCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST");
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.run.status).toBe("evaluated");
+    expect(body.run.result.feedback_scope).toBe("personal");
   });
 });
