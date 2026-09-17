@@ -10,8 +10,16 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ValidationError
 
+from kiln.domain.models import SearchState
 from kiln.firing.simulator import Disturbance
-from kiln.llm import RecipeCandidateValidationError, build_messages, build_recipe_candidates
+from kiln.llm import (
+    RecipeCandidateValidationError,
+    build_messages,
+    build_recipe_candidates,
+    build_target_messages,
+    parse_target,
+)
+from kiln.search.prior import Prior, propose
 
 from . import kiln_bridge
 from .aimlapi import AimlapiClient, AimlapiError
@@ -23,6 +31,11 @@ from .models import (
     AiceRunPage,
     AiceRunResponse,
     AuthUser,
+    CalibrationRunRequest,
+    CalibrationRunResponse,
+    CoefficientTableOut,
+    DipTimeRequest,
+    DipTimeResponse,
     KilnControlSample,
     KilnSimulateRequest,
     KilnSimulateResponse,
@@ -32,6 +45,9 @@ from .models import (
     RecipeImageResponse,
     RecipeSuggestRequest,
     RecipeSuggestResponse,
+    ThicknessComputeRequest,
+    ThicknessComputeResponse,
+    ThicknessPointOut,
     WorkRecordCreate,
     WorkRecordPage,
     WorkRecordResponse,
@@ -411,16 +427,36 @@ async def suggest_recipe_candidates(
     body: RecipeSuggestRequest, _token: Token, _user: User, llm: Llm
 ) -> RecipeSuggestResponse:
     """화면 1(LLM 채팅) — 자연어 입력에서 레시피 후보를 만든다 (LLM 프런트도어
-    TODO Phase 2). LLM이 낸 JSON은 kiln.chem으로 교차 검증하고, 화학적으로
-    성립하지 않는 후보는 통째로 버린다 — 절반만 검증된 값을 화면에 올리지
-    않는다."""
-    messages = build_messages(body.prompt_text, candidate_count=body.candidate_count)
+    TODO Phase 2, v9).
+
+    배합비는 LLM이 발명하지 않는다(부록 D: 판단 주체는 규칙). 1차 LLM
+    호출은 목표를 (광택도, 투명도)로 분류만 하고, `kiln.search.prior
+    .propose`가 그 좌표로 배합 후보를 규칙대로 낸다(콜드스타트 — 개인
+    사전분포 없이 격자+공간채움). 2차 LLM 호출은 그 고정 배합에 이름·
+    착색·소성 메모만 붙인다. 두 단계 모두 LLM 원문은 kiln.chem/kiln.search
+    로 교차 검증하고, 화학적으로 성립하지 않는 후보는 통째로 버린다."""
+    target_messages = build_target_messages(body.prompt_text)
+    try:
+        target_raw = await llm.chat_json(target_messages)
+    except AimlapiError as exc:
+        raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
+    try:
+        target = parse_target(target_raw)
+    except RecipeCandidateValidationError as exc:
+        raise HTTPException(
+            502, detail=error_detail("invalid_recipe_target", str(exc))
+        ) from exc
+
+    search_state = SearchState(target=target, grid_step=10.0)
+    search_candidates = propose(search_state, Prior(), n=body.candidate_count)
+
+    messages = build_messages(body.prompt_text, search_candidates)
     try:
         raw = await llm.chat_json(messages)
     except AimlapiError as exc:
         raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
     try:
-        candidate_set, dropped = build_recipe_candidates(raw)
+        candidate_set, dropped = build_recipe_candidates(raw, search_candidates)
     except RecipeCandidateValidationError as exc:
         raise HTTPException(
             502, detail=error_detail("invalid_recipe_candidates", str(exc))
@@ -502,4 +538,167 @@ async def simulate_kiln_firing(body: KilnSimulateRequest) -> KilnSimulateRespons
         target_heat_work=result.target_heat_work,
         peak_c=result.peak_c,
         max_power_w=result.max_power_w,
+    )
+
+
+def _thickness_response(profile) -> ThicknessComputeResponse:
+    return ThicknessComputeResponse(
+        points=[
+            ThicknessPointOut(z=p.z, radius=p.radius, t_abs=p.t_abs, t_flow=p.t_flow, total=p.total)
+            for p in profile.points
+        ],
+        area_m2=profile.area_m2,
+        mean_mm=profile.mean_mm,
+        areal_density_g_m2=profile.areal_density_g_m2,
+        glaze_weight_g=profile.glaze_weight_g,
+        rho_dry=profile.rho_dry,
+        has_distribution=profile.has_distribution,
+        within_model_scope=profile.within_model_scope,
+        local_max_mm=profile.local_max_mm,
+        local_min_mm=profile.local_min_mm,
+        spread_mm=profile.spread_mm,
+        provenance_notes=list(profile.provenance_notes),
+    )
+
+
+@router.post("/kiln/thickness/profile", response_model=ThicknessComputeResponse)
+async def compute_thickness_profile(body: ThicknessComputeRequest) -> ThicknessComputeResponse:
+    """두께 종단면 화면(ThicknessSection.tsx) — 07절 물리 판정 코어 경계.
+
+    사용자 계정 데이터를 저장하지 않는 순수 계산이라 로그인 없이 연다
+    (`/kiln/firing/simulate`와 같은 접근성 근거). `kiln.thickness.profile
+    .compute_profile`을 그대로 돌린다 — 화면이 두께를 다시 계산하지
+    않는다. 형상은 `kiln_bridge.WARE_PROFILES`의 대표 프로파일이며,
+    사용자의 실측 치수가 아니라는 사실이 응답의 `provenance_notes`에
+    실려 나간다."""
+    try:
+        profile = kiln_bridge.compute_thickness(
+            ware_preset=body.ware_preset,
+            weight_before_g=body.weight_before_g,
+            weight_after_g=body.weight_after_g,
+            method=body.method,
+            dip_seconds=body.dip_seconds,
+            specific_gravity=body.specific_gravity,
+            waxed_area_m2=body.waxed_area_m2,
+            is_reglaze=body.is_reglaze,
+            drying_complete=body.drying_complete,
+            glaze_interior=body.glaze_interior,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, detail=error_detail("invalid_thickness_input", str(exc))) from exc
+    return _thickness_response(profile)
+
+
+@router.post("/kiln/batch/dip-time", response_model=DipTimeResponse)
+async def suggest_dip_time(body: DipTimeRequest) -> DipTimeResponse:
+    """담금시간 역산(DensityCheck.tsx) — 06절 물리 판정 코어 경계. 비로그인."""
+    result = kiln_bridge.recommend_dip_time(
+        target_mm=body.target_mm,
+        specific_gravity=body.specific_gravity,
+        t_flow_mm=body.t_flow_mm,
+    )
+    return DipTimeResponse(
+        seconds=result.seconds,
+        predicted_mean_mm=result.predicted_mean_mm,
+        feasible=result.feasible,
+        reason=result.reason,
+    )
+
+
+# ─── 10-2절 캘리브레이션 배선 — personal_calibrations ────────────────────────
+
+_CALIBRATION_COLUMNS = "coefficients"
+
+
+async def _load_coefficient_table(gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str):
+    try:
+        rows = await gateway.select(
+            "personal_calibrations",
+            token,
+            {
+                "select": _CALIBRATION_COLUMNS,
+                "user_id": f"eq.{user.id}",
+                "recipe_id": f"eq.{recipe_id}",
+                "version": "eq.1",
+                "limit": 1,
+            },
+        )
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    data = rows[0]["coefficients"] if rows else None
+    return kiln_bridge.coefficient_table_from_dict(recipe_id, data)
+
+
+def _coefficient_table_out(table) -> CoefficientTableOut:
+    return CoefficientTableOut(
+        recipe_id=table.recipe_id,
+        k1=table.k1,
+        k2=table.k2,
+        rho_dry=table.rho_dry,
+        s=table.s,
+        m_rho=table.m_rho,
+        safe_thickness_mm=table.safe_thickness_mm,
+        calibration_runs=table.calibration_runs,
+        calibrated_bisque_c=table.calibrated_bisque_c,
+        provenance_notes=list(table.provenance_notes),
+    )
+
+
+@router.get("/aice/calibration/{recipe_id}", response_model=CoefficientTableOut)
+async def get_calibration(recipe_id: str, token: Token, user: User, gateway: Gateway) -> CoefficientTableOut:
+    """레시피별 계수 계열 조회(Phase 5) — 없으면 전부 미동정인 기본 테이블.
+
+    `predictionModel.ts`의 `priorRunCount`가 여기(`calibration_runs`)로
+    이어진다 — 회차 자체를 다시 세지 않고, 이미 저장된 값을 낸다."""
+    table = await _load_coefficient_table(gateway, token, user, recipe_id)
+    return _coefficient_table_out(table)
+
+
+@router.post("/aice/calibration/{recipe_id}/runs", response_model=CalibrationRunResponse)
+async def submit_calibration_run(
+    recipe_id: str, body: CalibrationRunRequest, token: Token, user: User, gateway: Gateway
+) -> CalibrationRunResponse:
+    """시유 회차 1건으로 k1을 갱신한다 — `kiln.calibration.update.run_update`
+    그대로. 다른 레시피의 계수는 건드리지 않는다(레시피별 저장소 격리,
+    calibration/registry.py 참고)."""
+    table = await _load_coefficient_table(gateway, token, user, recipe_id)
+    try:
+        result = kiln_bridge.apply_calibration_run(
+            table,
+            ware_preset=body.ware_preset,
+            bisque_temperature_c=body.bisque_temperature_c,
+            weight_before_g=body.weight_before_g,
+            weight_after_g=body.weight_after_g,
+            method=body.method,
+            dip_seconds=body.dip_seconds,
+            specific_gravity=body.specific_gravity,
+            waxed_area_m2=body.waxed_area_m2,
+            is_reglaze=body.is_reglaze,
+            drying_complete=body.drying_complete,
+            glaze_interior=body.glaze_interior,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, detail=error_detail("invalid_calibration_input", str(exc))) from exc
+
+    values = {
+        "user_id": str(user.id),
+        "recipe_id": recipe_id,
+        "kiln_profile_id": "aice-default",
+        "clay_body": body.ware_preset,
+        "coefficients": kiln_bridge.coefficient_table_to_dict(result.table),
+        "provenance": list(result.notes),
+        "version": 1,
+    }
+    try:
+        await gateway.insert(
+            "personal_calibrations", token, values, upsert=True, conflict="user_id,recipe_id,version"
+        )
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+
+    return CalibrationRunResponse(
+        table=_coefficient_table_out(result.table),
+        applied=result.applied,
+        k1_estimate=result.k1_estimate,
+        notes=list(result.notes),
     )

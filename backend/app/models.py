@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from kiln.aice import AiceRun
 
@@ -270,3 +270,114 @@ class KilnSimulateResponse(ApiModel):
     target_heat_work: float
     peak_c: float
     max_power_w: float
+
+
+# ─── 07절 두께 산출 — 두께 종단면 화면 경계 ────────────────────────────────
+
+
+class ThicknessComputeRequest(ApiModel):
+    """`WeightInputs.tsx`/`ThicknessSection.tsx`가 보내는 07절 입력.
+
+    저울 두 번(무게)과 형상 프리셋만 필수다 — 나머지는
+    `compute_profile`(profile.py)이 안전한 가정으로 채우고 그 사실을
+    `provenance_notes`에 남긴다."""
+
+    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "tile", "other"]
+    weight_before_g: float = Field(ge=0)
+    weight_after_g: float = Field(ge=0)
+    #: `kiln.domain.enums.GlazingMethod`의 한국어 라벨 그대로("담금"·"부기"·"분무"·"붓칠").
+    method: str = "담금"
+    dip_seconds: float | None = Field(default=None, ge=0)
+    specific_gravity: float | None = Field(default=None, gt=1.0)
+    waxed_area_m2: float = Field(default=0.0, ge=0)
+    is_reglaze: bool = False
+    drying_complete: bool = True
+    glaze_interior: bool = True
+
+    @field_validator("weight_after_g")
+    @classmethod
+    def check_weight_order(cls, value: float, info: ValidationInfo) -> float:
+        before = info.data.get("weight_before_g")
+        if before is not None and value < before:
+            raise ValueError("시유 후 무게가 시유 전 무게보다 가벼울 수 없습니다")
+        return value
+
+
+class ThicknessPointOut(ApiModel):
+    z: float
+    radius: float
+    t_abs: float
+    t_flow: float
+    total: float
+
+
+class ThicknessComputeResponse(ApiModel):
+    """`kiln.thickness.profile.ThicknessProfile`을 그대로 직렬화한다."""
+
+    points: list[ThicknessPointOut]
+    area_m2: float
+    mean_mm: float
+    areal_density_g_m2: float
+    glaze_weight_g: float
+    rho_dry: float
+    has_distribution: bool
+    within_model_scope: bool
+    local_max_mm: float
+    local_min_mm: float
+    spread_mm: float
+    provenance_notes: list[str]
+
+
+# ─── 06절 담금시간 역산 ─────────────────────────────────────────────────────
+
+
+class DipTimeRequest(ApiModel):
+    target_mm: float = Field(gt=0)
+    specific_gravity: float = Field(gt=1.0)
+    t_flow_mm: float = Field(default=0.0, ge=0)
+
+
+class DipTimeResponse(ApiModel):
+    seconds: float
+    predicted_mean_mm: float
+    feasible: bool
+    reason: str
+
+
+# ─── 10-2절 캘리브레이션 배선 ───────────────────────────────────────────────
+
+
+class CoefficientTableOut(ApiModel):
+    recipe_id: str
+    k1: float | None
+    k2: float | None
+    rho_dry: float | None
+    s: float | None
+    m_rho: float | None
+    safe_thickness_mm: tuple[float, float]
+    calibration_runs: int
+    calibrated_bisque_c: float | None
+    provenance_notes: list[str]
+
+
+class CalibrationRunRequest(ApiModel):
+    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "tile", "other"]
+    bisque_temperature_c: float
+    weight_before_g: float = Field(ge=0)
+    weight_after_g: float = Field(ge=0)
+    method: str = "담금"
+    dip_seconds: float | None = Field(default=None, ge=0)
+    specific_gravity: float | None = Field(default=None, gt=1.0)
+    waxed_area_m2: float = Field(default=0.0, ge=0)
+    is_reglaze: bool = False
+    drying_complete: bool = True
+    glaze_interior: bool = True
+
+
+class CalibrationRunResponse(ApiModel):
+    table: CoefficientTableOut
+    #: 이 회차가 k1 갱신에 실제로 기여했는가 (`RunUpdate.applied`).
+    applied: bool
+    #: 이 회차 단독의 k1 추정치. 기여하지 못했으면 None.
+    k1_estimate: float | None
+    notes: list[str]

@@ -94,3 +94,77 @@ def test_bridge_result_carries_e_assumption_note() -> None:
     assert kiln_bridge.E_ASSUMPTION_REASON in result.e_note
     assert result.target_heat_work > 0
     assert result.peak_c == 1199.0
+
+
+def test_compute_thickness_dipping_produces_real_distribution() -> None:
+    """07절: 담금 + 담금시간이 있으면 t_abs/t_flow 분포가 실제로 계산된다."""
+    profile = kiln_bridge.compute_thickness(
+        ware_preset="bowl",
+        weight_before_g=200.0,
+        weight_after_g=296.0,
+        method="담금",
+        dip_seconds=9.0,
+        specific_gravity=1.45,
+    )
+    assert profile.has_distribution is True
+    assert profile.mean_mm == pytest.approx(profile.glaze_weight_g / (profile.rho_dry * profile.area_m2 * 1000.0))
+    # 위치별 값이 전부 같은 상수가 아니다 — 정적 조회표가 아니라 형상 적분이다.
+    totals = {round(p.total, 6) for p in profile.points}
+    assert len(totals) > 1
+
+
+def test_compute_thickness_non_dipping_has_no_distribution() -> None:
+    """7-5절: 담금이 아니면 부위별 분포를 지어내지 않는다."""
+    profile = kiln_bridge.compute_thickness(
+        ware_preset="tile", weight_before_g=100.0, weight_after_g=110.0, method="붓칠",
+    )
+    assert profile.has_distribution is False
+    assert all(p.total == pytest.approx(profile.mean_mm) for p in profile.points)
+
+
+def test_compute_thickness_unknown_preset_raises() -> None:
+    with pytest.raises(ValueError, match="기물 프리셋"):
+        kiln_bridge.compute_thickness(
+            ware_preset="not-a-shape", weight_before_g=1.0, weight_after_g=2.0, method="담금", dip_seconds=1.0,
+        )
+
+
+def test_recommend_dip_time_round_trips_through_predicted_mean() -> None:
+    result = kiln_bridge.recommend_dip_time(target_mm=1.0, specific_gravity=1.45)
+    assert result.feasible is True
+    assert result.predicted_mean_mm == pytest.approx(1.0, abs=1e-6)
+
+
+def test_coefficient_table_round_trip_through_dict() -> None:
+    from kiln.domain.models import CoefficientTable
+
+    table = CoefficientTable(recipe_id="coastal-satin", k1=0.5, calibration_runs=3)
+    data = kiln_bridge.coefficient_table_to_dict(table)
+    restored = kiln_bridge.coefficient_table_from_dict("coastal-satin", data)
+    assert restored.k1 == 0.5
+    assert restored.calibration_runs == 3
+
+
+def test_coefficient_table_from_empty_dict_is_undetermined() -> None:
+    table = kiln_bridge.coefficient_table_from_dict("new-recipe", None)
+    assert table.k1 is None
+    assert table.calibration_runs == 0
+
+
+def test_apply_calibration_run_advances_calibration_runs() -> None:
+    from kiln.domain.models import CoefficientTable
+
+    table = CoefficientTable(recipe_id="coastal-satin")
+    result = kiln_bridge.apply_calibration_run(
+        table,
+        ware_preset="bowl",
+        bisque_temperature_c=950.0,
+        weight_before_g=200.0,
+        weight_after_g=296.0,
+        method="담금",
+        dip_seconds=9.0,
+        specific_gravity=1.45,
+    )
+    assert result.applied is True
+    assert result.table.calibration_runs == 1
+    assert result.table.k1 is not None

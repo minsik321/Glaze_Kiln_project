@@ -1,8 +1,19 @@
+// 대응: src/kiln/thickness/profile.py(compute_profile, 07절 두께 산출)
+// · src/kiln/thickness/geometry.py(파푸스·굴딘 표면적). 실제 계산은
+// 백엔드 `/kiln/thickness/profile`(kiln_bridge.compute_thickness,
+// compute_profile을 그대로 호출)이 수행한다 — 이 파일은 그 결과(`profile`)를
+// 3개 삽화 구간에 매핑하는 표시 전용 로직만 담는다. `profile`이 없으면
+// (무게 미입력 등) 판정 불가로 내린다 — coating 프리셋으로 지어낸 정적
+// 조회표가 아니다.
 import type { WarePreset } from "./catalog";
 import type { SourceType } from "./contract";
+import type { ThicknessComputeResponse } from "../lib/api";
 
 export type ThicknessStatus = "thin" | "target" | "thick" | "unavailable";
-export type ThicknessEvidence = "unavailable" | "mass_only" | "position_observed";
+export type ThicknessEvidence = "unavailable" | "mass_only";
+//: 도포 프리셋 — 이 화면의 두께 판정에는 더 이상 쓰이지 않는다(위 판정은
+//: 실측 무게에서 나온다). curvePlan.ts·kilnSimulation.ts의 합성 삽화가
+//: 여전히 이 프리셋을 입력으로 쓴다 — 두 화면은 이번 수정의 범위 밖이다.
 export type CoatingPreset = "thin" | "target" | "thick";
 
 export type SectionAsset = {
@@ -29,26 +40,55 @@ export type ThicknessView = {
   positionClaim: string;
   uncertainty: string;
   risk: string;
-  curveReason: string;
 };
 
-export function buildThicknessView({ ware, coating, evidence = "mass_only", meanMm = .9 }: { ware: WarePreset; coating: CoatingPreset; evidence?: ThicknessEvidence; meanMm?: number | null }): ThicknessView {
+//: 07절 안전 두께 범위 기본값 — src/kiln/domain/models.py
+//: ::CoefficientTable.safe_thickness_mm의 기본값(0.8, 1.3mm)과 같다.
+//: 레시피별로 캘리브레이션되면 달라질 수 있지만(calibrationApi.get()),
+//: 이 화면은 아직 레시피별 계수 테이블을 불러오지 않는다 — 기본값 사용
+//: 사실 자체가 사용자에게 보이는 문구(uncertainty)에 남는다.
+const DEFAULT_SAFE_RANGE_MM: readonly [number, number] = [0.8, 1.3];
+
+function classify(totalMm: number, [lo, hi]: readonly [number, number] = DEFAULT_SAFE_RANGE_MM): ThicknessStatus {
+  if (totalMm < lo) return "thin";
+  if (totalMm > hi) return "thick";
+  return "target";
+}
+
+export function buildThicknessView({ ware, profile }: { ware: WarePreset; profile: ThicknessComputeResponse | null }): ThicknessView {
   const asset = SECTION_ASSETS[ware];
-  const statuses: Record<CoatingPreset, readonly ThicknessStatus[]> = {
-    thin: ["thin", "target", "thin"], target: ["target", "thick", "target"], thick: ["thick", "thick", "target"],
-  };
-  const unavailable = evidence === "unavailable";
-  const observed = evidence === "position_observed";
-  const segmentStatus = unavailable ? ["unavailable", "unavailable", "unavailable"] as const : statuses[coating];
-  const risk = coating === "thick" ? "하단과 안쪽 바닥의 흘러내림 위험을 먼저 확인하세요." : coating === "thin" ? "구연부와 모서리의 부족 도포 가능성을 확인하세요." : "안쪽 바닥은 상대적으로 두꺼울 수 있어 판정 근거를 확인하세요.";
+
+  if (!profile || profile.points.length === 0) {
+    return {
+      evidence: "unavailable",
+      mean: { label: "판정 불가", sourceType: "inferred", valueMm: null },
+      segments: asset.labels.map((label) => ({ label, status: "unavailable" as const, sourceType: "inferred" as const })),
+      positionClaim: "위치별 판정 불가",
+      uncertainty: "시유 전/후 무게를 모두 입력하면 계산됩니다",
+      risk: "두께를 계산할 수 없어 위험을 판정할 수 없습니다.",
+    };
+  }
+
+  const points = profile.points;
+  const midIndex = Math.floor((points.length - 1) / 2);
+  const sampled = [points[0], points[midIndex], points[points.length - 1]];
+  const statuses = sampled.map((point) => classify(point.total));
+  const worst: ThicknessStatus = statuses.includes("thick") ? "thick" : statuses.includes("thin") ? "thin" : "target";
+  const risk = worst === "thick"
+    ? "하단과 안쪽 바닥의 흘러내림 위험을 먼저 확인하세요."
+    : worst === "thin"
+      ? "구연부와 모서리의 부족 도포 가능성을 확인하세요."
+      : "안전 범위 안이지만 위치별 값은 여전히 대표 형상 근사입니다.";
+
   return {
-    evidence,
-    mean: { label: meanMm === null || unavailable ? "판정 불가" : `평균 추정 ${meanMm.toFixed(2)} mm`, sourceType: unavailable ? "inferred" : "inferred", valueMm: unavailable ? null : meanMm },
-    segments: asset.labels.map((label, index) => ({ label, status: segmentStatus[index], sourceType: observed ? "observed" : "synthetic" })),
-    positionClaim: observed ? "구간 측정에 근거한 위치별 비교" : unavailable ? "위치별 판정 불가" : "형상 기반 가상 분포",
-    uncertainty: observed ? "관측 구간 밖은 여전히 추정" : "위치별 범위 ±35% 설명용 불확실성",
+    evidence: "mass_only",
+    mean: { label: `평균 추정 ${profile.mean_mm.toFixed(2)} mm`, sourceType: "inferred", valueMm: profile.mean_mm },
+    segments: asset.labels.map((label, index) => ({ label, status: statuses[index], sourceType: "inferred" as const })),
+    positionClaim: profile.has_distribution
+      ? "형상 적분(07절 t_abs+t_flow) 기반 위치별 추정"
+      : "이 시유 방법은 분포 모델이 없어 평균값을 모든 위치에 표시",
+    uncertainty: `대표 형상 근사 — 실측 치수 아님 (유약 ${profile.glaze_weight_g.toFixed(1)}g ÷ 면적 ${profile.area_m2.toFixed(3)}m²)`,
     risk,
-    curveReason: coating === "thick" ? "상대 과도포 가정으로 승온을 완만하게 한 후보" : coating === "thin" ? "상대 부족도포 가정으로 기준 변경을 최소화한 후보" : "목표 근처 가정으로 기준 계획에 가까운 후보",
   };
 }
 

@@ -185,6 +185,100 @@ export const kilnFiringApi = {
     }),
 };
 
+export type ThicknessPointOut = { z: number; radius: number; t_abs: number; t_flow: number; total: number };
+export type ThicknessComputeResponse = {
+  points: ThicknessPointOut[];
+  area_m2: number;
+  mean_mm: number;
+  areal_density_g_m2: number;
+  glaze_weight_g: number;
+  rho_dry: number;
+  has_distribution: boolean;
+  within_model_scope: boolean;
+  local_max_mm: number;
+  local_min_mm: number;
+  spread_mm: number;
+  provenance_notes: string[];
+};
+export type ThicknessComputeInput = {
+  ware_preset: string;
+  weight_before_g: number;
+  weight_after_g: number;
+  method?: string;
+  dip_seconds?: number | null;
+  specific_gravity?: number | null;
+  waxed_area_m2?: number;
+  is_reglaze?: boolean;
+  drying_complete?: boolean;
+  glaze_interior?: boolean;
+};
+
+export const kilnThicknessApi = {
+  //: 두께 종단면 화면(ThicknessSection.tsx) — `kiln.thickness.profile
+  //: .compute_profile`을 그대로 돌린다. 순수 계산이라 로그인 없이 부른다.
+  computeProfile: (input: ThicknessComputeInput) =>
+    requestPublic<ThicknessComputeResponse>("/kiln/thickness/profile", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+};
+
+export type DipTimeResponse = { seconds: number; predicted_mean_mm: number; feasible: boolean; reason: string };
+
+export const kilnBatchApi = {
+  //: 담금시간 역산(DensityCheck.tsx) — `kiln.batch.dip_time
+  //: .recommend_dip_time` 그대로. 로그인 없이 부른다.
+  dipTime: (targetMm: number, specificGravity: number, tFlowMm = 0) =>
+    requestPublic<DipTimeResponse>("/kiln/batch/dip-time", {
+      method: "POST",
+      body: JSON.stringify({ target_mm: targetMm, specific_gravity: specificGravity, t_flow_mm: tFlowMm }),
+    }),
+};
+
+export type CoefficientTableOut = {
+  recipe_id: string;
+  k1: number | null;
+  k2: number | null;
+  rho_dry: number | null;
+  s: number | null;
+  m_rho: number | null;
+  safe_thickness_mm: [number, number];
+  calibration_runs: number;
+  calibrated_bisque_c: number | null;
+  provenance_notes: string[];
+};
+export type CalibrationRunInput = {
+  ware_preset: string;
+  bisque_temperature_c: number;
+  weight_before_g: number;
+  weight_after_g: number;
+  method?: string;
+  dip_seconds?: number | null;
+  specific_gravity?: number | null;
+  waxed_area_m2?: number;
+  is_reglaze?: boolean;
+  drying_complete?: boolean;
+  glaze_interior?: boolean;
+};
+export type CalibrationRunResponse = {
+  table: CoefficientTableOut;
+  applied: boolean;
+  k1_estimate: number | null;
+  notes: string[];
+};
+
+export const calibrationApi = {
+  //: 레시피별 계수 계열(Phase 5) — `kiln.calibration.registry`를 그대로
+  //: 배선한다. 로그인 필요(사용자별 personal_calibrations 행).
+  get: (token: string, recipeId: string) =>
+    request<CoefficientTableOut>(`/aice/calibration/${encodeURIComponent(recipeId)}`, token),
+  submitRun: (token: string, recipeId: string, input: CalibrationRunInput) =>
+    request<CalibrationRunResponse>(`/aice/calibration/${encodeURIComponent(recipeId)}/runs`, token, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+};
+
 export const aiceRunsApi = {
   listMine: async (token: string, offset = 0) => {
     const page = await request<AiceRunPage>(`/aice-runs?limit=20&offset=${offset}`, token);

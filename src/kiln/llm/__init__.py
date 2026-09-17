@@ -14,11 +14,13 @@
 ``source_type="observed"`` 로 격상하지 않는다(00절).
 """
 
-from kiln.llm.recipe_candidates import RecipeCandidateValidationError, build_recipe_candidates
-from kiln.llm.recipe_prompt import build_messages
+from kiln.llm.recipe_candidates import RecipeCandidateValidationError, build_recipe_candidates, parse_target
+from kiln.llm.recipe_prompt import build_messages, build_target_messages
 
 __all__ = [
     "RecipeCandidateValidationError",
     "build_recipe_candidates",
+    "parse_target",
     "build_messages",
+    "build_target_messages",
 ]

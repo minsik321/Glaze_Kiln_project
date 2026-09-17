@@ -1,3 +1,10 @@
+// 대응 src/kiln 모듈: 없음 — 의도적 합성. 이 파일은 센서 배치 교육용
+// 가마 단면 삽화다(특정 소성 회차와 무관). 실제 소성 제어는
+// `curvePlan.ts`가 백엔드 `/kiln/firing/simulate`(kiln.firing.controller·
+// simulator)로 돌린다 — 이 파일이 보여주는 "높이별 센서가 서로 다른 값을
+// 본다"는 질문에는 그 1-센서 시계열 응답이 답할 수 없어(공간적 3D 열장
+// 시뮬레이터가 없다), 실제 데이터로 바꿔치기하지 않고 합성으로 남긴다
+// (2026-09-17 감사 결론).
 import type { SourceType } from "./contract";
 import type { CoatingPreset } from "./thicknessView";
 

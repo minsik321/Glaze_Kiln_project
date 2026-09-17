@@ -52,6 +52,11 @@ export type RecipeCandidate = {
   photo: PhotoAsset;
   source_type: SourceType;
   source_ids: string[];
+  //: v9: 배합비(materials)가 LLM이 아니라 kiln.search.prior.propose(규칙
+  //: 기반 탐색)에서 왔다는 근거 문구 — UMF·Stull·사전분포 가중치가 실려
+  //: 있다(src/kiln/search/objective.py::Candidate.umf_note). 빈 문자열이면
+  //: 이 후보의 배합비 출처가 검색이 아니다(레거시 샘플 등).
+  composition_note?: string;
 };
 
 export type RecipeCandidateSet = {

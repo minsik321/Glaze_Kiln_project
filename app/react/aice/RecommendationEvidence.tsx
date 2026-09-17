@@ -10,7 +10,7 @@ export function RecommendationEvidence({ goal, clayBody }: { goal: string; clayB
       <div className="evidence-heading"><div><h3 id="ai-evidence-title">추천 근거와 AI 경계</h3><p>규칙 + 소규모 출처 검색(RAG) + 제약 순위 · {AI_RULE_VERSION}</p></div><StatusBadge tone="unavailable">학습 모델 미사용</StatusBadge></div>
       <ol className="ranked-evidence-list">{ranked.map((item) => {
         const candidate = RECIPE_CANDIDATES.find((recipe) => recipe.id === item.recipeId)!;
-        return <li key={item.recipeId}><span className="rank-score">{item.score}</span><div><strong>{candidate.name}</strong><p>{item.reason}</p><small>생성 경로: {item.origins.map((origin) => origin === "rule" ? "출처 있는 규칙" : origin === "rag" ? "RAG 검색" : "학습 모델").join(" + ")} · 근거 {item.evidenceIds.length}건</small><small>{item.limitation}</small></div></li>;
+        return <li key={item.recipeId}><span className="rank-score">{item.distance === 0 ? "거리 0 · 정확히 일치" : `거리 ${item.distance}`}</span><div><strong>{candidate.name}</strong><p>{item.reason}</p><small>생성 경로: {item.origins.map((origin) => origin === "rule" ? "출처 있는 규칙" : origin === "rag" ? "RAG 검색" : "학습 모델").join(" + ")} · 근거 {item.evidenceIds.length}건</small><small>{item.limitation}</small></div></li>;
       })}</ol>
       <Alert tone="unavailable" title="학습 게이트 차단">{predictor.reason}</Alert>
       <DetailDrawer summary="학습 필요성 게이트 보기"><ul className="gate-list">{Object.entries(MVP_TRAINING_GATE.checks).map(([key, passed]) => <li key={key}><StatusBadge tone={passed ? "complete" : "unavailable"}>{passed ? "충족" : "미충족"}</StatusBadge>{key}</li>)}</ul><p>게이트를 통과해도 독립 평가 전용 후보일 뿐, 자동으로 제품 경로에 들어가지 않습니다.</p></DetailDrawer>

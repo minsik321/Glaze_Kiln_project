@@ -47,14 +47,32 @@ def _app_with_llm(llm_handler):
     return create_app(make_settings(), gateway, llm), auth_upstream, llm_upstream
 
 
+def _two_stage_handler(description_json: dict):
+    """v9: 1차 호출(목표 분류) → 2차 호출(고정 배합 서술)을 호출 순서로 구분한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        request_body = json.loads(request.content)
+        system = request_body["messages"][0]["content"]
+        if "target_gloss" in system:
+            payload = {"target_gloss": "SATIN", "target_transparency": "OPAQUE"}
+        else:
+            payload = description_json
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(payload)}}]},
+        )
+
+    return handler
+
+
 @pytest.mark.asyncio
 async def test_suggest_recipe_candidates_returns_validated_candidates() -> None:
-    llm_json = {
+    description_json = {
         "candidates": [
             {
                 "id": "cand-1",
                 "name": "해안 사틴",
-                "materials": {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0},
                 "colorants": {"CuO": 2.0, "CoO": 0.2},
                 "colorant_note": "청록색 참고값이며 실제 발색은 달라질 수 있음",
                 "predicted_firing_range_c": [1180, 1230],
@@ -62,36 +80,29 @@ async def test_suggest_recipe_candidates_returns_validated_candidates() -> None:
             },
             {
                 "id": "cand-2",
-                "name": "존재하지 않는 원료",
-                "materials": {"목회": 100.0},
+                "name": "허용되지 않은 착색제",
+                "colorants": {"Unobtainium": 5.0},
             },
         ]
     }
 
-    def llm_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/chat/completions"
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": json.dumps(llm_json)}}]},
-        )
-
-    app, auth_upstream, llm_upstream = _app_with_llm(llm_handler)
+    app, auth_upstream, llm_upstream = _app_with_llm(_two_stage_handler(description_json))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
             "/api/v1/aice/recipe-candidates",
-            json={"prompt_text": "사발에 어울리는 청록색 사틴 유약"},
+            json={"prompt_text": "사발에 어울리는 청록색 사틴 유약", "candidate_count": 2},
             headers={"Authorization": "Bearer valid-token"},
         )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert len(body["candidates"]) == 1
-    assert body["candidates"][0]["id"] == "cand-1"
+    # v9: 배합비는 kiln.search가 냈다 — LLM은 materials를 아예 받지 않았다.
+    assert body["candidates"][0]["materials"]
     assert body["candidates"][0]["colorants"] == {"CuO": 2.0, "CoO": 0.2}
     assert "청록색" in body["candidates"][0]["colorant_note"]
-    assert len(body["dropped"]) == 1
-    assert "cand-2" in body["dropped"][0]
+    assert body["candidates"][0]["composition_note"]
+    assert any("cand-2" in dropped for dropped in body["dropped"])
     await auth_upstream.aclose()
     await llm_upstream.aclose()
 

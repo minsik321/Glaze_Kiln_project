@@ -108,6 +108,11 @@ class RecipeCandidate:
     # 기본 유약 100%에 추가하는 외배합 착색 산화물(건조 기본 유약 대비 wt%).
     colorants: dict[str, float] = field(default_factory=dict)
     colorant_note: str = ""
+    #: v9: 배합비를 낸 것이 LLM이 아니라 `kiln.search.prior.propose`(규칙
+    #: 기반 탐색)임을 보여주는 문구 — UMF·Stull·사전분포 가중치가 이미
+    #: 실려 있다(`kiln.search.objective.Candidate.umf_note`). 빈 문자열이면
+    #: 이 후보의 배합비 출처가 검색이 아니라는 뜻이다(레거시 변환 등).
+    composition_note: str = ""
 
     def __post_init__(self) -> None:
         _source(self.source_type)

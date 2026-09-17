@@ -18,14 +18,61 @@ UA 역산)를 그대로 쓴다 — `tests/firing/test_controller.py::KILN_30L`�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 
 from kiln import constants
-from kiln.domain.models import KilnProfile
+from kiln.batch.dip_time import DipRecommendation, recommend_dip_time as _recommend_dip_time
+from kiln.calibration.update import RunUpdate, run_update
+from kiln.domain.enums import GlazingMethod
+from kiln.domain.models import (
+    CoefficientTable,
+    DensityMeasurement,
+    GlazingRecord,
+    KilnProfile,
+    Ware,
+    WareShape,
+)
 from kiln.firing.controller import SegmentedController
 from kiln.firing.simulator import Disturbance, KilnSimulator
+from kiln.thickness.profile import ThicknessProfile, compute_profile
 
-__all__ = ["KILN_30L", "E_ASSUMPTION_REASON", "ControlSample", "SimulationResult", "simulate"]
+__all__ = [
+    "KILN_30L",
+    "E_ASSUMPTION_REASON",
+    "ControlSample",
+    "SimulationResult",
+    "simulate",
+    "WARE_PROFILES",
+    "compute_thickness",
+    "recommend_dip_time",
+    "coefficient_table_to_dict",
+    "coefficient_table_from_dict",
+    "apply_calibration_run",
+]
+
+#: 7개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
+#: `src/kiln/webapp/bridge.py::PRESET_SHAPES`(cylinder/bowl/vase/tile)를
+#: 그대로 재사용하고, AICE 카탈로그(`app/react/aice/catalog.ts`)에만 있는
+#: plate/mug/bottle/other는 같은 정신(문헌·대표값 근사, 정밀 치수 아님)으로
+#: 새로 추가한다. 치수는 `app/react/aice/arealDensity.ts`의
+#: `REPRESENTATIVE_AREA_M2` 스케일과 크게 어긋나지 않도록 잡았다 — 두
+#: 근사가 같은 자릿수를 가리켜야 이번 배선 전후로 화면 수치가 연속적이다.
+WARE_PROFILES: dict[str, tuple[tuple[float, float], ...]] = {
+    "bowl": ((0.0, 25.0), (15.0, 45.0), (40.0, 65.0), (70.0, 75.0)),
+    "plate": ((0.0, 20.0), (5.0, 90.0), (12.0, 100.0)),
+    "mug": ((0.0, 30.0), (90.0, 30.0)),
+    "cylinder_vase": ((0.0, 30.0), (40.0, 55.0), (120.0, 60.0), (170.0, 25.0)),
+    "bottle": ((0.0, 28.0), (40.0, 55.0), (110.0, 55.0), (140.0, 20.0)),
+    "tile": ((0.0, 40.0), (3.0, 40.0)),
+    # 형상 미상 — 카탈로그 중앙값에 해당하는 사발 근사를 그대로 쓴다
+    # (`arealDensity.ts`의 `other: 0.045`와 같은 taktik: 미상일 때 중간값).
+    "other": ((0.0, 25.0), (15.0, 45.0), (40.0, 65.0), (70.0, 75.0)),
+}
+
+#: `GlazingMethod` 라벨(한국어) → enum. `app/react/aice/*`에서 오는 요청 바디는
+#: 한국어 라벨을 그대로 쓴다(`domain/enums.py::GlazingMethod` 값과 동일).
+_METHOD_BY_LABEL: dict[str, GlazingMethod] = {m.value: m for m in GlazingMethod}
 
 #: 9-6절 예제 그대로. `tests/firing/test_controller.py::KILN_30L`과 동일.
 KILN_30L = KilnProfile(
@@ -119,3 +166,202 @@ def simulate(
         peak_c=controller.peak_c,
         max_power_w=profile.max_power,
     )
+
+
+# ─── 07절 두께 산출 — AICE 두께 종단면 화면의 물리 판정 코어 경계 ─────────────
+
+
+def compute_thickness(
+    *,
+    ware_preset: str,
+    weight_before_g: float,
+    weight_after_g: float,
+    method: str,
+    dip_seconds: float | None = None,
+    specific_gravity: float | None = None,
+    waxed_area_m2: float = 0.0,
+    is_reglaze: bool = False,
+    drying_complete: bool = True,
+    glaze_interior: bool = True,
+) -> ThicknessProfile:
+    """`app/react/aice/thicknessView.ts`·`arealDensity.ts`가 부르는 07절 경계.
+
+    `WARE_PROFILES`의 대표 형상(문헌·대표값 근사, 실측 치수 아님)으로
+    `WareShape`를 만들고 `kiln.thickness.profile.compute_profile`을 그대로
+    돌린다 — 07절 공식(t_abs/t_flow/총량 제약)을 다시 구현하지 않는다.
+    비중·담금시간이 없으면 `compute_profile` 자체가 안전한 가정으로
+    떨어지고 그 사실을 `provenance_notes`에 남긴다(profile.py 참고).
+    """
+    try:
+        method_enum = _METHOD_BY_LABEL[method]
+    except KeyError:
+        raise ValueError(
+            f"알 수 없는 시유 방법: {method!r}. 허용: {sorted(_METHOD_BY_LABEL)}"
+        ) from None
+    try:
+        profile_points = WARE_PROFILES[ware_preset]
+    except KeyError:
+        raise ValueError(
+            f"알 수 없는 기물 프리셋: {ware_preset!r}. 허용: {sorted(WARE_PROFILES)}"
+        ) from None
+
+    shape = WareShape(shape_id=ware_preset, name=ware_preset, profile=profile_points)
+    ware = Ware(
+        ware_id=ware_preset,
+        shape=shape,
+        clay_body="unspecified",
+        bisque_temperature=950.0,
+        glaze_interior=glaze_interior,
+    )
+    density = (
+        None
+        if specific_gravity is None
+        else DensityMeasurement(
+            batch_id="aice-request",
+            measured_at=_now(),
+            specific_gravity=specific_gravity,
+            minutes_since_stirring=0.0,
+        )
+    )
+    record = GlazingRecord(
+        record_id="aice-request",
+        ware_id=ware_preset,
+        batch_id="aice-request",
+        method=method_enum,
+        weight_before=weight_before_g,
+        weight_after=weight_after_g,
+        dip_seconds=dip_seconds,
+        density=density,
+        waxed_area_m2=waxed_area_m2,
+        is_reglaze=is_reglaze,
+        drying_complete=drying_complete,
+    )
+    return compute_profile(record, ware)
+
+
+# ─── 06절 담금시간 역산 ─────────────────────────────────────────────────────
+
+
+def recommend_dip_time(
+    *, target_mm: float, specific_gravity: float, t_flow_mm: float = 0.0
+) -> DipRecommendation:
+    """`kiln.batch.dip_time.recommend_dip_time` 그대로. 흡수율은 대장 고정값."""
+    absorption = constants.get("absorption").value
+    return _recommend_dip_time(
+        target_mm, rho=specific_gravity, absorption=absorption, t_flow_mm=t_flow_mm
+    )
+
+
+# ─── 10-2절 회차 되먹임 — 캘리브레이션 배선 ──────────────────────────────────
+
+#: `CoefficientTable`의 필드 이름 그대로 jsonb에 직렬화한다 — 별도 매핑을
+#: 두면 한쪽만 고쳐졌을 때 조용히 어긋난다(00절과 같은 이유).
+_COEFFICIENT_FIELDS = (
+    "recipe_id", "k1", "k2", "rho_dry", "s", "m_rho",
+    "safe_thickness_mm", "calibration_runs", "calibrated_bisque_c",
+    "provenance_notes",
+)
+
+
+def coefficient_table_to_dict(table: CoefficientTable) -> dict:
+    """Supabase `personal_calibrations.coefficients` jsonb에 그대로 넣을 사전."""
+    data = asdict(table)
+    data["safe_thickness_mm"] = list(data["safe_thickness_mm"])
+    data["provenance_notes"] = list(data["provenance_notes"])
+    return data
+
+
+def coefficient_table_from_dict(recipe_id: str, data: dict | None) -> CoefficientTable:
+    """저장된 jsonb(없으면 빈 사전)에서 `CoefficientTable`을 복원한다.
+
+    `recipe_id`는 호출부(라우트 경로 파라미터)가 정본이다 — 저장된 값과
+    다르면 조용히 덮어써 저장소 키와 테이블 내용이 갈라지는 것을 막는다.
+    """
+    if not data:
+        return CoefficientTable(recipe_id=recipe_id)
+    safe = data.get("safe_thickness_mm")
+    return CoefficientTable(
+        recipe_id=recipe_id,
+        k1=data.get("k1"),
+        k2=data.get("k2"),
+        rho_dry=data.get("rho_dry"),
+        s=data.get("s"),
+        m_rho=data.get("m_rho"),
+        safe_thickness_mm=tuple(safe) if safe else (0.8, 1.3),
+        calibration_runs=data.get("calibration_runs", 0),
+        calibrated_bisque_c=data.get("calibrated_bisque_c"),
+        provenance_notes=tuple(data.get("provenance_notes", ())),
+    )
+
+
+def apply_calibration_run(
+    table: CoefficientTable,
+    *,
+    ware_preset: str,
+    bisque_temperature_c: float,
+    weight_before_g: float,
+    weight_after_g: float,
+    method: str,
+    dip_seconds: float | None = None,
+    specific_gravity: float | None = None,
+    waxed_area_m2: float = 0.0,
+    is_reglaze: bool = False,
+    drying_complete: bool = True,
+    glaze_interior: bool = True,
+) -> RunUpdate:
+    """시유 회차 1건으로 `table`을 갱신한다 — `kiln.calibration.update.run_update` 그대로.
+
+    `compute_thickness`와 같은 방식으로 `WARE_PROFILES` 대표 형상 위에
+    `GlazingRecord`/`Ware`를 조립한다(중복이지만, 두 경로가 각자 다른
+    도메인 객체 수명 주기를 가져서 — 하나는 응답 직후 버려지고 하나는
+    저장소에 들어간다 — 공유 헬퍼로 묶으면 그 차이가 흐려진다).
+    """
+    try:
+        method_enum = _METHOD_BY_LABEL[method]
+    except KeyError:
+        raise ValueError(
+            f"알 수 없는 시유 방법: {method!r}. 허용: {sorted(_METHOD_BY_LABEL)}"
+        ) from None
+    try:
+        profile_points = WARE_PROFILES[ware_preset]
+    except KeyError:
+        raise ValueError(
+            f"알 수 없는 기물 프리셋: {ware_preset!r}. 허용: {sorted(WARE_PROFILES)}"
+        ) from None
+
+    shape = WareShape(shape_id=ware_preset, name=ware_preset, profile=profile_points)
+    ware = Ware(
+        ware_id=ware_preset,
+        shape=shape,
+        clay_body="unspecified",
+        bisque_temperature=bisque_temperature_c,
+        glaze_interior=glaze_interior,
+    )
+    density = (
+        None
+        if specific_gravity is None
+        else DensityMeasurement(
+            batch_id="aice-calibration",
+            measured_at=_now(),
+            specific_gravity=specific_gravity,
+            minutes_since_stirring=0.0,
+        )
+    )
+    record = GlazingRecord(
+        record_id="aice-calibration",
+        ware_id=ware_preset,
+        batch_id="aice-calibration",
+        method=method_enum,
+        weight_before=weight_before_g,
+        weight_after=weight_after_g,
+        dip_seconds=dip_seconds,
+        density=density,
+        waxed_area_m2=waxed_area_m2,
+        is_reglaze=is_reglaze,
+        drying_complete=drying_complete,
+    )
+    return run_update(table, record, ware)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)

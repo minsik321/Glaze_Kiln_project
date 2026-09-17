@@ -1,5 +1,6 @@
 import type { SourceType } from "./contract";
-import type { RecipeId } from "./catalog";
+import { RECIPE_CANDIDATES, type RecipeId } from "./catalog";
+import { coordinateDistance, type TargetCoordinate } from "./targetCoordinate";
 
 export type EvidenceCard = {
   id: string;
@@ -17,7 +18,10 @@ export type EvidenceCard = {
 export type RecommendationOrigin = "rule" | "rag" | "trained_model";
 export type RankedRecommendation = {
   recipeId: RecipeId;
-  score: number;
+  //: 목표 좌표와의 거리 d — coordinateDistance(targetCoordinate.ts)로 실제
+  //: 계산한 값이다. 0이 정확히 일치, 클수록 멀다(예전의 `100 - index*18`
+  //: 임의 점수가 아니다).
+  distance: number;
   reason: string;
   origins: RecommendationOrigin[];
   evidenceIds: string[];
@@ -98,20 +102,31 @@ export class LocalEvidenceRetriever implements EvidenceRetriever {
   }
 }
 
-const GOAL_ORDER: Record<string, RecipeId[]> = {
-  "satin-blue": ["coastal-satin", "warm-clear", "soft-matte"],
-  "clear-warm": ["warm-clear", "coastal-satin", "soft-matte"],
-  "matte-white": ["soft-matte", "coastal-satin", "warm-clear"],
+//: 3개 목표 버튼(AicePrototype.tsx STEP 2)의 좌표 매핑 — 버튼 설명 문구
+//: ("은은한 광택 · 불투명" 등)를 그대로 좌표로 옮긴 것이다. 없는 goal은
+//: satin-blue로 대체한다(예전 GOAL_ORDER 기본값과 같은 자리).
+const GOAL_TARGET: Record<string, TargetCoordinate> = {
+  "satin-blue": { gloss: "satin", transparency: "opaque" },
+  "clear-warm": { gloss: "gloss", transparency: "transparent" },
+  "matte-white": { gloss: "matte", transparency: "opaque" },
 };
 
 export function rankRecommendations(input: { goal: string; clayBody?: string; version?: string }, retriever: EvidenceRetriever = new LocalEvidenceRetriever()): RankedRecommendation[] {
   const version = input.version ?? AI_RULE_VERSION;
-  const order = GOAL_ORDER[input.goal] ?? GOAL_ORDER["satin-blue"];
+  const target = GOAL_TARGET[input.goal] ?? GOAL_TARGET["satin-blue"];
   const evidence = retriever.search(`${input.goal} 색상 레시피 두께`, 2).map((match) => match.evidenceId);
-  return order.map((recipeId, index) => ({
+  const ranked = RECIPE_CANDIDATES
+    .map((candidate) => ({
+      recipeId: candidate.id,
+      distance: coordinateDistance(target, { gloss: candidate.gloss, transparency: candidate.transparency }),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.recipeId.localeCompare(b.recipeId));
+  return ranked.map(({ recipeId, distance }, index) => ({
     recipeId,
-    score: 100 - index * 18 - (!input.clayBody ? 7 : 0),
-    reason: index === 0 ? "목표 메타데이터 규칙이 가장 가깝고 적용 조건 재확인이 필요합니다." : "규칙 점수는 낮지만 비교 후보로 유지합니다.",
+    distance,
+    reason: index === 0
+      ? `목표 좌표와의 거리가 ${distance}로 가장 가깝고, 적용 조건 재확인이 필요합니다.`
+      : `목표 좌표와의 거리 ${distance} — 비교 후보로 유지합니다.`,
     origins: evidence.length ? ["rule", "rag"] : ["rule"],
     evidenceIds: evidence,
     modelVersion: version,

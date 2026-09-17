@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
 import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
 import { sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
@@ -6,8 +6,9 @@ import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type Recip
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
 import { WeightInputs } from "./WeightInputs";
-import { computeArealDensity } from "./arealDensity";
+import { arealDensityFromProfile } from "./arealDensity";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
+import { kilnThicknessApi, calibrationApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
 import { KilnSectionSimulator } from "./KilnSectionSimulator";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import { CurveControlPanel } from "./CurveControlPanel";
@@ -39,6 +40,10 @@ type PrototypeState = {
   //: 있다가 계산 시점에 숫자로 바꾼다(빈 입력을 구분하기 위해).
   beforeWeightG: string;
   afterWeightG: string;
+  //: 07절 두께 계산(compute_profile)의 필수 입력 — 시유 방법과(담금일 때만)
+  //: 담금시간. GlazingMethod 한국어 라벨 그대로 쓴다.
+  glazingMethod: string;
+  dipSeconds: string;
   curveApproved: boolean;
   // LLM 프런트도어 TODO Phase 3: 승인 시점에 CurveControlPanel이 실제로
   // 사용한 합성 게인·샘플을 그대로 받아 기록한다 — 이름 붙은 프리셋을 부모가
@@ -55,6 +60,8 @@ const initialState: PrototypeState = {
   customSilhouette: "round",
   beforeWeightG: "",
   afterWeightG: "",
+  glazingMethod: "담금",
+  dipSeconds: "",
   coatingConfirmed: false,
   curveApproved: false,
   approvedControlSamples: [],
@@ -131,7 +138,83 @@ function Guidance({ reason, assumption, next }: { reason: string; assumption: st
 export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
-  const arealDensity = computeArealDensity(Number(state.beforeWeightG), Number(state.afterWeightG), state.ware ?? "bowl");
+
+  // 07절 두께 계산은 이제 백엔드 `/kiln/thickness/profile`(kiln.thickness
+  // .profile.compute_profile)을 실제로 돌리므로 비동기다. requestId로
+  // 오래된 응답이 최신 입력을 덮어쓰지 않게 막는다(CurveControlPanel.tsx와
+  // 같은 패턴).
+  const [thicknessProfile, setThicknessProfile] = useState<ThicknessComputeResponse | null>(null);
+  const [thicknessStatus, setThicknessStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
+  const [thicknessError, setThicknessError] = useState<string | null>(null);
+  const thicknessRequestId = useRef(0);
+
+  const beforeWeight = Number(state.beforeWeightG);
+  const afterWeight = Number(state.afterWeightG);
+  const dipSeconds = state.glazingMethod === "담금" ? Number(state.dipSeconds) : null;
+  const weightsReady = state.beforeWeightG.trim() !== "" && state.afterWeightG.trim() !== ""
+    && Number.isFinite(beforeWeight) && Number.isFinite(afterWeight) && afterWeight > beforeWeight
+    && (state.glazingMethod !== "담금" || (state.dipSeconds.trim() !== "" && Number.isFinite(dipSeconds) && (dipSeconds as number) > 0));
+
+  useEffect(() => {
+    if (!weightsReady) {
+      setThicknessProfile(null);
+      setThicknessStatus("idle");
+      return;
+    }
+    const id = ++thicknessRequestId.current;
+    setThicknessStatus("loading");
+    setThicknessError(null);
+    kilnThicknessApi
+      .computeProfile({
+        ware_preset: state.ware ?? "bowl",
+        weight_before_g: beforeWeight,
+        weight_after_g: afterWeight,
+        method: state.glazingMethod,
+        dip_seconds: dipSeconds,
+      })
+      .then((profile) => {
+        if (thicknessRequestId.current !== id) return;
+        setThicknessProfile(profile);
+        setThicknessStatus("ready");
+      })
+      .catch((err) => {
+        if (thicknessRequestId.current !== id) return;
+        setThicknessError(err instanceof ApiError ? err.message : "두께 계산을 불러오지 못했습니다.");
+        setThicknessStatus("error");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weightsReady, state.ware, beforeWeight, afterWeight, state.glazingMethod, dipSeconds]);
+
+  const thicknessViewData = useMemo(
+    () => buildThicknessView({ ware: state.ware ?? "bowl", profile: thicknessProfile }),
+    [state.ware, thicknessProfile],
+  );
+  const arealDensity = arealDensityFromProfile(thicknessProfile);
+
+  // Phase 5: predictNextRun의 priorRunCount는 더 이상 0으로 고정된
+  // 초안이 아니다 — kiln.calibration.registry.CoefficientTableStore에
+  // 저장된 실제 calibration_runs를 backend/app 경유로 읽는다(레시피별
+  // 저장소 격리, personal_calibrations 참고).
+  const activeRecipeId = state.llmCandidate?.id ?? state.recipe ?? null;
+  const [calibrationRuns, setCalibrationRuns] = useState(0);
+  useEffect(() => {
+    if (!token || !activeRecipeId) {
+      setCalibrationRuns(0);
+      return;
+    }
+    let cancelled = false;
+    calibrationApi
+      .get(token, activeRecipeId)
+      .then((table) => {
+        if (!cancelled) setCalibrationRuns(table.calibration_runs);
+      })
+      .catch(() => {
+        if (!cancelled) setCalibrationRuns(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeRecipeId]);
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
     const run = restoredRun ?? sampleAiceRun();
@@ -140,7 +223,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       : state.goal === "matte-white"
         ? { gloss: "matte" as const, transparency: "opaque" as const, color: "#e7e5de", texture: "soft" }
         : run.goal;
-    const thicknessView = buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", evidence: "mass_only", meanMm: null });
+    const thicknessView = thicknessViewData;
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
     const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: state.coating ?? "target" });
@@ -150,9 +233,9 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       coating: state.coating ?? "target",
       ware: state.ware ?? "bowl",
       recipeFiringRangeC: selectedRecipe ? parseFiringRangeC(selectedRecipe.firingRange) : null,
-      //: 화면 흐름에는 아직 과거 실행 이력을 세지 않는다 — 0회로 고정한
-      //: 초안. Phase 5(학습 루프)에서 실제 이력 카운트를 연결한다.
-      priorRunCount: 0,
+      //: personal_calibrations에 저장된 실제 회차 수(위 useEffect) — 로그인
+      //: 전이거나 아직 캘리브레이션 이력이 없으면 0.
+      priorRunCount: calibrationRuns,
     });
     const curveSeries = buildCurveComparison(state.coating ?? "target", prediction.holdDeltaC, prediction.reason);
     const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
@@ -217,7 +300,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         feedback_scope: state.result ? state.evaluation.scope : null,
       },
     };
-  }, [restoredRun, state, step]);
+  }, [restoredRun, state, step, thicknessViewData, arealDensity, calibrationRuns]);
 
   useEffect(() => {
     if (!restoredRun) return;
@@ -361,10 +444,22 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         {step === 4 && (
           <>
             <div className="coating-presets" aria-label="도포 상태 예시 선택">{(["thin", "target", "thick"] as const).map((preset) => <button type="button" className="choice-chip" aria-pressed={state.coating === preset} key={preset} onClick={() => setState({ ...state, coating: preset, coatingConfirmed: false })}>{preset === "thin" ? "얇게 도포" : preset === "target" ? "목표 근처" : "두껍게 도포"}</button>)}</div>
-            <ThicknessSection ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} evidence="mass_only" arealDensityGm2={arealDensity ? arealDensity.gramsPerM2 : null} />
-            <WeightInputs beforeG={state.beforeWeightG} afterG={state.afterWeightG} onBeforeChange={(value) => setState((current) => ({ ...current, beforeWeightG: value }))} onAfterChange={(value) => setState((current) => ({ ...current, afterWeightG: value }))} result={arealDensity} />
+            <p className="coating-preset-note">이 선택은 아래 소성곡선 비교(다음 화면들)에만 반영됩니다 — 두께 종단면은 실제 무게로 계산됩니다.</p>
+            <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} />
+            {thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
+            <WeightInputs
+              beforeG={state.beforeWeightG}
+              afterG={state.afterWeightG}
+              method={state.glazingMethod}
+              dipSeconds={state.dipSeconds}
+              onBeforeChange={(value) => setState((current) => ({ ...current, beforeWeightG: value }))}
+              onAfterChange={(value) => setState((current) => ({ ...current, afterWeightG: value }))}
+              onMethodChange={(value) => setState((current) => ({ ...current, glazingMethod: value }))}
+              onDipSecondsChange={(value) => setState((current) => ({ ...current, dipSeconds: value }))}
+              result={arealDensity}
+            />
             <DensityCheck />
-            <Guidance reason={buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", meanMm: null }).risk} assumption="실제 무게·면적·건조밀도가 없어 평균은 판정 불가이며 위치별 값은 형상 기반 합성 분포입니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
+            <Guidance reason={thicknessViewData.risk} assumption="실측 무게·형상 근사 기반 계산입니다. 담금 방식이 아니면 위치별 분포는 계산되지 않습니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
             <button type="button" className="prototype-confirm" disabled={!state.coating} aria-pressed={state.coatingConfirmed} onClick={() => setState({ ...state, coatingConfirmed: true })}>가상 분포와 위험을 확인했어요</button>
           </>
         )}

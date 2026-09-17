@@ -169,6 +169,12 @@ export function RecipeChatScreen({
                 {candidate.colorant_note && <p>{candidate.colorant_note}</p>}
                 <p className="recipe-uncertainty">외배합은 건조 기본 유약 100g 기준 참고값이며 실제 발색은 소지·두께·분위기·냉각에 따라 달라집니다.</p>
                 <p>{candidate.predicted_firing_note}</p>
+                {candidate.composition_note && (
+                  <DetailDrawer summary="배합비 출처 보기">
+                    <p>{candidate.composition_note}</p>
+                    <p className="recipe-uncertainty">배합비(위 %)는 LLM이 지어낸 값이 아니라 규칙 기반 조성 탐색이 낸 값입니다 — LLM은 이름·착색·소성 메모만 붙였습니다.</p>
+                  </DetailDrawer>
+                )}
                 <div className="recipe-candidate-actions">
                   <button type="button" onClick={() => selectCandidate(candidate)} aria-pressed={selectedId === candidate.id}>
                     {selectedId === candidate.id ? "선택됨" : "이 후보 선택"}
