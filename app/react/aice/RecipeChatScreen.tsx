@@ -1,30 +1,43 @@
-import { useState, type FormEvent } from "react";
-import { ApiError, recipeCandidatesApi } from "../lib/api";
+import { useEffect, useState, type FormEvent } from "react";
+import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
 import type { RecipeCandidate } from "./contract";
 import { SOURCE_LABELS } from "./catalog";
+import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer, StatusBadge } from "./ui";
 
 /**
- * 화면 1(LLM 채팅) — LLM 프런트도어 TODO Phase 2.
+ * 화면 1(LLM 채팅) — LLM 프런트도어 TODO Phase 2, v9 개편.
  *
  * 자연어 입력을 `kiln.llm`이 검증한 레시피 후보로 바꾸는 화면. 카드
- * 레이아웃은 `RecommendationEvidence.tsx`의 "근거 카드" 패턴
- * (`.evidence-card-grid`)을 그대로 재사용하되, 그 컴포넌트가 쓰는 규칙
- * 기반 추천(`aiMvp.ts`)이 아니라 백엔드의 `/aice/recipe-candidates`를
- * 호출한다 — 별개의 데이터 경로다.
+ * 레이아웃은 예전 `RecommendationEvidence.tsx`의 "근거 카드" 패턴
+ * (`.evidence-card-grid`)을 재사용하되, 그 컴포넌트가 쓰던 규칙 기반
+ * 추천(`aiMvp.ts`, 고정 데모 3종)이 아니라 백엔드의
+ * `/aice/recipe-candidates`를 호출한다 — 별개의 데이터 경로다.
  *
- * 이미지는 카드마다 자동 생성하지 않는다 — 장당 비용(§8)이 있어 사용자가
- * "예상 이미지 생성" 버튼으로 직접 요청한다.
+ * 이미지는 후보가 도착하는 즉시 카드마다 자동으로 요청한다(예전에는
+ * 카드별 "예상 이미지 생성" 버튼이 있었으나, 매번 눌러야 하는 번거로움을
+ * 없애 달라는 요청으로 자동 호출로 바꿨다). 왼쪽 `☰` 아이콘을 누르면
+ * 이전에 물었던 질문(=제목) 목록이 나오고, 하나를 고르면 그때 만든 후보
+ * 세트를 그대로 복원한다. 또한 새 질문을 보낼 때마다 규칙 기반으로(학습
+ * 모델 아님) 과거 이력 중 비슷한 요청의 후보를 찾아 같은 카드 그리드에
+ * 함께 올리고, 왜 비슷한지 리마크 문장을 붙인다(`historyMatch.ts`).
  */
 export function RecipeChatScreen({
   token,
   onSelect,
   onIntake,
+  onGenerated,
   disabled = false,
 }: {
   token: string;
   onSelect?: (candidate: RecipeCandidate) => void;
+  //: 부모(AicePrototype)의 `intakePrompt`/`intakeCandidates`를 최신 상태로
+  //: 맞추기 위한 콜백 — 새로 생성했을 때도, 이력에서 복원했을 때도 부른다.
   onIntake?: (promptText: string, candidates: RecipeCandidate[]) => void;
+  //: `onIntake`와 달리 "진짜 새로 만든" 순간에만 부른다 — 부모가 이 시점에만
+  //: 이력에 자동 저장한다(이력 복원을 다시 저장해 중복 항목을 만들지 않기
+  //: 위해 분리했다).
+  onGenerated?: (promptText: string, candidates: RecipeCandidate[]) => void;
   disabled?: boolean;
 }) {
   const [promptText, setPromptText] = useState("");
@@ -36,29 +49,35 @@ export function RecipeChatScreen({
   const [images, setImages] = useState<Record<string, { base64: string; mediaType: string }>>({});
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
+  const [historyMatches, setHistoryMatches] = useState<HistoryMatch[]>([]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = promptText.trim();
-    if (!trimmed || status === "loading" || disabled) return;
-    setStatus("loading");
-    setError(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [history, setHistory] = useState<AiceRunRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [restoredRunId, setRestoredRunId] = useState<string | null>(null);
+
+  async function loadHistory() {
+    if (!token) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
     try {
-      const response = await recipeCandidatesApi.suggest(token, trimmed);
-      setCandidates(response.candidates);
-      setDropped(response.dropped);
-      setSelectedId(response.candidates[0]?.id ?? null);
-      setStatus("complete");
+      const page = await aiceRunsApi.listMine(token);
+      setHistory(page.items);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "후보를 만들지 못했습니다.");
-      setStatus("error");
+      setHistoryError(err instanceof ApiError ? err.message : "이전 기록을 불러오지 못했습니다.");
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
-  function selectCandidate(candidate: RecipeCandidate) {
-    setSelectedId(candidate.id);
-    onSelect?.(candidate);
-    onIntake?.(promptText.trim(), candidates);
+  useEffect(() => {
+    if (token) void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  function requestImagesFor(list: RecipeCandidate[]) {
+    for (const candidate of list) void requestImage(candidate);
   }
 
   async function requestImage(candidate: RecipeCandidate) {
@@ -89,15 +108,112 @@ export function RecipeChatScreen({
     }
   }
 
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = promptText.trim();
+    if (!trimmed || status === "loading" || disabled) return;
+    setStatus("loading");
+    setError(null);
+    setRestoredRunId(null);
+    try {
+      const response = await recipeCandidatesApi.suggest(token, trimmed);
+      setCandidates(response.candidates);
+      setDropped(response.dropped);
+      setSelectedId(response.candidates[0]?.id ?? null);
+      setImages({});
+      setImageErrors({});
+      setStatus("complete");
+      setHistoryMatches(findSimilarHistory(trimmed, response.candidates, history));
+      requestImagesFor(response.candidates);
+      onIntake?.(trimmed, response.candidates);
+      onGenerated?.(trimmed, response.candidates);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "후보를 만들지 못했습니다.");
+      setStatus("error");
+    }
+  }
+
+  function selectCandidate(candidate: RecipeCandidate) {
+    setSelectedId(candidate.id);
+    onSelect?.(candidate);
+  }
+
+  async function restoreFromHistory(record: AiceRunRecord) {
+    const full = record.run.intake ? record : await aiceRunsApi.get(token, record.id).catch(() => null);
+    const intake = full?.run.intake;
+    if (!intake) {
+      setHistoryError("이 기록에는 후보 대화 내용이 없습니다.");
+      return;
+    }
+    setPromptText(intake.prompt_text);
+    setCandidates(intake.candidates.candidates);
+    setSelectedId(intake.candidates.selected_id ?? intake.candidates.candidates[0]?.id ?? null);
+    setDropped([]);
+    setImages({});
+    setImageErrors({});
+    setHistoryMatches([]);
+    setStatus("complete");
+    setError(null);
+    setRestoredRunId(record.id);
+    requestImagesFor(intake.candidates.candidates);
+    onIntake?.(intake.prompt_text, intake.candidates.candidates);
+    setSidebarOpen(false);
+  }
+
+  function toggleSidebar() {
+    const next = !sidebarOpen;
+    setSidebarOpen(next);
+    if (next) void loadHistory();
+  }
+
+  const cards: Array<{ candidate: RecipeCandidate; remark?: string }> = [
+    ...candidates.map((candidate) => ({ candidate })),
+    ...historyMatches
+      .filter((match) => !candidates.some((candidate) => candidate.id === match.candidate.id))
+      .map((match) => ({ candidate: match.candidate, remark: match.remark })),
+  ];
+
   return (
     <section className="recipe-chat-screen" aria-labelledby="recipe-chat-title">
-      <div className="evidence-heading">
+      <div className="evidence-heading recipe-chat-heading">
+        <button
+          type="button"
+          className="recipe-history-toggle"
+          aria-label="이전 질문 기록 열기"
+          aria-expanded={sidebarOpen}
+          onClick={toggleSidebar}
+          disabled={!token}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
         <div>
           <h3 id="recipe-chat-title">원하는 유약을 문장으로 설명해요</h3>
           <p>LLM이 문헌·일반 지식으로 제안한 출발점이며, 실제 소성 결과를 보장하지 않습니다.</p>
         </div>
         <StatusBadge tone="unavailable">AI 제안 · 실측 아님</StatusBadge>
       </div>
+
+      {sidebarOpen && (
+        <>
+          <div className="recipe-history-backdrop" onClick={() => setSidebarOpen(false)} />
+          <aside className="recipe-history-sidebar" aria-label="이전 질문 기록">
+            <h4>이전 질문</h4>
+            {historyLoading && <AsyncState kind="loading" />}
+            {historyError && <Alert tone="danger" title="기록을 불러오지 못했어요">{historyError}</Alert>}
+            {!historyLoading && history.length === 0 && <p>아직 저장된 질문이 없습니다.</p>}
+            <ul className="recipe-history-list">
+              {history.map((record) => (
+                <li key={record.id}>
+                  <button type="button" aria-current={restoredRunId === record.id ? "true" : undefined} onClick={() => void restoreFromHistory(record)}>
+                    {record.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        </>
+      )}
+
       <form onSubmit={submit} className="recipe-prompt-form">
         <label htmlFor="recipe-prompt">원하는 결과를 설명해 주세요</label>
         <textarea
@@ -118,10 +234,10 @@ export function RecipeChatScreen({
           {error}
         </Alert>
       )}
-      {status === "complete" && candidates.length === 0 && <AsyncState kind="empty" />}
-      {candidates.length > 0 && (
+      {status === "complete" && cards.length === 0 && <AsyncState kind="empty" />}
+      {cards.length > 0 && (
         <div className="evidence-card-grid">
-          {candidates.map((candidate) => {
+          {cards.map(({ candidate, remark }) => {
             const [lo, hi] = candidate.predicted_firing_range.value ?? [null, null];
             const colorants = candidate.colorants ?? {};
             return (
@@ -133,7 +249,10 @@ export function RecipeChatScreen({
                 <div>
                   <StatusBadge tone="unavailable">{SOURCE_LABELS[candidate.source_type]}</StatusBadge>
                   <strong>{candidate.name}</strong>
+                  {remark && <span className="history-match-badge">과거 이력 · 유사 후보</span>}
                 </div>
+                {remark && <p className="history-match-remark">{remark}</p>}
+                {imageLoading[candidate.id] && <AsyncState kind="loading" />}
                 {images[candidate.id] && (
                   <img
                     src={`data:${images[candidate.id].mediaType};base64,${images[candidate.id].base64}`}
@@ -182,9 +301,6 @@ export function RecipeChatScreen({
                 <div className="recipe-candidate-actions">
                   <button type="button" onClick={() => selectCandidate(candidate)} aria-pressed={selectedId === candidate.id}>
                     {selectedId === candidate.id ? "선택됨" : "이 후보 선택"}
-                  </button>
-                  <button type="button" onClick={() => requestImage(candidate)} disabled={imageLoading[candidate.id]}>
-                    {imageLoading[candidate.id] ? "이미지 생성 중…" : images[candidate.id] ? "이미지 다시 생성" : "예상 이미지 생성"}
                   </button>
                 </div>
               </article>

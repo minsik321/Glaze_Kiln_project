@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
 import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
-import { sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
+import { assertAiceRun, sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
 import { WeightInputs } from "./WeightInputs";
 import { arealDensityFromProfile } from "./arealDensity";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
-import { kilnThicknessApi, calibrationApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
+import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
 import { KilnSectionSimulator } from "./KilnSectionSimulator";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import { CurveControlPanel } from "./CurveControlPanel";
@@ -337,6 +337,23 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
     };
   }, [restoredRun, state, step, thicknessViewData, arealDensity, calibrationRuns, firingGlossBias, activeFiringRangeC]);
 
+  // v9 개편: 화면 1에서 새 질문을 보낼 때마다(이력 복원 제외) 이력
+  // 사이드바에 제목=질문으로 자동 저장한다 — 세대 카운터로 "진짜 새 생성"과
+  // "이력에서 복원"을 구분해, 복원할 때마다 같은 항목이 중복 저장되지
+  // 않게 한다(RecipeChatScreen.tsx의 onGenerated/onIntake 분리와 짝).
+  const [intakeGeneration, setIntakeGeneration] = useState(0);
+  const savedIntakeGenerationRef = useRef(0);
+  useEffect(() => {
+    if (!token || !state.intakePrompt || intakeGeneration === savedIntakeGenerationRef.current) return;
+    savedIntakeGenerationRef.current = intakeGeneration;
+    try {
+      assertAiceRun(snapshot);
+    } catch {
+      return;
+    }
+    void aiceRunsApi.create(token, { title: state.intakePrompt, run: snapshot, is_public: false }).catch(() => {});
+  }, [intakeGeneration, token, state.intakePrompt, snapshot]);
+
   useEffect(() => {
     if (!restoredRun) return;
     let cancelled = false;
@@ -403,25 +420,28 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
           <p>{screenTitles[step][1]}</p>
         </div>
 
-        {step === 0 && (
-          <section className="prototype-home">
-            {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
-            <RecipeChatScreen
-              token={token}
-              disabled={!token}
-              onSelect={(candidate) => setState((current) => ({
-                ...current,
-                recipe: candidate.id,
-                llmCandidate: candidate,
-              }))}
-              onIntake={(promptText, candidates) => setState((current) => ({
-                ...current,
-                intakePrompt: promptText,
-                intakeCandidates: candidates,
-              }))}
-            />
-          </section>
-        )}
+        {/* v9 개편: step 0이 아닐 때도 언마운트하지 않는다(hidden만 토글) —
+            예전에는 {step === 0 && (...)} 조건부 렌더링이라 다른 화면으로
+            넘어갔다 돌아오면 RecipeChatScreen의 로컬 상태(후보·이미지·
+            선택)가 통째로 날아갔다. */}
+        <section className="prototype-home" hidden={step !== 0}>
+          {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
+          <RecipeChatScreen
+            token={token}
+            disabled={!token}
+            onSelect={(candidate) => setState((current) => ({
+              ...current,
+              recipe: candidate.id,
+              llmCandidate: candidate,
+            }))}
+            onIntake={(promptText, candidates) => setState((current) => ({
+              ...current,
+              intakePrompt: promptText,
+              intakeCandidates: candidates,
+            }))}
+            onGenerated={() => setIntakeGeneration((current) => current + 1)}
+          />
+        </section>
 
         {step === 1 && (
           <div className="prototype-grid">
