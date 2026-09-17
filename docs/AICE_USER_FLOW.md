@@ -1,6 +1,6 @@
 # AICE MVP 사용자 흐름과 저해상도 와이어프레임
 
-기준 문서: `AICE_REBUILD_TODO.md` Phase 1, `AICE_DIRECTION_PLAN.md` 1–3절·9절  
+기준 문서: `AICE_DIRECTION_PLAN.md` 1–3절·9절  
 현재 앱 비교: `목표 → 레시피 → 시유 → 점검 → 소성 → 결과`의 숫자 입력 중심
 6단계를 아래 9개 선택 중심 화면으로 교체한다.
 

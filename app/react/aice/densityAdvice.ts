@@ -5,9 +5,10 @@
 // (curvePlan.ts, thicknessView.ts, kilnSimulation.ts와 같은 패턴). 이 파일은
 // src/kiln/batch/density.py의 `assess_density()`를 **그대로 재현**한 것이지
 // 새로 지어낸 판정이 아니다 — 상수·분기·문구를 그 파일과 동일하게 유지한다.
-// 진짜 물리 코어(레거시 시뮬레이터, app/react/simulator/*)는 여전히
-// Pyodide로 실제 `assess_density()`를 호출한다; 이 값과 어긋나면 이 파일이
-// 틀린 것이다.
+// 진짜 물리 코어는 src/kiln/batch/density.py의 `assess_density()`다 — 이
+// 값과 어긋나면 이 파일이 틀린 것이다. (Pyodide로 브라우저에서 이 함수를
+// 직접 부르던 레거시 Simulator 경로는 2026-09 제거되었다; 지금은 src/kiln이
+// 백엔드에서만 쓰인다.)
 
 export type DensityStatus = "ok" | "too_thin" | "too_thick" | "out_of_range";
 

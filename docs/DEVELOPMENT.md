@@ -2,7 +2,10 @@
 
 ## 선택한 구성
 
-React 19 + TypeScript + Vite, 계산은 기존 Python 3.11+ / Pyodide,
+React 19 + TypeScript + Vite, AICE 화면의 두께·소성곡선·비중 계산은
+TypeScript로 직접 구현합니다(`src/kiln`의 대응 Python 모듈을 원본으로 삼아
+포팅). `src/kiln`(Python)은 백엔드에서 LLM 레시피 추천 검증(`kiln.llm`,
+`kiln.chem`)에 계속 쓰이며, 나머지 물리 판정 모듈은 라이브러리로 보존됩니다.
 데이터베이스는 Supabase PostgreSQL, 인증은 Supabase Auth를 사용합니다.
 관계형 사용자/기록 모델과 JSONB 실험 스냅샷을 함께 저장하고 RLS로 소유권을 제한합니다.
 
@@ -133,6 +136,6 @@ npm run test:e2e
 브라우저 테스트는 Windows에 설치된 Edge를 사용합니다. 다른 환경에서는
 `playwright.config.ts`의 channel 설정을 변경하고 해당 브라우저를 설치하세요.
 현재 AICE 안내 흐름 E2E는 앱 셸과 TypeScript 합성 모델을 검증하며 초기 표시에서
-Pyodide 로드를 기다리지 않습니다. 기존 Python 브리지 경로를 직접 검증할 때는 Pyodide
-CDN 인터넷 연결이 필요합니다. Windows에서는 Playwright가 시작한 Vite 자식 프로세스가
-남을 수 있어, 개발 서버를 먼저 시작한 뒤 `npm run test:e2e`를 실행하는 방법이 가장 안정적입니다.
+네트워크 로드를 기다리지 않습니다(Pyodide 브리지 경로는 2026-09 제거). Windows에서는
+Playwright가 시작한 Vite 자식 프로세스가 남을 수 있어, 개발 서버를 먼저 시작한 뒤
+`npm run test:e2e`를 실행하는 방법이 가장 안정적입니다.

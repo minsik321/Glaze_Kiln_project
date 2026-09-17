@@ -2,7 +2,7 @@
 
 브랜치: `feature/llm-frontdoor-v9`
 기준 문서: `kiln-plan-v7.md`, `CLAUDE.md`(루트·모듈별), `AICE_DIRECTION_PLAN.md`,
-`AICE_USER_FLOW.md`, `AICE_REBUILD_TODO.md`, `DECISIONS.md`
+`AICE_USER_FLOW.md`, `DECISIONS.md`
 
 ## 0 · 문서의 위치와 우선순위
 

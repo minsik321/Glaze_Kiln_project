@@ -1,6 +1,6 @@
 # kiln.aice — AiceRun 경계 계약
 
-기준: `docs/AICE_DIRECTION_PLAN.md` 3·9절, `docs/AICE_REBUILD_TODO.md` Phase 3.
+기준: `docs/AICE_DIRECTION_PLAN.md` 3·9절.
 
 ## ① 입력
 

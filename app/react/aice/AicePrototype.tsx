@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
+import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
 import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
 import { sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";

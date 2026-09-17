@@ -15,11 +15,11 @@ aimlapi 고유의 것은 base_url·모델명·API 키뿐이다.
 전달하지 않는다(§8).
 
 **이 파일이 ``src/kiln`` 이 아니라 ``backend/app`` 에 있는 이유**: ``src/kiln``
-전체가 ``app/kiln-manifest.json`` 을 통해 그대로 브라우저(Pyodide)로
-배송되고, 그 경계는 순수 stdlib이어야 한다
-(``tests/webapp/test_manifest.py::test_manifest_is_pure_stdlib_on_the_browser_side``).
-이 모듈은 ``httpx`` 에 의존하므로 그 경계 안에 둘 수 없다 — ``backend.app.supabase.SupabaseGateway``
-와 같은 이유로 같은 자리에 둔다.
+는 순수 stdlib 경계를 지킨다(과거 Pyodide로 브라우저에 그대로 배송하던
+경계였다; 그 브라우저 배송 경로는 2026-09 제거되었고 현재는 backend/app이
+``src/kiln``을 그대로 가져다 쓴다). 이 모듈은 ``httpx`` 에 의존하므로 그
+경계 안에 둘 수 없다 — ``backend.app.supabase.SupabaseGateway`` 와 같은
+이유로 같은 자리에 둔다.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { AuthPanel } from "./auth/AuthPanel";
-import type { SimulatorSnapshot } from "./Simulator";
+import type { SimulatorSnapshot } from "./aice/snapshot";
 import { AicePrototype } from "./aice/AicePrototype";
 import { AppShell, BottomNavigation } from "./aice/ui";
 import type { AiceRun } from "./aice/contract";

@@ -44,7 +44,9 @@ npm run dev
 ```
 
 http://localhost:5173/ 에서 실행합니다. 빌드: `npm run build` (출력 `dist/`).
-기존 Python 계산 엔진은 필요한 시점에 Pyodide로 브라우저에서 실행합니다.
+두께·소성곡선·비중 판정은 TypeScript로 직접 계산하고(`src/kiln`의 대응 Python
+모듈을 원본으로 포팅), 채팅형 입구에서의 레시피 후보 추천과 예상 이미지 생성은
+FastAPI 백엔드가 aimlapi.com을 통해 처리합니다(`docs/AICE_LLM_FRONTDOOR_PLAN.md`).
 데이터는 Supabase PostgreSQL에 저장하고 FastAPI가 인증된 작업 기록 API를 제공합니다.
 로그인·프로필·개인 기록 저장·공개 기록 조회가 구현되어 있습니다.
 
@@ -52,16 +54,16 @@ http://localhost:5173/ 에서 실행합니다. 빌드: `npm run build` (출력 `
 - [AICE 로컬 실행·백업·복구](docs/AICE_LOCAL_OPERATIONS.md)
 - [AiceRun 마이그레이션](docs/AICE_MIGRATION.md)
 - [FastAPI 백엔드](backend/README.md)
-- [React 구조와 이전 경계](app/README.md)
-- [단계별 TODO](docs/TODO.md)
+- [React 구조](app/README.md)
+- [현재 작업 상태(LLM 프런트도어 TODO)](docs/AICE_LLM_FRONTDOOR_TODO.md)
 
 ## 문서
 
 | 문서 | 내용 |
 |---|---|
 | [docs/kiln-plan-v7.md](docs/kiln-plan-v7.md) | 기획서 원본. 모든 설계 판단의 출처 |
+| [docs/AICE_LLM_FRONTDOOR_PLAN.md](docs/AICE_LLM_FRONTDOOR_PLAN.md) | 현재 방향성 — LLM 채팅 입구·RAG·Prediction·Optimization |
+| [docs/AICE_LLM_FRONTDOOR_TODO.md](docs/AICE_LLM_FRONTDOOR_TODO.md) | 현재 작업 상태와 남은 항목 |
 | [docs/INTERFACES.md](docs/INTERFACES.md) | 모듈 간 계약 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 폐기된 설계와 그 이유 |
-| [docs/AICE_REBUILD_TODO.md](docs/AICE_REBUILD_TODO.md) | AICE Phase 0–10 완료 기준 |
-| [docs/AICE_IMPLEMENTATION_PROGRESS.md](docs/AICE_IMPLEMENTATION_PROGRESS.md) | Phase별 구현·검증 원장 |
 | [CLAUDE.md](CLAUDE.md) | 저장소 안내 (모듈별 상세는 각 모듈의 `CLAUDE.md`) |
