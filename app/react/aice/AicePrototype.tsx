@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
 import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
 import { assertAiceRun, sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
-import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
+import { CLAY_BODIES, RECIPE_CANDIDATES, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
 import { WeightInputs } from "./WeightInputs";
@@ -14,16 +14,12 @@ import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan 
 import { CurveControlPanel } from "./CurveControlPanel";
 import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControllerSample } from "./curvePlan";
 import { parseFiringRangeC, predictNextRun, PREDICTOR_VERSION } from "./predictionModel";
-import { RecommendationEvidence } from "./RecommendationEvidence";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
 import type { ResultEvaluation } from "./feedback";
 import { RecipeChatScreen } from "./RecipeChatScreen";
 
-type Goal = "satin-blue" | "clear-warm" | "matte-white";
-
 type PrototypeState = {
-  goal?: Goal;
   recipe?: string;
   llmCandidate?: RecipeCandidate;
   intakePrompt?: string;
@@ -74,8 +70,6 @@ const initialState: PrototypeState = {
 
 const screens = [
   "AI 제안",
-  "결과",
-  "레시피",
   "기물",
   "도포",
   "적재",
@@ -86,8 +80,6 @@ const screens = [
 
 const screenTitles = [
   ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
-  ["원하는 모습을 골라주세요", "정확한 수치 대신 가장 가까운 결과를 선택합니다."],
-  ["근거가 있는 후보를 비교해요", "결과를 보장하지 않는 참고 후보입니다."],
   ["자주 쓰는 기물에서 골라요", "대표 형상을 사용한 추정임을 계속 표시합니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
   ["기물과 센서 위치를 확인해요", "센서 배치는 관측 범위와 불확실성에 영향을 줍니다."],
@@ -246,11 +238,17 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
     const run = restoredRun ?? sampleAiceRun();
-    const goal = state.goal === "clear-warm"
-      ? { gloss: "gloss" as const, transparency: "transparent" as const, color: "#c7aa7d", texture: "smooth" }
-      : state.goal === "matte-white"
-        ? { gloss: "matte" as const, transparency: "opaque" as const, color: "#e7e5de", texture: "soft" }
-        : run.goal;
+    //: v9: 2~3페이지(목표 카드·정적 레시피 그리드) 삭제로 목표 좌표는
+    //: 더 이상 사용자가 직접 고르지 않는다 — 화면 1에서 고른 LLM 후보의
+    //: target_gloss/target_transparency가 있으면 그걸 쓰고, 없으면 복원된
+    //: 기록(또는 샘플)의 목표를 그대로 유지한다.
+    const llmGoal = state.llmCandidate?.target_gloss && state.llmCandidate?.target_transparency
+      ? {
+        gloss: state.llmCandidate.target_gloss.toLowerCase() as typeof run.goal.gloss,
+        transparency: state.llmCandidate.target_transparency.toLowerCase() as typeof run.goal.transparency,
+      }
+      : null;
+    const goal = llmGoal ? { ...run.goal, ...llmGoal } : run.goal;
     const thicknessView = thicknessViewData;
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
@@ -374,8 +372,8 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         approvedControlParameters = CONTROL_PLANS.balanced.parameters;
       }
       if (cancelled) return;
-      setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
-      setStep(restoredRun.status === "evaluated" ? 8 : restoredRun.status === "simulated" ? 7 : 0);
+      setState({ ...initialState, recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
+      setStep(restoredRun.status === "evaluated" ? 6 : restoredRun.status === "simulated" ? 5 : 0);
     })();
     return () => {
       cancelled = true;
@@ -393,8 +391,6 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
   };
   const canContinue = [
     true,
-    Boolean(state.goal),
-    Boolean(state.recipe),
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
     Boolean(state.coating && state.coatingConfirmed),
     Boolean(state.sensorPlan),
@@ -444,42 +440,6 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         </section>
 
         {step === 1 && (
-          <div className="prototype-grid">
-            <ChoiceCard title="사틴 청색" description="은은한 광택 · 불투명" visual="swatch-blue" selected={state.goal === "satin-blue"} onClick={() => setState({ ...state, goal: "satin-blue" })} />
-            <ChoiceCard title="따뜻한 투명" description="유광 · 투명" visual="swatch-clear" selected={state.goal === "clear-warm"} onClick={() => setState({ ...state, goal: "clear-warm" })} />
-            <ChoiceCard title="부드러운 백색" description="무광 · 불투명" visual="swatch-white" selected={state.goal === "matte-white"} onClick={() => setState({ ...state, goal: "matte-white" })} />
-          </div>
-        )}
-
-        {step === 2 && (
-          <>
-            {state.llmCandidate && (
-              <Alert tone="warning" title="AI 검증 후보가 선택되어 있어요">
-                {state.llmCandidate.name} 후보가 현재 작업 레시피에 연결됩니다. 아래 기존 후보를 선택하면 변경할 수 있습니다.
-              </Alert>
-            )}
-            <div className="prototype-grid recipe-grid">
-              {RECIPE_CANDIDATES.map((candidate) => (
-                <article className="recipe-card" key={candidate.id}>
-                  <button type="button" className="prototype-choice" aria-pressed={state.recipe === candidate.id} onClick={() => setState({ ...state, recipe: candidate.id, llmCandidate: undefined })}>
-                    <span className={`prototype-visual ${candidate.visual}`} role="img" aria-label={`${candidate.name}의 실물 사진이 아닌 색상·질감 플레이스홀더`}><b>사진 없음 · 플레이스홀더</b></span>
-                    <strong>{candidate.name}</strong>
-                    <span>{candidate.similarityReason}</span>
-                    <span className="recipe-facts"><StatusBadge tone="unavailable">{SOURCE_LABELS[candidate.sourceType]}</StatusBadge><small>{candidate.firingRange}</small><small>데이터 {candidate.dataCount}건</small></span>
-                    <span className="recipe-uncertainty">불확실성: {candidate.uncertainty}</span>
-                    <span className="recipe-risk">위험: {candidate.risk}</span>
-                  </button>
-                  <DetailDrawer summary="배합·화학 상세 보기"><p>{candidate.detail}</p></DetailDrawer>
-                </article>
-              ))}
-            </div>
-            <Guidance reason="선택한 광택·투명도와 규칙 점수가 가장 가깝습니다." assumption="사진 자리는 색상·질감 플레이스홀더이며 예상 실물 사진이 아닙니다." next="후보 하나를 선택하고 기물 모양을 고르세요." />
-            <RecommendationEvidence goal={state.goal ?? "satin-blue"} clayBody={state.clayBody} />
-            <DetailDrawer><p>이 MVP는 출처가 있는 규칙, 로컬 출처 검색과 합성 예시만 사용합니다. 학습 모델은 권리·표본·독립 평가 게이트를 통과하지 않아 제품 경로에서 차단됩니다.</p></DetailDrawer>
-          </>
-        )}
-
-        {step === 3 && (
           <>
             <section aria-labelledby="ware-shape-heading">
               <h3 id="ware-shape-heading">기물 모양</h3>
@@ -496,7 +456,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
           </>
         )}
 
-        {step === 4 && (
+        {step === 2 && (
           <>
             <div className="coating-presets" aria-label="도포 상태 예시 선택">{(["thin", "target", "thick"] as const).map((preset) => <button type="button" className="choice-chip" aria-pressed={state.coating === preset} key={preset} onClick={() => setState({ ...state, coating: preset, coatingConfirmed: false })}>{preset === "thin" ? "얇게 도포" : preset === "target" ? "목표 근처" : "두껍게 도포"}</button>)}</div>
             <p className="coating-preset-note">이 선택은 아래 소성곡선 비교(다음 화면들)에만 반영됩니다 — 두께 종단면은 실제 무게로 계산됩니다.</p>
@@ -519,15 +479,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
           </>
         )}
 
-        {step === 5 && (
+        {step === 3 && (
           <KilnSectionSimulator ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
         )}
 
-        {step === 6 && (
+        {step === 4 && (
           <CurveControlPanel coating={state.coating ?? "target"} recipeFiringRangeC={activeFiringRangeC} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
         )}
 
-        {step === 7 && (
+        {step === 5 && (
           <>
             <div className="prototype-firing" aria-live="polite">
               <span className={state.simulationCompleted ? "complete" : "idle"}>{state.simulationCompleted ? "가상 소성 완료" : "가상 가마 준비됨"}</span>
@@ -538,15 +498,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
           </>
         )}
 
-        {step === 8 && (
+        {step === 6 && (
           <><ResultFeedback value={state.evaluation} onChange={(evaluation) => setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined }))} />{state.result && <Guidance reason="이번 관찰 선택이 개인 기록의 다음 후보 비교에 연결됩니다." assumption="실제 소성 품질이나 재현성을 검증한 결과가 아닙니다." next="작업 기록에 저장한 뒤 영향 추적과 공유 동의를 확인하세요." />}</>
         )}
       </main>
 
       <footer className="prototype-actions">
-        {step > 0 && step < 8 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
-        {step < 8 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
-        {step === 8 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
+        {step > 0 && step < 6 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
+        {step < 6 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
+        {step === 6 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
       </footer>
     </div>
   );
