@@ -68,7 +68,8 @@ export function RecipeChatScreen({
       const result = await recipeCandidatesApi.image(token, {
         candidate_name: candidate.name,
         materials: candidate.materials,
-        style_note: candidate.predicted_firing_note,
+        colorants: candidate.colorants,
+        style_note: `${candidate.predicted_firing_note} ${candidate.colorant_note ?? ""}`.trim(),
       });
       setImages((prev) => ({
         ...prev,
@@ -118,6 +119,7 @@ export function RecipeChatScreen({
         <div className="evidence-card-grid">
           {candidates.map((candidate) => {
             const [lo, hi] = candidate.predicted_firing_range.value ?? [null, null];
+            const colorants = candidate.colorants ?? {};
             return (
               <article
                 key={candidate.id}
@@ -140,7 +142,7 @@ export function RecipeChatScreen({
                     {imageErrors[candidate.id]}
                   </Alert>
                 )}
-                <h4>배합</h4>
+                <h4>기본 유약 배합 (합계 100%)</h4>
                 <dl>
                   {Object.entries(candidate.materials).map(([name, pct]) => (
                     <div key={name}>
@@ -153,6 +155,19 @@ export function RecipeChatScreen({
                     <dd>{lo ?? "?"}–{hi ?? "?"} °C</dd>
                   </div>
                 </dl>
+                <h4>발색 산화물 (외배합)</h4>
+                {Object.keys(colorants).length > 0 ? (
+                  <dl>
+                    {Object.entries(colorants).map(([name, pct]) => (
+                      <div key={name}>
+                        <dt>{name}</dt>
+                        <dd>{pct}%</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : <p>추가 발색 산화물 없음</p>}
+                {candidate.colorant_note && <p>{candidate.colorant_note}</p>}
+                <p className="recipe-uncertainty">외배합은 건조 기본 유약 100g 기준 참고값이며 실제 발색은 소지·두께·분위기·냉각에 따라 달라집니다.</p>
                 <p>{candidate.predicted_firing_note}</p>
                 <div className="recipe-candidate-actions">
                   <button type="button" onClick={() => selectCandidate(candidate)} aria-pressed={selectedId === candidate.id}>

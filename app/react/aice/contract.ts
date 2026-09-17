@@ -44,6 +44,9 @@ export type RecipeCandidate = {
   id: string;
   name: string;
   materials: Record<string, number>;
+  /** 건조 기본 유약 100g 대비 외배합 발색 산화물 wt% */
+  colorants: Record<string, number>;
+  colorant_note: string;
   predicted_firing_range: SourcedValue<[number | null, number | null]>;
   predicted_firing_note: string;
   photo: PhotoAsset;

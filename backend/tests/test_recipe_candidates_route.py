@@ -55,6 +55,8 @@ async def test_suggest_recipe_candidates_returns_validated_candidates() -> None:
                 "id": "cand-1",
                 "name": "해안 사틴",
                 "materials": {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0},
+                "colorants": {"CuO": 2.0, "CoO": 0.2},
+                "colorant_note": "청록색 참고값이며 실제 발색은 달라질 수 있음",
                 "predicted_firing_range_c": [1180, 1230],
                 "predicted_firing_note": "환원 소성",
             },
@@ -86,6 +88,8 @@ async def test_suggest_recipe_candidates_returns_validated_candidates() -> None:
     body = response.json()
     assert len(body["candidates"]) == 1
     assert body["candidates"][0]["id"] == "cand-1"
+    assert body["candidates"][0]["colorants"] == {"CuO": 2.0, "CoO": 0.2}
+    assert "청록색" in body["candidates"][0]["colorant_note"]
     assert len(body["dropped"]) == 1
     assert "cand-2" in body["dropped"][0]
     await auth_upstream.aclose()
@@ -132,6 +136,8 @@ async def test_generate_recipe_candidate_image_returns_base64() -> None:
 
     def llm_handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/images/generations"
+        request_body = json.loads(request.content)
+        assert "발색 산화물 외배합: CuO 2.0%" in request_body["prompt"]
         return httpx.Response(
             200, json={"data": [{"b64_json": base64.b64encode(raw).decode()}]}
         )
@@ -145,6 +151,7 @@ async def test_generate_recipe_candidate_image_returns_base64() -> None:
             json={
                 "candidate_name": "해안 사틴",
                 "materials": {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0},
+                "colorants": {"CuO": 2.0},
                 "style_note": "청록색, 은은한 광택",
             },
             headers={"Authorization": "Bearer valid-token"},

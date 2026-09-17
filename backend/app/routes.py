@@ -437,8 +437,10 @@ async def generate_recipe_candidate_image(
     사용자가 통제한다. 반환 이미지는 항상 AI 생성/플레이스홀더이고
     (``source_type="synthetic"``), 실제 소성 결과를 보여주지 않는다."""
     materials_desc = ", ".join(f"{name} {pct}%" for name, pct in body.materials.items())
+    colorants_desc = ", ".join(f"{name} {pct}%" for name, pct in body.colorants.items()) or "없음"
     prompt = (
-        f"도예 유약 참고 이미지. 배합: {materials_desc}. {body.style_note}. "
+        f"도예 유약 참고 이미지. 기본 배합: {materials_desc}. "
+        f"발색 산화물 외배합: {colorants_desc}. {body.style_note}. "
         "이 배합이 입혀진 도자기 표면 클로즈업, 사실적인 사진 스타일. "
         "실제 소성 결과를 정확히 예측한 것이 아니라 참고용 상상 이미지임."
     )

@@ -206,6 +206,7 @@ class RecipeImageRequest(ApiModel):
 
     candidate_name: str = Field(min_length=1, max_length=200)
     materials: dict[str, float]
+    colorants: dict[str, float] = Field(default_factory=dict)
     style_note: str = Field(default="", max_length=500)
 
 

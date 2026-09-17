@@ -105,11 +105,16 @@ class RecipeCandidate:
     photo: PhotoAsset
     source_type: SourceType
     source_ids: tuple[str, ...]
+    # 기본 유약 100%에 추가하는 외배합 착색 산화물(건조 기본 유약 대비 wt%).
+    colorants: dict[str, float] = field(default_factory=dict)
+    colorant_note: str = ""
 
     def __post_init__(self) -> None:
         _source(self.source_type)
         if not self.materials:
             raise ValueError("후보 레시피에 원료가 없습니다")
+        if any(amount < 0 for amount in self.colorants.values()):
+            raise ValueError("발색 산화물 외배합은 음수일 수 없습니다")
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,6 +13,7 @@ from typing import Any
 from kiln.aice.contract import PhotoAsset, RecipeCandidate, RecipeCandidateSet, SourcedValue
 from kiln.chem.stull import classify
 from kiln.chem.umf import unity_formula_from_materials
+from kiln.chem.colorants import COLORANTS
 from kiln.domain.models import GlazeRecipe
 
 __all__ = ["RecipeCandidateValidationError", "build_recipe_candidates"]
@@ -58,6 +59,12 @@ def build_recipe_candidates(
             if not isinstance(item, dict):
                 raise ValueError("후보 항목이 JSON 객체가 아닙니다")
             materials = {str(k): float(v) for k, v in dict(item["materials"]).items()}
+            colorants = {str(k): float(v) for k, v in dict(item.get("colorants") or {}).items()}
+            unknown_colorants = sorted(set(colorants) - set(COLORANTS))
+            if unknown_colorants:
+                raise ValueError(f"지원하지 않는 발색 산화물: {', '.join(unknown_colorants)}")
+            if any(amount < 0 for amount in colorants.values()):
+                raise ValueError("발색 산화물 외배합은 음수일 수 없습니다")
             name = str(item.get("name") or cid)
             GlazeRecipe(recipe_id=cid, name=name, materials=materials)
             umf = unity_formula_from_materials(materials)
@@ -71,6 +78,7 @@ def build_recipe_candidates(
                 "LLM 제안, 문헌·일반 지식 기반 — 실측 아님",
             )
             note = str(item.get("predicted_firing_note") or "").strip()
+            colorant_note = str(item.get("colorant_note") or "").strip()
             stull_note = f"Stull 참조: {reading.zone.value} — {reading.provenance_note}"
             full_note = f"{note} ({stull_note})" if note else stull_note
 
@@ -83,6 +91,8 @@ def build_recipe_candidates(
                 photo=_placeholder_photo(cid),
                 source_type="inferred",
                 source_ids=source_ids,
+                colorants=colorants,
+                colorant_note=colorant_note,
             )
         except (KeyError, ValueError, TypeError) as exc:
             errors.append(f"{cid}: {exc}")

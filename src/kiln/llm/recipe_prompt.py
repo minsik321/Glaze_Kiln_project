@@ -8,11 +8,10 @@
 100(±0.5)이어야 한다(``GlazeRecipe`` 불변식). (3) 출력은 고정 JSON
 스키마 — 자유 대화가 아니라 화면 1이 그대로 그릴 수 있는 구조.
 
-**이 프롬프트가 하지 않는 것**: 착색 산화물 첨가로 정확한 목표색이
-나온다고 주장하지 않는다(4-4-a절, ``kiln.chem.colorants`` 의 경계 —
-DECISIONS.md "착색 산화물 참고 색상표를 조성 예측으로 확장" 항목이
-막는 것과 같은 이유). 색 관련 요청은 배합 제안과 별개의 참고 설명으로만
-담는다.
+착색 산화물은 기본 유약 100%와 분리한 외배합 참고값으로 제안한다.
+``kiln.chem.colorants`` 에 등록된 6종만 허용하며, 목표색의 정확한 재현을
+주장하지 않는다. 실제 발색은 기저 조성·두께·소성 분위기·냉각에 따라
+달라진다는 한계를 항상 함께 전달한다.
 
 **5원료 제약은 MVP 스코프 결정이다** — 원료 DB가 넓어지면(예: 목회,
 콜만석, 활석 추가) 이 목록도 함께 넓혀야 한다. 지금은 데모 범위(§8,
@@ -23,10 +22,12 @@ Phase 0에서 확정)와 ``kiln.search`` 가 이미 다루는 조성 공간을 �
 from __future__ import annotations
 
 from kiln.chem.materials import MATERIALS
+from kiln.chem.colorants import COLORANTS
 
 __all__ = ["build_messages"]
 
 _MATERIAL_NAMES = tuple(sorted(MATERIALS))
+_COLORANT_NAMES = tuple(sorted(COLORANTS))
 
 _SCHEMA_DESCRIPTION = """
 정확히 이 JSON 구조로만 응답한다 (설명 문장, 마크다운, 코드펜스 없이 JSON 객체 하나):
@@ -37,6 +38,8 @@ _SCHEMA_DESCRIPTION = """
       "id": "cand-1",
       "name": "짧은 한국어 이름",
       "materials": {"규석": 25.0, "장석": 40.0, "석회석": 20.0, "카올린": 15.0},
+      "colorants": {"CuO": 2.0, "CoO": 0.2},
+      "colorant_note": "예상 발색과 산화물 선택 이유. 실제 발색을 보장하지 않는다는 짧은 주의 포함",
       "predicted_firing_range_c": [1180, 1230],
       "predicted_firing_note": "환원/산화, cone 등 짧은 소성 방법 메모",
       "rationale": "이 배합을 고른 짧은 이유(1~2문장)"
@@ -55,8 +58,11 @@ def build_messages(prompt_text: str, *, candidate_count: int = 5) -> list[dict[s
         "목록 밖 이름을 쓰면 검증에 실패해 후보 전체가 버려진다. "
         "각 후보의 원료 비율(wt%) 합은 정확히 100이어야 한다. 실제 소성 결과를 "
         "보장한다고 말하지 않는다 — 문헌·일반 지식에 근거한 출발점 제안임을 "
-        "전제로 한다. 착색이나 정확한 색 재현은 이 배합 제안의 몫이 아니다 — "
-        "언급하더라도 참고용 메모로만 남긴다. "
+        "전제로 한다. 발색 산화물은 기본 원료 합계에 넣지 말고 건조 기본 유약 "
+        f"100g 대비 외배합 wt%로 colorants에 따로 쓴다. 허용 산화물은 {', '.join(_COLORANT_NAMES)}뿐이다. "
+        "무색 후보는 colorants를 빈 객체로 쓴다. 목표색에 맞는 참고 출발값을 제안하되, "
+        "colorant_note에 예상 발색과 선택 이유를 짧게 설명한다. 기저 조성·두께·분위기·냉각에 "
+        "따라 발색이 크게 달라져 정확한 색을 보장하지 않는다는 주의를 반드시 포함한다. "
         f"정확히 {candidate_count}개의 서로 다른 후보를 제안한다. "
         f"{_SCHEMA_DESCRIPTION}"
     )

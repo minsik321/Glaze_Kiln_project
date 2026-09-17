@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from kiln.chem.materials import MATERIALS
+from kiln.chem.colorants import COLORANTS
 from kiln.llm.recipe_prompt import build_messages
 
 
@@ -13,8 +14,11 @@ def test_build_messages_lists_known_materials_only() -> None:
         assert name in system
     assert "5개" in system
     assert "JSON" in system
+    for symbol in COLORANTS:
+        assert symbol in system
+    assert "외배합 wt%" in system
 
 
 def test_build_messages_does_not_promise_exact_color() -> None:
     system = build_messages("아무 유약")[0]["content"]
-    assert "이 배합 제안의 몫이 아니다" in system
+    assert "정확한 색을 보장하지 않는다" in system

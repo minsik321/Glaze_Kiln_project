@@ -10,6 +10,8 @@ def _raw_candidate(cid: str = "cand-1", **overrides) -> dict:
         "id": cid,
         "name": "해안 사틴",
         "materials": {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0},
+        "colorants": {"CuO": 2.0, "CoO": 0.2},
+        "colorant_note": "청록색 참고 출발값이며 실제 발색은 달라질 수 있음",
         "predicted_firing_range_c": [1180, 1230],
         "predicted_firing_note": "환원 소성, cone 6~8 가정",
     }
@@ -27,6 +29,14 @@ def test_build_recipe_candidates_from_valid_llm_json() -> None:
     assert first.predicted_firing_range.value == (1180, 1230)
     assert "Stull 참조" in first.predicted_firing_note
     assert first.photo.placeholder is True
+    assert first.colorants == {"CuO": 2.0, "CoO": 0.2}
+    assert "청록색" in first.colorant_note
+
+
+def test_unknown_colorant_is_dropped() -> None:
+    raw = {"candidates": [_raw_candidate(colorants={"Unobtainium": 1.0})]}
+    with pytest.raises(RecipeCandidateValidationError, match="지원하지 않는 발색 산화물"):
+        build_recipe_candidates(raw)
 
 
 def test_unknown_material_name_is_dropped_not_crashed() -> None:

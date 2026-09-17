@@ -126,7 +126,7 @@ export const recipeCandidatesApi = {
     }),
   //: 후보 카드 1장의 예상 이미지 — 비용이 붙으므로(§8) 카드별로 명시 요청한다.
   //: 항상 AI 생성/플레이스홀더다 — 실제 소성 결과를 보여주지 않는다.
-  image: (token: string, input: { candidate_name: string; materials: Record<string, number>; style_note?: string }) =>
+  image: (token: string, input: { candidate_name: string; materials: Record<string, number>; colorants?: Record<string, number>; style_note?: string }) =>
     request<{ image_base64: string; media_type: string }>("/aice/recipe-candidates/image", token, {
       method: "POST",
       body: JSON.stringify(input),

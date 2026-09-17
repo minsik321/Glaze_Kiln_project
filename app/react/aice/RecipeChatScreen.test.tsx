@@ -11,6 +11,8 @@ const CANDIDATE = {
   id: "cand-1",
   name: "해안 사틴",
   materials: { 장석: 40, 석회석: 20, 규석: 25, 카올린: 15 },
+  colorants: { CuO: 2, CoO: 0.2 },
+  colorant_note: "청록색 참고 출발값이며 실제 발색은 달라질 수 있음",
   predicted_firing_range: { value: [1180, 1230], unit: "°C", source_type: "inferred", confidence: 0.4, note: "" },
   predicted_firing_note: "환원 소성 (Stull 참조: satin — 참조일 뿐)",
   photo: { id: "cand-1-photo", kind: "recipe", storage_path: null, placeholder: true, source_type: "synthetic", rights_confirmed: true, alt: "" },
@@ -42,6 +44,9 @@ describe("RecipeChatScreen (화면 1)", () => {
     await waitFor(() => expect(screen.getByText("해안 사틴")).toBeTruthy());
     expect(screen.getByText("AI 제안 · 실측 아님")).toBeTruthy();
     expect(screen.getByText("장석")).toBeTruthy();
+    expect(screen.getByText("발색 산화물 (외배합)")).toBeTruthy();
+    expect(screen.getByText("CuO")).toBeTruthy();
+    expect(screen.getByText(/청록색 참고 출발값/)).toBeTruthy();
     expect(fetchMock.mock.calls[0][0]).toContain("/aice/recipe-candidates");
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.prompt_text).toBe("사발에 어울리는 청록색 사틴 유약");
