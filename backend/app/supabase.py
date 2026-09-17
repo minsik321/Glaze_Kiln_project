@@ -59,12 +59,13 @@ class SupabaseGateway:
         return self._list_json(response)
 
     async def insert(
-        self, table: str, token: str, body: dict[str, Any], *, upsert: bool = False
+        self, table: str, token: str, body: dict[str, Any], *, upsert: bool = False,
+        conflict: str = "id",
     ) -> list[dict[str, Any]]:
         prefer, params = "return=representation", {}
         if upsert:
             prefer += ",resolution=merge-duplicates"
-            params["on_conflict"] = "id"
+            params["on_conflict"] = conflict
         response = await self._request(
             "POST",
             f"{self.settings.supabase_url}/rest/v1/{table}",

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { recordsApi, type WorkRecord } from "../lib/api";
+import type { AiceRun } from "../aice/contract";
+import { AiceRecordsPanel } from "./AiceRecordsPanel";
 import "./records.css";
 
-type Props = { getSnapshot?: () => Promise<Record<string, unknown>> };
+type Props = { getSnapshot?: () => Promise<Record<string, unknown>>; onRestore?: (run: AiceRun) => void };
 
-export function RecordsPanel({ getSnapshot }: Props) {
+export function RecordsPanel({ getSnapshot, onRestore }: Props) {
   const { session } = useAuth();
   const token = session?.access_token;
   const [view, setView] = useState<"mine" | "public">("mine");
@@ -171,8 +173,9 @@ export function RecordsPanel({ getSnapshot }: Props) {
 
   return (
     <section className="records-panel" aria-label="작업 기록">
+      <AiceRecordsPanel token={token!} getSnapshot={getSnapshot} onRestore={onRestore} />
       <div className="records-heading">
-        <h2>작업 기록</h2>
+        <h2>이전 형식 기록</h2>
         <button type="button" onClick={() => void load()} disabled={loading}>
           새로고침
         </button>

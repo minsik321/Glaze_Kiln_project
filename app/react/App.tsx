@@ -1,10 +1,13 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { AuthPanel } from "./auth/AuthPanel";
-import { RecordsPanel } from "./records/RecordsPanel";
-import { Simulator, type SimulatorSnapshot } from "./Simulator";
+import type { SimulatorSnapshot } from "./Simulator";
+import { AicePrototype } from "./aice/AicePrototype";
+import { AppShell, BottomNavigation } from "./aice/ui";
+import type { AiceRun } from "./aice/contract";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "records" | "account";
+const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
 
 function NavIcon({ children }: { children: ReactNode }) {
   return (
@@ -17,15 +20,21 @@ function NavIcon({ children }: { children: ReactNode }) {
 export function App() {
   const [getSnapshot, setGetSnapshot] = useState<SnapshotGetter>();
   const [view, setView] = useState<AppView>("work");
+  const [restoredRun, setRestoredRun] = useState<AiceRun>();
   const connectSnapshot = useCallback((getter: SnapshotGetter) => {
     setGetSnapshot(() => getter);
   }, []);
 
+  const navigation = [
+    { id: "work", label: "유약 작업", icon: <NavIcon><path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11Z" /></NavIcon> },
+    { id: "records", label: "작업 기록", icon: <NavIcon><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" /></NavIcon> },
+    { id: "account", label: "내 계정", icon: <NavIcon><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></NavIcon> },
+  ] as const;
+
   return (
-    <div className="app-stage">
-      <div className="app-shell">
+    <AppShell navigation={<BottomNavigation current={view} items={navigation} onChange={setView} />}>
         <section className="app-view" hidden={view !== "work"}>
-          <Simulator onSnapshotReady={connectSnapshot} />
+          <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} />
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">
@@ -33,7 +42,7 @@ export function App() {
             <h1>작업 기록</h1>
             <p>지난 실험과 소성 결과를 모아봅니다.</p>
           </div>
-          <RecordsPanel getSnapshot={getSnapshot} />
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel getSnapshot={getSnapshot} onRestore={(run) => { setRestoredRun(run); setView("work"); }} /></Suspense>}
         </section>
         <section className="app-view app-utility-view" hidden={view !== "account"}>
           <div className="utility-header">
@@ -43,33 +52,6 @@ export function App() {
           </div>
           <AuthPanel />
         </section>
-        <nav className="bottom-nav" aria-label="주요 메뉴">
-          <button
-            type="button"
-            aria-current={view === "work" ? "page" : undefined}
-            onClick={() => setView("work")}
-          >
-            <NavIcon><path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11Z" /></NavIcon>
-            <span>유약 작업</span>
-          </button>
-          <button
-            type="button"
-            aria-current={view === "records" ? "page" : undefined}
-            onClick={() => setView("records")}
-          >
-            <NavIcon><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" /></NavIcon>
-            <span>작업 기록</span>
-          </button>
-          <button
-            type="button"
-            aria-current={view === "account" ? "page" : undefined}
-            onClick={() => setView("account")}
-          >
-            <NavIcon><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></NavIcon>
-            <span>내 계정</span>
-          </button>
-        </nav>
-      </div>
-    </div>
+    </AppShell>
   );
 }

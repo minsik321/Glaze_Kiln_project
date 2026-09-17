@@ -3,6 +3,8 @@
   "root": "../src",
   "files": [
     "kiln/__init__.py",
+    "kiln/aice/__init__.py",
+    "kiln/aice/contract.py",
     "kiln/batch/__init__.py",
     "kiln/batch/density.py",
     "kiln/batch/dip_time.py",
