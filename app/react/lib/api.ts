@@ -52,10 +52,18 @@ async function request<T>(
   token: string,
   init?: RequestInit,
 ): Promise<T> {
+  return requestPublic<T>(path, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...init?.headers },
+  });
+}
+
+//: 로그인이 필요 없는 순수 계산 경계(예: /kiln/firing/simulate)용 —
+//: 사용자 데이터를 다루지 않으므로 Authorization 헤더를 붙이지 않는다.
+async function requestPublic<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}/api/v1${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${token}`,
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
@@ -130,6 +138,50 @@ export const recipeCandidatesApi = {
     request<{ image_base64: string; media_type: string }>("/aice/recipe-candidates/image", token, {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+};
+
+//: `kiln.firing.simulator.Disturbance`와 필드를 그대로 맞춘다 (12-2절).
+export type KilnDisturbance = {
+  supply_voltage_pct?: number;
+  element_aging_pct?: number;
+  thermocouple_noise_c?: number;
+  thermocouple_lag_s?: number;
+  load_mismatch_pct?: number;
+  wall_lag_s?: number;
+  seed?: number;
+};
+
+export type KilnControlSample = {
+  t_s: number;
+  minute: number;
+  sensor_c: number;
+  ware_c: number;
+  power_w: number;
+  phase: string;
+  outer_mode: string;
+  hold_extension_s: number;
+  message: string;
+  paused: boolean;
+};
+
+export type KilnSimulateResponse = {
+  samples: KilnControlSample[];
+  provenance_notes: string[];
+  e_note: string;
+  target_heat_work: number;
+  peak_c: number;
+  max_power_w: number;
+};
+
+export const kilnFiringApi = {
+  //: 가상 제어기 패널(CurveControlPanel.tsx) — `kiln.firing.controller`·
+  //: `kiln.firing.simulator`를 그대로 돌린다. 사용자 데이터를 다루지 않는
+  //: 순수 계산이라 로그인 없이 부른다.
+  simulate: (schedule: ReadonlyArray<readonly [number, number]>, disturbance: KilnDisturbance = {}, dtS = 60) =>
+    requestPublic<KilnSimulateResponse>("/kiln/firing/simulate", {
+      method: "POST",
+      body: JSON.stringify({ schedule, disturbance, dt_s: dtS }),
     }),
 };
 

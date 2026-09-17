@@ -1,12 +1,23 @@
+import { kilnFiringApi, type KilnDisturbance } from "../lib/api";
 import type { FiringCurve, SourceType, SourcedValue } from "./contract";
 import type { CoatingPreset } from "./thicknessView";
 
 // LLM 프런트도어 TODO Phase 3: 이름 붙은 제어 프리셋(빠른 반응/균형/안정 우선)을
 // 사용자에게 "제품 옵션"처럼 고르게 하던 3버튼 UI를 없앴다. `ControlPreset`과
 // `CONTROL_PLANS`는 여전히 존재하지만 이제부터는 CurveControlPanel 내부에서만
-// 쓰는 구현 세부사항이다 — 서로 다른 합성 게인 3벌을 "다시 추천" 액션이 순환해
-// 보여주는 용도로만 남았고, 사용자에게는 프리셋 이름이나 설명 문구를 노출하지
-// 않는다. 사용자에게 보이는 결정은 이제 이진값(`ControlDecision`)뿐이다.
+// 쓰는 구현 세부사항이다 — 서로 다른 외란 시나리오 3벌을 "다시 추천" 액션이
+// 순환해 보여주는 용도로만 남았고, 사용자에게는 프리셋 이름이나 설명 문구를
+// 노출하지 않는다. 사용자에게 보이는 결정은 이제 이진값(`ControlDecision`)뿐이다.
+//
+// `simulateController`는 예전에는 브라우저 안에서 합성 PID 수식을 직접
+// 계산했다. 지금은 백엔드 `/kiln/firing/simulate`를 불러
+// `kiln.firing.controller.SegmentedController`·
+// `kiln.firing.simulator.KilnSimulator`(물리 판정 코어, 9-4·9-5·12-2절)를
+// 그대로 돌린 결과를 받는다 — Pyodide 브리지가 아니라 백엔드 API 경계다
+// (densityAdvice.ts와 같은 이유: src/kiln은 이제 백엔드에서만 쓰인다).
+// 그래서 "프리셋"의 의미도 "PID 게인 세트"에서 "재현 가능한 외란
+// 시나리오"(`kiln.firing.simulator.Disturbance`)로 바뀌었다 — 실제 물리
+// 시뮬레이터가 있는 자리에 임의의 게인을 박아 둘 이유가 없다.
 export type ControlPreset = "fast" | "balanced" | "stable";
 
 // `PidExecution.decision`(src/kiln/aice/contract.py, AICE_SCHEMA_VERSION 3)과
@@ -27,7 +38,11 @@ export type CurveSeries = {
 
 export type ControlPlan = {
   preset: ControlPreset;
-  controllerKind: "pid";
+  //: `SegmentedController._inner_power`가 실제로 "전향보상 + 비례"라고
+  //: 부르는 그 구조다 (9-4절) — contract.py `PidExecution.controller_kind`의
+  //: `"feedforward_p"` 리터럴과 맞춘다. "pid"가 아니다: 적분·미분 항이 없다.
+  controllerKind: "feedforward_p";
+  disturbance: KilnDisturbance;
   parameters: Record<string, SourcedValue<number>>;
   constraints: { outputMinPercent: number; outputMaxPercent: number; antiWindup: string; sampleSeconds: number };
   warning: string;
@@ -35,7 +50,16 @@ export type ControlPlan = {
 
 export type ControllerSample = { minute: number; plannedC: number; sensorC: number; estimatedWareC: number; heaterPercent: number; errorC: number; alarm: string | null };
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+export type ControllerRun = {
+  samples: ControllerSample[];
+  //: `KilnSimulator.provenance_notes` — 오지정·상대 비교 전용 안내 (부록 A, 12-2절).
+  provenanceNotes: string[];
+  //: E가 가정값이라는 사실 (부록 C: 값 기재 금지) — 항상 함께 실려 나간다.
+  eNote: string;
+  targetHeatWork: number;
+  peakC: number;
+};
+
 const round = (value: number, digits = 1) => Number(value.toFixed(digits));
 
 const BASE = [
@@ -47,25 +71,42 @@ const BASE = [
 // 때마다 다음 항목으로 순환한다.
 export const PRESET_ORDER: ControlPreset[] = ["balanced", "fast", "stable"];
 
-export const CONTROL_PLANS: Record<ControlPreset, ControlPlan> = {
-  fast: control("fast", 0.12, 0.006, 0.03, 5),
-  balanced: control("balanced", 0.08, 0.004, 0.05, 10),
-  stable: control("stable", 0.05, 0.002, 0.08, 15),
+const DISTURBANCE_UNITS: Record<keyof Required<KilnDisturbance>, string> = {
+  supply_voltage_pct: "%", element_aging_pct: "%", thermocouple_noise_c: "℃",
+  thermocouple_lag_s: "s", load_mismatch_pct: "%", wall_lag_s: "s", seed: "",
 };
 
-function control(preset: ControlPreset, p: number, i: number, d: number, sampleSeconds: number): ControlPlan {
-  const sourced = (value: number, unit: string, note: string): SourcedValue<number> => ({ value, unit, source_type: "synthetic", confidence: null, note });
+function control(preset: ControlPreset, disturbance: KilnDisturbance): ControlPlan {
+  const sourced = (value: number, unit: string): SourcedValue<number> => ({
+    value, unit, source_type: "synthetic", confidence: null,
+    note: "재현 가능한 외란 시나리오(12-2절 Disturbance); 실제 가마 실측값 아님",
+  });
+  const parameters: Record<string, SourcedValue<number>> = {};
+  for (const [key, value] of Object.entries(disturbance)) {
+    parameters[key] = sourced(value as number, DISTURBANCE_UNITS[key as keyof KilnDisturbance] ?? "");
+  }
   return {
-    preset, controllerKind: "pid",
-    parameters: {
-      proportional_gain: sourced(p, "%/°C", "교육용 합성 게인; 실제 가마 튜닝값 아님"),
-      integral_gain: sourced(i, "%/(°C·s)", "교육용 합성 게인; 실제 가마 튜닝값 아님"),
-      derivative_gain: sourced(d, "%·s/°C", "교육용 합성 게인; 실제 가마 튜닝값 아님"),
-    },
-    constraints: { outputMinPercent: 0, outputMaxPercent: 100, antiWindup: "출력 포화 시 적분 누적 정지", sampleSeconds },
-    warning: "이 값은 UI 설명과 소프트웨어 검증용 합성 계수이며 실제 가마 제어에 사용할 수 없습니다.",
+    preset, controllerKind: "feedforward_p", disturbance, parameters,
+    constraints: { outputMinPercent: 0, outputMaxPercent: 100, antiWindup: "출력은 0–최대전력으로 물리 포화된다(적분 항 없음)", sampleSeconds: 60 },
+    warning: "kiln.firing의 실제 제어기·시뮬레이터를 돌리지만 오지정된 생성기 위의 상대 비교용이며(부록 A) 실제 가마 제어에 사용할 수 없습니다.",
   };
 }
+
+export const CONTROL_PLANS: Record<ControlPreset, ControlPlan> = {
+  // 이상적 조건 — 외란 없음(열전대 잡음만 최소로 둬 궤적이 완전히 평평해
+  // 보이지 않게 한다).
+  fast: control("fast", { thermocouple_noise_c: 0.2, seed: 1 }),
+  // 9-2절이 명시한 계통 불확실의 중앙값 근처(공급전압 −2%, 열선 노후 5%).
+  balanced: control("balanced", {
+    supply_voltage_pct: -2, element_aging_pct: 5, thermocouple_noise_c: 0.5,
+    thermocouple_lag_s: 5, load_mismatch_pct: 3, wall_lag_s: 10, seed: 2,
+  }),
+  // 9-2절 범위의 상한 근처(공급전압 +5%, 열선 노후 15%) — 계통 불확실이 가장 큰 경우.
+  stable: control("stable", {
+    supply_voltage_pct: 5, element_aging_pct: 15, thermocouple_noise_c: 1.0,
+    thermocouple_lag_s: 15, load_mismatch_pct: 10, wall_lag_s: 30, seed: 3,
+  }),
+};
 
 export function buildCurveComparison(
   coating: CoatingPreset,
@@ -96,29 +137,43 @@ function interpolate(points: CurveSeries["points"], minute: number) {
   return left.temperatureC + (right.temperatureC - left.temperatureC) * ratio;
 }
 
-export function simulateController(series: CurveSeries, preset: ControlPreset): ControllerSample[] {
+//: 추종오차가 이보다 크면 경보로 표시한다 — 예전 합성 PID 버전과 같은 문턱을
+//: 유지해 화면 동작(경보 점 표시)이 바뀌지 않게 한다.
+const ALARM_ERROR_THRESHOLD_C = 35;
+
+export async function simulateController(series: CurveSeries, preset: ControlPreset): Promise<ControllerRun> {
   const plan = CONTROL_PLANS[preset];
-  const p = plan.parameters.proportional_gain.value ?? 0;
-  const i = plan.parameters.integral_gain.value ?? 0;
-  const d = plan.parameters.derivative_gain.value ?? 0;
-  let integral = 0; let previousError = 0; let sensor = 20;
-  const samples: ControllerSample[] = [];
-  for (let minute = 0; minute <= 480; minute += 20) {
-    const planned = interpolate(series.points, minute);
-    const error = planned - sensor;
-    const derivative = error - previousError;
-    const feedforward = minute < 400 ? clamp((planned - 20) / 14, 0, 82) : 0;
-    const provisional = feedforward + p * error + i * integral + d * derivative;
-    const output = clamp(provisional, 0, 100);
-    if (output === provisional) integral = clamp(integral + error * plan.constraints.sampleSeconds, -2000, 2000);
-    const response = preset === "fast" ? .72 : preset === "stable" ? .48 : .6;
-    sensor = sensor + (planned - sensor) * response + ((minute / 20) % 3 - 1) * 1.2;
-    const ware = sensor - clamp((planned - 20) / 150, 0, 8);
-    const measuredError = planned - sensor;
-    samples.push({ minute, plannedC: round(planned), sensorC: round(sensor), estimatedWareC: round(ware), heaterPercent: round(output), errorC: round(measuredError), alarm: Math.abs(measuredError) > 35 ? "합성 추종오차 큼" : null });
-    previousError = error;
-  }
-  return samples;
+  const response = await kilnFiringApi.simulate(
+    series.points.map((point) => [point.minute, point.temperatureC] as const),
+    plan.disturbance,
+    plan.constraints.sampleSeconds,
+  );
+  const samples: ControllerSample[] = response.samples.map((sample) => {
+    const planned = interpolate(series.points, sample.minute);
+    const errorC = round(planned - sample.sensor_c);
+    const heaterPercent = round((sample.power_w / response.max_power_w) * 100);
+    const alarm = sample.paused
+      ? "센서 이상 · 일시 정지"
+      : Math.abs(errorC) > ALARM_ERROR_THRESHOLD_C
+        ? "추종오차 큼"
+        : null;
+    return {
+      minute: round(sample.minute),
+      plannedC: round(planned),
+      sensorC: round(sample.sensor_c),
+      estimatedWareC: round(sample.ware_c),
+      heaterPercent,
+      errorC,
+      alarm,
+    };
+  });
+  return {
+    samples,
+    provenanceNotes: response.provenance_notes,
+    eNote: response.e_note,
+    targetHeatWork: response.target_heat_work,
+    peakC: response.peak_c,
+  };
 }
 
 export function curveSummary(series: CurveSeries[]): string {

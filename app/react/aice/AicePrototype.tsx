@@ -196,7 +196,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       curves: { baseline: toFiringCurve(curveSeries[0], false), candidates: curveSeries.slice(1).map((curve) => toFiringCurve(curve, state.curveApproved && curve.role === "adjusted")), selected_id: state.curveApproved ? adjustedCurve.id : null },
       pid: {
         decision: "accepted",
-        controller_kind: "pid",
+        controller_kind: "feedforward_p",
         parameters: controlParameters,
         samples: controlSamples.map((sample) => ({ minute: sample.minute, planned_c: sample.plannedC, sensor_c: sample.sensorC, estimated_ware_c: sample.estimatedWareC, heater_percent: sample.heaterPercent })),
         alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
@@ -221,22 +221,30 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
 
   useEffect(() => {
     if (!restoredRun) return;
+    let cancelled = false;
     const knownRecipe = RECIPE_CANDIDATES.some((candidate) => candidate.id === restoredRun.recipe.id) ? restoredRun.recipe.id as RecipeId : restoredRun.recipe.id;
     const knownClay = CLAY_BODIES.some((body) => body.id === restoredRun.ware.clay_body) ? restoredRun.ware.clay_body as PrototypeState["clayBody"] : undefined;
     const curveApproved = Boolean(restoredRun.curves.selected_id);
-    // 복원된 기록에는 승인 당시 내부적으로 어떤 합성 게인 세트가 쓰였는지
+    // 복원된 기록에는 승인 당시 내부적으로 어떤 외란 시나리오가 쓰였는지
     // 이름이 남아있지 않는다(사용자에게 애초에 노출하지 않으므로) — 기본
-    // 게인으로 다시 계산해 채운다.
-    let approvedControlSamples: ControllerSample[] = [];
-    let approvedControlParameters: Record<string, SourcedValue<number>> = {};
-    if (curveApproved) {
-      const curveSeries = buildCurveComparison("target");
-      const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
-      approvedControlSamples = simulateController(adjustedCurve, "balanced");
-      approvedControlParameters = CONTROL_PLANS.balanced.parameters;
-    }
-    setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
-    setStep(restoredRun.status === "evaluated" ? 8 : restoredRun.status === "simulated" ? 7 : 0);
+    // 시나리오로 kiln.firing을 다시 돌려 채운다. 백엔드 호출이라 비동기다.
+    (async () => {
+      let approvedControlSamples: ControllerSample[] = [];
+      let approvedControlParameters: Record<string, SourcedValue<number>> = {};
+      if (curveApproved) {
+        const curveSeries = buildCurveComparison("target");
+        const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
+        const run = await simulateController(adjustedCurve, "balanced");
+        approvedControlSamples = run.samples;
+        approvedControlParameters = CONTROL_PLANS.balanced.parameters;
+      }
+      if (cancelled) return;
+      setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
+      setStep(restoredRun.status === "evaluated" ? 8 : restoredRun.status === "simulated" ? 7 : 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [restoredRun]);
 
   useEffect(() => {

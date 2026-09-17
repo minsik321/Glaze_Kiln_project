@@ -172,6 +172,16 @@ REGISTRY: dict[str, Coefficient] = {
             value=0.55,
             lower=0.3,
             upper=0.9,
+            note=(
+                "t_abs ∝ √(담금시간) 형태는 Adcock & McDowall (1957, "
+                "J. Am. Ceram. Soc. 40(10):355-362)과 이를 정식화한 "
+                "Tiller & Tsai (1986, J. Am. Ceram. Soc. 69(12):882-887)의 "
+                "Darcy형 케이크 성장 이론(두께 ∝ √t)과 기전이 일치한다. "
+                "다만 두 논문은 석고 몰드로의 슬립캐스팅 여과를 다루며 "
+                "이미 한 번 소성된 비스킷에 유약을 시유하는 이 계의 실측이 "
+                "아니다 — 기전 유사, 값 대조 아님. 0.55는 두 논문 어디에도 "
+                "없는 문헌 추정 초기값이다 (AICE_CITATIONS.md §1 대조)"
+            ),
         ),
         _c(
             "absorption",
@@ -180,7 +190,12 @@ REGISTRY: dict[str, Coefficient] = {
             "k₁과 곱으로만 식별. 분리 불가 (부록 A)",
             Provenance.LITERATURE,
             value=1.0,
-            note="k₁과 곱으로만 식별되므로 1.0으로 고정하고 k₁이 곱을 흡수한다",
+            note=(
+                "k₁과 곱으로만 식별되므로 1.0으로 고정하고 k₁이 곱을 흡수한다. "
+                "k₁과 같은 Darcy형 흡수 기전(Adcock & McDowall 1957 / "
+                "Tiller & Tsai 1986)에 걸려 있으나 이 상수 자체는 두 논문의 "
+                "보고값이 아니다 (AICE_CITATIONS.md §1 대조)"
+            ),
         ),
         _c(
             "k2",
@@ -191,7 +206,16 @@ REGISTRY: dict[str, Coefficient] = {
             value=0.35,
             lower=0.1,
             upper=0.8,
-            note="인출 속도에 지배됨 — 상수가 아니라 분산을 가진 양 (부록 A #39)",
+            note=(
+                "인출 속도에 지배됨 — 상수가 아니라 분산을 가진 양 (부록 A #39). "
+                "이 속도 의존성은 Landau & Levich (1942, Acta Physicochim. "
+                "URSS 17:42-54)의 인출 코팅 막두께 법칙(h ∝ Ca^(2/3), "
+                "capillary number 경유 인출속도 의존)과 기전이 일치한다. "
+                "다만 그 이론은 뉴턴 유체를 가정하고 유약 슬립은 입자가 "
+                "실린 전단담화(shear-thinning) 현탁액이라 2/3승 스케일링은 "
+                "1차 유사일 뿐이다 — 0.35는 원 논문의 보고값이 아니다 "
+                "(AICE_CITATIONS.md §1 대조)"
+            ),
         ),
         _c(
             "m_rho",
@@ -202,7 +226,10 @@ REGISTRY: dict[str, Coefficient] = {
             value=3.0,
             lower=1.0,
             upper=6.0,
-            note="파라미터 1개짜리 단조증가 함수",
+            note=(
+                "파라미터 1개짜리 단조증가 함수. AICE_CITATIONS.md 대조 결과 "
+                "대응 문헌 없음 — 문헌 추정 유지"
+            ),
         ),
         _c(
             "g_rho",
@@ -213,7 +240,10 @@ REGISTRY: dict[str, Coefficient] = {
             value=1.0,
             lower=0.3,
             upper=2.0,
-            note="함수형 미정 — 멱함수로 잠정",
+            note=(
+                "함수형 미정 — 멱함수로 잠정. AICE_CITATIONS.md 대조 결과 "
+                "대응 문헌 없음 — 문헌 추정 유지"
+            ),
         ),
         _c(
             "rho_dry",
@@ -224,7 +254,11 @@ REGISTRY: dict[str, Coefficient] = {
             value=1.5,
             lower=1.3,
             upper=1.7,
-            note="7-2절: 이 값 하나로 08절 안전창이 한 칸 통째로 이동한다",
+            note=(
+                "7-2절: 이 값 하나로 08절 안전창이 한 칸 통째로 이동한다. "
+                "AICE_CITATIONS.md 대조 결과 대응 문헌 없음 — 캘리퍼 실측 "
+                "절차만 있고 문헌값은 없음. 문헌 추정 유지"
+            ),
         ),
         _c(
             "s",
@@ -235,6 +269,9 @@ REGISTRY: dict[str, Coefficient] = {
             value=0.75,
             lower=0.5,
             upper=0.95,
+            note=(
+                "AICE_CITATIONS.md 대조 결과 대응 문헌 없음 — 문헌 추정 유지"
+            ),
         ),
         _c(
             "E",

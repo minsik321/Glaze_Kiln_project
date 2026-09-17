@@ -10,8 +10,10 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ValidationError
 
+from kiln.firing.simulator import Disturbance
 from kiln.llm import RecipeCandidateValidationError, build_messages, build_recipe_candidates
 
+from . import kiln_bridge
 from .aimlapi import AimlapiClient, AimlapiError
 
 from .dependencies import access_token, authenticated_user, error_detail, get_gateway, get_llm
@@ -21,6 +23,9 @@ from .models import (
     AiceRunPage,
     AiceRunResponse,
     AuthUser,
+    KilnControlSample,
+    KilnSimulateRequest,
+    KilnSimulateResponse,
     ProfileResponse,
     ProfileUpdate,
     RecipeImageRequest,
@@ -464,4 +469,37 @@ async def generate_recipe_candidate_image(
     return RecipeImageResponse(
         image_base64=base64.b64encode(image_bytes).decode(),
         media_type=media_type,
+    )
+
+
+@router.post("/kiln/firing/simulate", response_model=KilnSimulateResponse)
+async def simulate_kiln_firing(body: KilnSimulateRequest) -> KilnSimulateResponse:
+    """가상 제어기 패널(CurveControlPanel.tsx) — 실제 사용자 데이터를 다루지
+    않는 순수 계산이라 로그인 없이 연다(예전 브라우저 내 Pyodide 실행과
+    같은 접근성). `kiln.firing.controller.SegmentedController`와
+    `kiln.firing.simulator.KilnSimulator`를 그대로 돌린다 — 이 경로는
+    합성 PID가 아니라 물리 판정 코어다."""
+    disturbance = Disturbance(**body.disturbance.model_dump())
+    result = kiln_bridge.simulate(body.schedule, disturbance, body.dt_s)
+    return KilnSimulateResponse(
+        samples=[
+            KilnControlSample(
+                t_s=sample.t_s,
+                minute=sample.t_s / 60.0,
+                sensor_c=sample.sensor_c,
+                ware_c=sample.ware_c,
+                power_w=sample.power_w,
+                phase=sample.phase,
+                outer_mode=sample.outer_mode,
+                hold_extension_s=sample.hold_extension_s,
+                message=sample.message,
+                paused=sample.paused,
+            )
+            for sample in result.samples
+        ],
+        provenance_notes=list(result.provenance_notes),
+        e_note=result.e_note,
+        target_heat_work=result.target_heat_work,
+        peak_c=result.peak_c,
+        max_power_w=result.max_power_w,
     )

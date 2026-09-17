@@ -215,3 +215,58 @@ class RecipeImageResponse(ApiModel):
     #: 표시해야 한다(``PhotoAsset``) — 실물 사진이 아니다.
     image_base64: str
     media_type: str
+
+
+# ─── 가상 제어기 패널 — kiln.firing 물리 판정 코어 경계 ──────────────────────
+
+
+class KilnDisturbanceIn(ApiModel):
+    """`kiln.firing.simulator.Disturbance`와 필드를 그대로 맞춘다 (12-2절)."""
+
+    supply_voltage_pct: float = 0.0
+    element_aging_pct: float = 0.0
+    thermocouple_noise_c: float = 0.0
+    thermocouple_lag_s: float = 0.0
+    load_mismatch_pct: float = 0.0
+    wall_lag_s: float = 0.0
+    seed: int = 0
+
+
+class KilnSimulateRequest(ApiModel):
+    """`CurveSeries.points`와 같은 (분, 목표온도[℃]) 점열을 그대로 받는다."""
+
+    schedule: list[tuple[float, float]] = Field(min_length=2)
+    disturbance: KilnDisturbanceIn = Field(default_factory=KilnDisturbanceIn)
+    dt_s: float = Field(default=60.0, gt=0)
+
+    @field_validator("schedule")
+    @classmethod
+    def validate_schedule(cls, value: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        times = [t for t, _ in value]
+        if any(b <= a for a, b in zip(times, times[1:])):
+            raise ValueError("schedule minutes must be strictly increasing")
+        return value
+
+
+class KilnControlSample(ApiModel):
+    t_s: float
+    minute: float
+    sensor_c: float
+    ware_c: float
+    power_w: float
+    phase: str
+    outer_mode: str
+    hold_extension_s: float
+    message: str
+    paused: bool
+
+
+class KilnSimulateResponse(ApiModel):
+    samples: list[KilnControlSample]
+    #: `KilnSimulator.provenance_notes` — 오지정·상대 비교 전용 안내 (부록 A, 12-2절).
+    provenance_notes: list[str]
+    #: E가 가정값이라는 사실 (부록 C: 값 기재 금지, `.assume()` 필수).
+    e_note: str
+    target_heat_work: float
+    peak_c: float
+    max_power_w: float
