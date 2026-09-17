@@ -228,7 +228,14 @@ describe("Account persistence requests", () => {
     fireEvent.click(screen.getByRole("button", { name: "프로필 저장" }));
     await waitFor(() =>
       expect(upsert).toHaveBeenCalledWith(
-        { id: "user-1", display_name: "New name" },
+        {
+          id: "user-1",
+          display_name: "New name",
+          kiln_sensor_plan: "three",
+          kiln_capacity_l: null,
+          kiln_shelf_count: null,
+          kiln_power_kw: null,
+        },
         { onConflict: "id" },
       ),
     );

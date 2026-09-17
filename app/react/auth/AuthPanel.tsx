@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { requireSupabase, isSupabaseConfigured } from "../lib/supabase";
+import type { SensorPlan } from "../aice/kilnSimulation";
 import { useAuth } from "./AuthProvider";
 import "./auth.css";
 
@@ -200,8 +201,21 @@ export function AuthPanel() {
     </section>
   );
 }
+const SENSOR_PLAN_OPTIONS: Array<{ value: SensorPlan; label: string }> = [
+  { value: "single", label: "기본 1개" },
+  { value: "three", label: "상·중·하 3개" },
+  { value: "multi", label: "다점 측정" },
+];
+
 function ProfileEditor({ userId }: { userId: string }) {
   const [name, setName] = useState("");
+  //: v9 6페이지 개편: 센서 배치를 회차마다 프리셋 버튼으로 고르지 않고
+  //: 계정에 한 번 기록한 가마 정보에서 자동으로 구성한다(kilnSimulation
+  //: .sensorPreset). capacity·shelf·power는 계산에 쓰이지 않는 참고 정보다.
+  const [kilnSensorPlan, setKilnSensorPlan] = useState<SensorPlan>("three");
+  const [kilnCapacityL, setKilnCapacityL] = useState("");
+  const [kilnShelfCount, setKilnShelfCount] = useState("");
+  const [kilnPowerKw, setKilnPowerKw] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -212,11 +226,22 @@ function ProfileEditor({ userId }: { userId: string }) {
       try {
         const result = await requireSupabase()
           .from("profiles")
-          .select("display_name")
+          .select(
+            "display_name, kiln_sensor_plan, kiln_capacity_l, kiln_shelf_count, kiln_power_kw",
+          )
           .eq("id", userId)
           .maybeSingle();
         if (result.error) throw result.error;
-        if (active) setName(result.data?.display_name ?? "");
+        if (active) {
+          setName(result.data?.display_name ?? "");
+          setKilnSensorPlan(
+            (result.data?.kiln_sensor_plan as SensorPlan | undefined) ??
+              "three",
+          );
+          setKilnCapacityL(result.data?.kiln_capacity_l?.toString() ?? "");
+          setKilnShelfCount(result.data?.kiln_shelf_count?.toString() ?? "");
+          setKilnPowerKw(result.data?.kiln_power_kw?.toString() ?? "");
+        }
       } catch (failure) {
         if (active)
           setError(
@@ -242,7 +267,14 @@ function ProfileEditor({ userId }: { userId: string }) {
       const result = await requireSupabase()
         .from("profiles")
         .upsert(
-          { id: userId, display_name: name.trim() },
+          {
+            id: userId,
+            display_name: name.trim(),
+            kiln_sensor_plan: kilnSensorPlan,
+            kiln_capacity_l: kilnCapacityL.trim() ? Number(kilnCapacityL) : null,
+            kiln_shelf_count: kilnShelfCount.trim() ? Number(kilnShelfCount) : null,
+            kiln_power_kw: kilnPowerKw.trim() ? Number(kilnPowerKw) : null,
+          },
           { onConflict: "id" },
         );
       if (result.error) throw result.error;
@@ -268,6 +300,58 @@ function ProfileEditor({ userId }: { userId: string }) {
           onChange={(event) => setName(event.target.value)}
         />
       </label>
+      <fieldset className="kiln-profile-fields">
+        <legend>내 가마 정보</legend>
+        <label>
+          센서 배치
+          <select
+            value={kilnSensorPlan}
+            disabled={loading || busy}
+            onChange={(event) => setKilnSensorPlan(event.target.value as SensorPlan)}
+          >
+            {SENSOR_PLAN_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          용량(L)
+          <input
+            type="number"
+            min="0"
+            value={kilnCapacityL}
+            disabled={loading || busy}
+            onChange={(event) => setKilnCapacityL(event.target.value)}
+          />
+        </label>
+        <label>
+          선반 수
+          <input
+            type="number"
+            min="0"
+            value={kilnShelfCount}
+            disabled={loading || busy}
+            onChange={(event) => setKilnShelfCount(event.target.value)}
+          />
+        </label>
+        <label>
+          정격 출력(kW)
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={kilnPowerKw}
+            disabled={loading || busy}
+            onChange={(event) => setKilnPowerKw(event.target.value)}
+          />
+        </label>
+        <p className="kiln-profile-note">
+          센서 배치는 가마·소성곡선 화면의 센서 위치를 자동으로 구성합니다.
+          용량·선반 수·정격 출력은 참고용 기록이며 계산에 쓰이지 않습니다.
+        </p>
+      </fieldset>
       <button disabled={loading || busy} type="submit">
         {busy ? "저장 중…" : "프로필 저장"}
       </button>

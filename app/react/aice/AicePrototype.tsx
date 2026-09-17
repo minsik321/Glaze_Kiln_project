@@ -9,10 +9,9 @@ import { WeightInputs } from "./WeightInputs";
 import { arealDensityFromProfile } from "./arealDensity";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
 import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
-import { KilnSectionSimulator } from "./KilnSectionSimulator";
+import { KilnFiringScreen } from "./KilnFiringScreen";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
-import { CurveControlPanel } from "./CurveControlPanel";
-import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControllerSample } from "./curvePlan";
+import { buildCurveComparison, SCENARIO_CONTROL_PLANS, simulateController, toFiringCurve, type ControllerSample } from "./curvePlan";
 import { parseFiringRangeC, predictNextRun, PREDICTOR_VERSION } from "./predictionModel";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
@@ -76,9 +75,7 @@ const screens = [
   "AI 제안",
   "기물",
   "도포",
-  "적재",
-  "곡선",
-  "가상 소성",
+  "가마",
   "평가",
 ] as const;
 
@@ -86,9 +83,7 @@ const screenTitles = [
   ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
   ["자주 쓰는 기물에서 골라요", "대표 형상을 사용한 추정임을 계속 표시합니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
-  ["기물과 센서 위치를 확인해요", "센서 배치는 관측 범위와 불확실성에 영향을 줍니다."],
-  ["보정 후보와 제어 계획을 확인해요", "선택한 후보만 가상 제어기로 전달됩니다."],
-  ["가상 소성을 재생해요", "실제 가마에는 어떤 신호도 보내지 않습니다."],
+  ["가마와 소성곡선을 함께 확인해요", "센서 위치·이상 시나리오·제어 계획·가상 소성이 한 화면입니다."],
   ["결과를 남기고 다음 제안을 봐요", "개인 보정과 공통 개선 후보는 분리합니다."],
 ] as const;
 
@@ -131,7 +126,7 @@ function Guidance({ reason, assumption, next }: { reason: string; assumption: st
   );
 }
 
-export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
 
@@ -376,13 +371,14 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
       if (curveApproved) {
         const curveSeries = buildCurveComparison("target", restoredRun.recipe.firing_range.value);
         const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
-        const run = await simulateController(adjustedCurve, "balanced");
+        const normalPlan = SCENARIO_CONTROL_PLANS.normal;
+        const run = await simulateController(adjustedCurve, normalPlan.disturbance, normalPlan.constraints.sampleSeconds);
         approvedControlSamples = run.samples;
-        approvedControlParameters = CONTROL_PLANS.balanced.parameters;
+        approvedControlParameters = normalPlan.parameters;
       }
       if (cancelled) return;
       setState({ ...initialState, recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, riskMitigationApplied: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
-      setStep(restoredRun.status === "evaluated" ? 6 : restoredRun.status === "simulated" ? 5 : 0);
+      setStep(restoredRun.status === "evaluated" ? 4 : restoredRun.status === "simulated" ? 3 : 0);
     })();
     return () => {
       cancelled = true;
@@ -402,9 +398,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
     true,
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
     state.riskMitigationApplied,
-    Boolean(state.sensorPlan),
-    state.curveApproved,
-    state.simulationCompleted,
+    state.curveApproved && state.simulationCompleted,
   ][step] ?? false;
 
   return (
@@ -499,33 +493,37 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "" }: Simu
         )}
 
         {step === 3 && (
-          <KilnSectionSimulator ware={state.ware ?? "bowl"} coating={computedCoating} plan={state.sensorPlan} sensors={state.sensors} onPlanChange={(sensorPlan) => setState((current) => ({ ...current, sensorPlan }))} onSensorsChange={(sensors) => setState((current) => ({ ...current, sensors }))} />
+          <KilnFiringScreen
+            ware={state.ware ?? "bowl"}
+            coating={computedCoating}
+            userId={userId}
+            sensors={state.sensors}
+            //: KilnFiringScreen이 계정 가마 정보(kiln_sensor_plan)에서 센서
+            //: 배치를 자동으로 채운다 — 몇 개인지로 sensorPlan을 역산해
+            //: AiceRun.loading.sensor_plan에 그대로 남긴다.
+            onSensorsChange={(sensors) => setState((current) => ({
+              ...current,
+              sensors,
+              sensorPlan: sensors.length === 1 ? "single" : sensors.length === 3 ? "three" : "multi",
+            }))}
+            recipeFiringRangeC={activeFiringRangeC}
+            riskMitigationApplied={state.riskMitigationApplied}
+            approved={state.curveApproved}
+            onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))}
+            simulationCompleted={state.simulationCompleted}
+            onSimulationStart={() => setState((current) => ({ ...current, simulationCompleted: true }))}
+          />
         )}
 
         {step === 4 && (
-          <CurveControlPanel coating={computedCoating} recipeFiringRangeC={activeFiringRangeC} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
-        )}
-
-        {step === 5 && (
-          <>
-            <div className="prototype-firing" aria-live="polite">
-              <span className={state.simulationCompleted ? "complete" : "idle"}>{state.simulationCompleted ? "가상 소성 완료" : "가상 가마 준비됨"}</span>
-              <div className="heat-field" aria-hidden="true" />
-            </div>
-            <button type="button" className="prototype-confirm" onClick={() => setState({ ...state, simulationCompleted: true })}>가상 소성 재생</button>
-            <Alert tone="unavailable" title="설명용 근사">실제 센서 및 가마 제어 연결 없음</Alert>
-          </>
-        )}
-
-        {step === 6 && (
           <><ResultFeedback value={state.evaluation} onChange={(evaluation) => setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined }))} />{state.result && <Guidance reason="이번 관찰 선택이 개인 기록의 다음 후보 비교에 연결됩니다." assumption="실제 소성 품질이나 재현성을 검증한 결과가 아닙니다." next="작업 기록에 저장한 뒤 영향 추적과 공유 동의를 확인하세요." />}</>
         )}
       </main>
 
       <footer className="prototype-actions">
-        {step > 0 && step < 6 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
-        {step < 6 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
-        {step === 6 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
+        {step > 0 && step < 4 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
+        {step < 4 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
+        {step === 4 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
       </footer>
     </div>
   );

@@ -110,17 +110,14 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(riskButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: /상·중·하 3개/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    // 6/7/8페이지 통합: 가마 화면 하나에서 제어 계획 승인 + 가상 소성 재생을 모두 한다.
     const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });
     await waitFor(() => expect((proceedButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(proceedButton);
-    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
-    expect(screen.getByText("가상 소성 완료")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
-    expect(screen.getByTestId("aice-step-7")).toBeTruthy();
+    expect(screen.getByTestId("aice-step-5")).toBeTruthy();
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(screen.getByText("실제 소성 품질이나 재현성을 검증한 결과가 아닙니다.")).toBeTruthy();
   });
@@ -149,9 +146,7 @@ describe("AICE guided prototype", () => {
     const riskButton = screen.getByRole("button", { name: /소성 계획/ });
     await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(riskButton);
-    for (const name of [/^다음/, /상·중·하 3개/, /^다음/]) {
-      fireEvent.click(screen.getByRole("button", { name }));
-    }
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     let getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({ curves: { selected_id: null }, pid: { parameters: {}, samples: [] } });
     const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });

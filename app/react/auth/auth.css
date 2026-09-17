@@ -29,7 +29,8 @@
   flex: 1 1 180px;
   max-width: none;
 }
-.account-panel input {
+.account-panel input,
+.account-panel select {
   box-sizing: border-box;
   width: 100%;
   min-height: 40px;
@@ -38,6 +39,23 @@
   border-radius: 0;
   background: var(--surface);
   color: var(--text);
+}
+.kiln-profile-fields {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  margin: 0;
+}
+.kiln-profile-fields legend {
+  padding: 0 6px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.kiln-profile-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 .account-panel button {
   min-height: 40px;

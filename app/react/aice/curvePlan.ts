@@ -1,13 +1,15 @@
 import { kilnFiringApi, type KilnDisturbance } from "../lib/api";
 import type { FiringCurve, SourceType, SourcedValue } from "./contract";
 import type { CoatingPreset } from "./thicknessView";
+import type { KilnScenario } from "./kilnSimulation";
 
-// LLM 프런트도어 TODO Phase 3: 이름 붙은 제어 프리셋(빠른 반응/균형/안정 우선)을
-// 사용자에게 "제품 옵션"처럼 고르게 하던 3버튼 UI를 없앴다. `ControlPreset`과
-// `CONTROL_PLANS`는 여전히 존재하지만 이제부터는 CurveControlPanel 내부에서만
-// 쓰는 구현 세부사항이다 — 서로 다른 외란 시나리오 3벌을 "다시 추천" 액션이
-// 순환해 보여주는 용도로만 남았고, 사용자에게는 프리셋 이름이나 설명 문구를
-// 노출하지 않는다. 사용자에게 보이는 결정은 이제 이진값(`ControlDecision`)뿐이다.
+// v9 개편(6/7/8페이지 통합): 예전에는 "다시 추천" 버튼이 이름 없는 외란
+// 프리셋 3벌(빠른 반응/균형/안정 우선)을 순환해 보여줬다. 지금은 가마
+// 화면의 "이상 시나리오" 선택(kilnSimulation.ts의 KilnScenario, 센서
+// 편향·고장·과열·층간 편차)이 그 자리를 대신한다 — 같은 화면 안에서 이상
+// 신호를 고르면 "두께 반영 수정 계획"이 그 외란을 반영해 다시 계산되고,
+// "기준 계획"은 그대로 고정된다. `SCENARIO_CONTROL_PLANS`가 그 시나리오별
+// 외란값이다.
 //
 // `simulateController`는 예전에는 브라우저 안에서 합성 PID 수식을 직접
 // 계산했다. 지금은 백엔드 `/kiln/firing/simulate`를 불러
@@ -15,10 +17,6 @@ import type { CoatingPreset } from "./thicknessView";
 // `kiln.firing.simulator.KilnSimulator`(물리 판정 코어, 9-4·9-5·12-2절)를
 // 그대로 돌린 결과를 받는다 — Pyodide 브리지가 아니라 백엔드 API 경계다
 // (densityAdvice.ts와 같은 이유: src/kiln은 이제 백엔드에서만 쓰인다).
-// 그래서 "프리셋"의 의미도 "PID 게인 세트"에서 "재현 가능한 외란
-// 시나리오"(`kiln.firing.simulator.Disturbance`)로 바뀌었다 — 실제 물리
-// 시뮬레이터가 있는 자리에 임의의 게인을 박아 둘 이유가 없다.
-export type ControlPreset = "fast" | "balanced" | "stable";
 
 // `PidExecution.decision`(src/kiln/aice/contract.py, AICE_SCHEMA_VERSION 3)과
 // 짝을 이루는 프런트엔드 타입. 사용자는 "이대로 진행" 또는 "다시 추천"만 고른다.
@@ -37,10 +35,11 @@ export type CurveSeries = {
 };
 
 export type ControlPlan = {
-  preset: ControlPreset;
+  scenario: KilnScenario;
   //: `SegmentedController._inner_power`가 실제로 "전향보상 + 비례"라고
   //: 부르는 그 구조다 (9-4절) — contract.py `PidExecution.controller_kind`의
   //: `"feedforward_p"` 리터럴과 맞춘다. "pid"가 아니다: 적분·미분 항이 없다.
+  //: 화면에는 "PID"라는 표현을 쓰지 않는다 — "반응형 제어"라고만 부른다.
   controllerKind: "feedforward_p";
   disturbance: KilnDisturbance;
   parameters: Record<string, SourcedValue<number>>;
@@ -96,44 +95,47 @@ function buildBaselinePoints(recipeFiringRangeC: readonly [number, number] | nul
   ];
 }
 
-// 내부 구현 전용 — 화면에 이 순서·이름을 노출하지 않는다. "다시 추천"을 누를
-// 때마다 다음 항목으로 순환한다.
-export const PRESET_ORDER: ControlPreset[] = ["balanced", "fast", "stable"];
-
 const DISTURBANCE_UNITS: Record<keyof Required<KilnDisturbance>, string> = {
   supply_voltage_pct: "%", element_aging_pct: "%", thermocouple_noise_c: "℃",
   thermocouple_lag_s: "s", load_mismatch_pct: "%", wall_lag_s: "s", seed: "",
 };
 
-function control(preset: ControlPreset, disturbance: KilnDisturbance): ControlPlan {
+function control(scenario: KilnScenario, disturbance: KilnDisturbance): ControlPlan {
   const sourced = (value: number, unit: string): SourcedValue<number> => ({
     value, unit, source_type: "synthetic", confidence: null,
-    note: "재현 가능한 외란 시나리오(12-2절 Disturbance); 실제 가마 실측값 아님",
+    note: "재현 가능한 외란 시나리오(12-2절 Disturbance); 실제 가마 실측값 아님 — 센서 편향·고장류 이상 신호는 해당 필드가 없어 열전대 잡음·지연으로 근사한다",
   });
   const parameters: Record<string, SourcedValue<number>> = {};
   for (const [key, value] of Object.entries(disturbance)) {
     parameters[key] = sourced(value as number, DISTURBANCE_UNITS[key as keyof KilnDisturbance] ?? "");
   }
   return {
-    preset, controllerKind: "feedforward_p", disturbance, parameters,
+    scenario, controllerKind: "feedforward_p", disturbance, parameters,
     constraints: { outputMinPercent: 0, outputMaxPercent: 100, antiWindup: "출력은 0–최대전력으로 물리 포화된다(적분 항 없음)", sampleSeconds: 60 },
     warning: "kiln.firing의 실제 제어기·시뮬레이터를 돌리지만 오지정된 생성기 위의 상대 비교용이며(부록 A) 실제 가마 제어에 사용할 수 없습니다.",
   };
 }
 
-export const CONTROL_PLANS: Record<ControlPreset, ControlPlan> = {
-  // 이상적 조건 — 외란 없음(열전대 잡음만 최소로 둬 궤적이 완전히 평평해
-  // 보이지 않게 한다).
-  fast: control("fast", { thermocouple_noise_c: 0.2, seed: 1 }),
-  // 9-2절이 명시한 계통 불확실의 중앙값 근처(공급전압 −2%, 열선 노후 5%).
-  balanced: control("balanced", {
-    supply_voltage_pct: -2, element_aging_pct: 5, thermocouple_noise_c: 0.5,
-    thermocouple_lag_s: 5, load_mismatch_pct: 3, wall_lag_s: 10, seed: 2,
+//: 가마 화면의 이상 시나리오 선택과 1:1로 대응하는 외란값 — 시나리오를
+//: 고르면 "두께 반영 수정 계획"이 이 값으로 다시 계산된다("기준 계획"은
+//: 고정). 물리 코어(kiln.firing.simulator.Disturbance)에는 "센서 편향"
+//: 같은 전용 필드가 없으므로, 가장 가까운 기존 입력(열전대 잡음·지연 등)
+//: 으로 설명용 근사만 만든다 — 새 물리 필드를 추가하지 않는다.
+export const SCENARIO_CONTROL_PLANS: Record<KilnScenario, ControlPlan> = {
+  normal: control("normal", { thermocouple_noise_c: 0.2, seed: 1 }),
+  sensor_bias: control("sensor_bias", {
+    thermocouple_noise_c: 1.4, thermocouple_lag_s: 20, seed: 2,
   }),
-  // 9-2절 범위의 상한 근처(공급전압 +5%, 열선 노후 15%) — 계통 불확실이 가장 큰 경우.
-  stable: control("stable", {
-    supply_voltage_pct: 5, element_aging_pct: 15, thermocouple_noise_c: 1.0,
-    thermocouple_lag_s: 15, load_mismatch_pct: 10, wall_lag_s: 30, seed: 3,
+  sensor_failure: control("sensor_failure", {
+    thermocouple_noise_c: 2.5, thermocouple_lag_s: 50, seed: 3,
+  }),
+  // 9-2절 범위 상한 근처(공급전압 +5%, 열선 노후 15%)보다 더 밀어 과열
+  // 경향을 흉내낸다 — 실제 과열 판정 로직이 아니다.
+  overheat: control("overheat", {
+    supply_voltage_pct: 6, element_aging_pct: 18, thermocouple_noise_c: 0.6, seed: 4,
+  }),
+  layer_variance: control("layer_variance", {
+    load_mismatch_pct: 16, wall_lag_s: 25, thermocouple_noise_c: 0.6, seed: 5,
   }),
 };
 
@@ -176,12 +178,11 @@ function interpolate(points: CurveSeries["points"], minute: number) {
 //: 유지해 화면 동작(경보 점 표시)이 바뀌지 않게 한다.
 const ALARM_ERROR_THRESHOLD_C = 35;
 
-export async function simulateController(series: CurveSeries, preset: ControlPreset): Promise<ControllerRun> {
-  const plan = CONTROL_PLANS[preset];
+export async function simulateController(series: CurveSeries, disturbance: KilnDisturbance, sampleSeconds = 60): Promise<ControllerRun> {
   const response = await kilnFiringApi.simulate(
     series.points.map((point) => [point.minute, point.temperatureC] as const),
-    plan.disturbance,
-    plan.constraints.sampleSeconds,
+    disturbance,
+    sampleSeconds,
   );
   const samples: ControllerSample[] = response.samples.map((sample) => {
     const planned = interpolate(series.points, sample.minute);

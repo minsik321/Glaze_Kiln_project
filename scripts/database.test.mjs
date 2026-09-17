@@ -17,15 +17,17 @@ async function withDatabase(run) {
       grant usage on schema auth, public to authenticated, anon;
       grant execute on function auth.uid() to authenticated, anon;
       insert into auth.users values ('${alice}'), ('${bob}');`);
-    await db.exec(
-      await readFile(
-        new URL(
-          "../supabase/migrations/20260915000000_initial.sql",
-          import.meta.url,
+    for (const file of [
+      "20260915000000_initial.sql",
+      "20260918000000_kiln_profile.sql",
+    ]) {
+      await db.exec(
+        await readFile(
+          new URL(`../supabase/migrations/${file}`, import.meta.url),
+          "utf8",
         ),
-        "utf8",
-      ),
-    );
+      );
+    }
     const asUser = async (id) => {
       await db.exec("reset role; set role authenticated");
       await db.query("select set_config('request.jwt.claim.sub', $1, false)", [
@@ -94,6 +96,36 @@ test("profiles allow owner CRUD and reject forged ownership or other users", asy
     assert.equal(
       (await db.query("delete from public.profiles returning id")).rows.length,
       1,
+    );
+  });
+});
+
+test("profiles kiln info defaults to a sensor plan and rejects invalid ones", async () => {
+  await withDatabase(async (db, asUser) => {
+    await asUser(alice);
+    const {
+      rows: [profile],
+    } = await db.query(
+      "insert into public.profiles (id, display_name) values ($1, 'Alice') returning *",
+      [alice],
+    );
+    assert.equal(profile.kiln_sensor_plan, "three");
+    assert.equal(profile.kiln_capacity_l, null);
+    await db.query(
+      "update public.profiles set kiln_sensor_plan = 'multi', kiln_capacity_l = 120, kiln_shelf_count = 4, kiln_power_kw = 7.5",
+    );
+    const {
+      rows: [updated],
+    } = await db.query("select * from public.profiles");
+    assert.equal(updated.kiln_sensor_plan, "multi");
+    assert.equal(updated.kiln_shelf_count, 4);
+    await assert.rejects(
+      db.query("update public.profiles set kiln_sensor_plan = 'double'"),
+      invalid,
+    );
+    await assert.rejects(
+      db.query("update public.profiles set kiln_capacity_l = -5"),
+      invalid,
     );
   });
 });

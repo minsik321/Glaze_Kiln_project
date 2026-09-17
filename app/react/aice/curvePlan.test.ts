@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildCurveComparison, CONTROL_PLANS, curveSummary, simulateController, toFiringCurve } from "./curvePlan";
+import { buildCurveComparison, SCENARIO_CONTROL_PLANS, curveSummary, simulateController, toFiringCurve } from "./curvePlan";
 
 function mockSimulateResponse() {
   return new Response(
@@ -34,12 +34,13 @@ describe("curve comparison and real controller wiring", () => {
   it("calls kiln.firing.simulate and maps the response into synchronized control samples", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => mockSimulateResponse());
     const adjusted = buildCurveComparison("target")[1];
-    const run = await simulateController(adjusted, "balanced");
+    const sensorBiasPlan = SCENARIO_CONTROL_PLANS.sensor_bias;
+    const run = await simulateController(adjusted, sensorBiasPlan.disturbance, sensorBiasPlan.constraints.sampleSeconds);
 
     expect(String(fetchMock.mock.calls[0][0])).toContain("/kiln/firing/simulate");
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.schedule).toEqual(adjusted.points.map((point) => [point.minute, point.temperatureC]));
-    expect(body.disturbance).toEqual(CONTROL_PLANS.balanced.disturbance);
+    expect(body.disturbance).toEqual(sensorBiasPlan.disturbance);
 
     expect(run.eNote).toContain("9-5절 외측 루프 운용을 위한 가정");
     expect(run.provenanceNotes.length).toBeGreaterThan(0);
@@ -48,7 +49,7 @@ describe("curve comparison and real controller wiring", () => {
   });
 
   it("marks disturbance parameters as synthetic and only turns an approved candidate into selected", () => {
-    expect(Object.values(CONTROL_PLANS.fast.parameters).every((value) => value.source_type === "synthetic")).toBe(true);
+    expect(Object.values(SCENARIO_CONTROL_PLANS.normal.parameters).every((value) => value.source_type === "synthetic")).toBe(true);
     const candidate = buildCurveComparison("thin")[1];
     expect(toFiringCurve(candidate, false).role).toBe("candidate");
     expect(toFiringCurve(candidate, true).role).toBe("selected");
