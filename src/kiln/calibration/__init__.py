@@ -19,6 +19,8 @@
 - :mod:`kiln.calibration.tiles` — 7-3절 타일 캘리브레이션(저울 회귀 + 캘리퍼)
 - :mod:`kiln.calibration.update` — 10-2절 회차 되먹임, 7-5절 재캘리브레이션 트리거
 - :mod:`kiln.calibration.diagnosis` — 7-4절 단위 일치 잔차, 7-7절 사후 진단
+- :mod:`kiln.calibration.registry` — Phase 5 3항, 레시피별 계수 계열 저장소
+- :mod:`kiln.calibration.demo_convergence` — Phase 5 2항, 20회차 합성 narrowing 시연
 """
 
 from kiln.calibration.diagnosis import (
@@ -43,6 +45,12 @@ from kiln.calibration.update import (
     run_update,
     update_after_run,
 )
+from kiln.calibration.registry import CoefficientTableStore
+from kiln.calibration.demo_convergence import (
+    ConvergenceDemoResult,
+    ConvergenceRound,
+    run_convergence_demo,
+)
 
 __all__ = [
     "TileSample",
@@ -61,4 +69,8 @@ __all__ = [
     "residual_mm",
     "DeviationDiagnosis",
     "diagnose_deviation",
+    "CoefficientTableStore",
+    "ConvergenceDemoResult",
+    "ConvergenceRound",
+    "run_convergence_demo",
 ]

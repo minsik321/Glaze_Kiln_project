@@ -14,6 +14,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 실제 품질 개선 · 조성으로부터의 결과 예측 · 탐색의 목표 수렴 ·
 계수(k₁, k₂, ρ_dry, E, α, β)의 **값**. 계수는 **동정 절차만** 주장한다.
 
+> **v9 각주 (docs/AICE_LLM_FRONTDOOR_PLAN.md §2-1)**: 위 목록 중 "조성으로부터의
+> 결과 예측 금지"는 **물리 판정 코어**(두께 총량제약·위험판정·열일적분·냉각상한,
+> 아래 "구조" 표의 안쪽·바깥쪽 루프)에 한정된 원칙으로 스코프를 좁힌다.
+> 신규 추가되는 "추천·예측·개인화 계층"(LLM 채팅 입구·RAG·Prediction
+> Model·Optimization Model, `docs/AICE_LLM_FRONTDOOR_PLAN.md`)은 이 계층
+> 밖에 있으며 AI/LLM 호출이 허용된다. 단 모든 출력에 source_type을 붙이고
+> 물리 판정 코어의 최종 판단을 대체하지 않는다. 사용자가 2026-09-17 이
+> 우선순위를 명시적으로 확인했다.
+
 ## 명령
 
 ```powershell

@@ -20,7 +20,7 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /상·중·하 3개/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: /가상 소성 준비/ }));
+    fireEvent.click(screen.getByRole("button", { name: /이대로 진행/ }));
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
     expect(screen.getByText("가상 소성 완료")).toBeTruthy();
@@ -36,10 +36,10 @@ describe("AICE guided prototype", () => {
     render(<AicePrototype onSnapshotReady={onSnapshotReady} />);
     const getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({
-      schema_version: 2,
+      schema_version: 3,
       sources: [{ source_type: "literature" }],
       consent: { share_allowed: false },
-      versions: { rule_model: "aice-rule-rag-1", predictor: null },
+      versions: { rule_model: "aice-rule-rag-1", predictor: "aice-predictor-draft-1" },
     });
   });
 
@@ -51,14 +51,36 @@ describe("AICE guided prototype", () => {
     }
     let getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({ curves: { selected_id: null }, pid: { parameters: {}, samples: [] } });
-    fireEvent.click(screen.getByRole("button", { name: /안정 우선/ }));
-    fireEvent.click(screen.getByRole("button", { name: /이 후보로 가상 소성 준비/ }));
+    fireEvent.click(screen.getByRole("button", { name: /이대로 진행/ }));
     getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     const run = await getter();
     expect(run.curves.selected_id).toMatch(/thickness-target/);
     expect(run.curves.candidates.find((curve: { id: string }) => curve.id === run.curves.selected_id)?.role).toBe("selected");
-    expect(run.pid).toMatchObject({ preset: "stable", controller_kind: "pid" });
+    expect(run.pid).toMatchObject({ decision: "accepted", controller_kind: "pid" });
     expect(run.pid.samples.length).toBeGreaterThan(0);
     expect(Object.values(run.pid.parameters).every((value: unknown) => (value as { source_type: string }).source_type === "synthetic")).toBe(true);
+  });
+
+  it("propagates a recipe candidate change through to the predicted next-run curve (Phase 6 integration check)", async () => {
+    const onSnapshotReady = vi.fn();
+    render(<AicePrototype onSnapshotReady={onSnapshotReady} />);
+    fireEvent.click(screen.getByRole("button", { name: /샘플 실험 시작/ }));
+    fireEvent.click(screen.getByRole("button", { name: /사틴 청색/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: /해안 사틴 01/ }));
+    const coastalRun = await onSnapshotReady.mock.calls.at(-1)?.[0]();
+    const coastalNext = coastalRun.curves.candidates.find((curve: { role: string }) => curve.role === "next");
+
+    fireEvent.click(screen.getByRole("button", { name: /웜 클리어 02/ }));
+    const warmClearRun = await onSnapshotReady.mock.calls.at(-1)?.[0]();
+    const warmClearNext = warmClearRun.curves.candidates.find((curve: { role: string }) => curve.role === "next");
+
+    // 레시피 후보(예상 소성범위)를 바꾸면 predictionModel.predictNextRun()의
+    // 보정값이 달라지고, 그 값이 "다음 실행 제안" 곡선 한 장에 그대로
+    // 반영된다 — 레시피 선택 → 예측 → 소성곡선까지 이어지는 전파 확인.
+    expect(warmClearNext.points).not.toEqual(coastalNext.points);
+    // 레시피가 바뀌어도 곡선 개수·역할 구조(CurveBundle) 자체는 그대로다.
+    expect(warmClearRun.curves.candidates.map((curve: { role: string }) => curve.role)).toEqual(coastalRun.curves.candidates.map((curve: { role: string }) => curve.role));
   });
 });

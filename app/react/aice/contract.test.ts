@@ -22,7 +22,7 @@ describe("AiceRun frontend contract", () => {
   it("converts legacy records without presenting missing fields as observed", () => {
     const run = legacyWorkRecordToAiceRun({ id: "old-1", title: "Old", payload: { cone: 6 } });
     expect(run.run_id).toBe("old-1");
-    expect(run.schema_version).toBe(2);
+    expect(run.schema_version).toBe(3);
     expect(run.sources.at(-1)?.source_type).toBe("inferred");
     expect(run.thickness.mean.value).toBeNull();
     const legacy = aiceRunToLegacyWorkRecord(run);

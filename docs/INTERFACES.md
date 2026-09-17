@@ -81,6 +81,10 @@ CoefficientTable SearchState`, 상수 `QUARTZ_INVERSION_C`
 - `FiringRun`: `cooling` · `declared_kg` · `shelf_area_m2` 를 들고 있다.
   설정 스케줄(`schedule`)과 냉각을 **합치지 않는다** — 합치면 급냉/서냉
   구분이 사라진다.
+- `FiringRun.ramp_rate_c_per_h: float | None` · `.hold_minutes: float | None`
+  — 승온 속도·유지 시간 1급 필드(LLM 프런트도어 TODO Phase 1). 이전에는
+  `schedule` 점열의 기울기로만 암묵적으로 존재했다. 값이 없으면 `None`이며
+  `schedule`에서 되짚어 지어내지 않는다.
 - `FiringResult.fracture_z_mm: float | None` — 파단면을 **어디서** 쟀는가.
   위치가 없으면 그 두께가 국소 최대인지 알 수 없어 "국소 최대의 하한"
   이상으로 읽지 못하고, k₂ 방향 신호가 흐려진다(7-7절). 위치만 있고 두께가
@@ -235,6 +239,8 @@ class ThicknessProfile:
     def local_min_mm(self) -> float
     @property
     def spread_mm(self) -> float      # local_max - local_min
+    @property
+    def areal_density_g_m2(self) -> float  # glaze_weight_g / area_m2 (Phase 1)
 
 def compute_profile(record: GlazingRecord, ware: Ware,
                     coeffs: CoefficientTable | None = None) -> ThicknessProfile
@@ -477,6 +483,45 @@ def update_after_run(table: CoefficientTable, record: GlazingRecord,
   ρ_dry 가정 위에서만 나오고(가정이 X배면 k1은 1/X배) `C` 만 가정과 무관하다.
   7-3절의 "저울만으로는 분리되지 않는다"를 값으로 드러내는 자리이므로
   `k1` 을 조용히 내보내는 대신 이 필드를 함께 낸다.
+
+### Phase 5 추가 — `kiln.calibration.registry` · `kiln.calibration.demo_convergence`
+
+```python
+class CoefficientTableStore:
+    def get(self, recipe_id: str) -> CoefficientTable
+    def put(self, table: CoefficientTable) -> None
+    def apply_run_update(self, recipe_id: str, record: GlazingRecord,
+                          ware: Ware) -> RunUpdate
+    def recipe_ids(self) -> tuple[str, ...]
+    def calibration_runs(self, recipe_id: str) -> int
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceDemoResult:
+    rounds: tuple[ConvergenceRound, ...]
+    synthetic_target_k1: float
+    mean_gap_first_window: float
+    mean_gap_last_window: float
+    narrowing_pct: float
+    remaining_bias_pct: float
+    notes: tuple[str, ...]
+
+def run_convergence_demo(*, seed: int = 20260917, rounds: int = 20,
+                          window: int = 5) -> ConvergenceDemoResult
+```
+
+- `CoefficientTableStore`: `recipe_id -> CoefficientTable` 딕셔너리. 처음
+  보는 `recipe_id`는 모든 계수가 `None`(미동정)인 새 테이블을 받는다.
+  레시피 하나의 갱신이 다른 레시피의 항목을 건드리지 않는다는 격리 보증
+  하나가 전부다 — 새 물리 모델이 아니다.
+- `run_convergence_demo`: v5/v7의 "더미 20회차 수렴"을 재사용하지 않는다
+  (`docs/DECISIONS.md` §12-2). `run_update`와 구조적으로 다른(√t + 담금시간
+  선형 크러스트 항 + 잡음) 생성기로 20회차를 굴리고, "수렴했다"가 아니라
+  앞/뒤 창의 평균 gap narrowing(%)과 남은 편향(%)을 낸다. `seed`로 재현
+  가능하다. **UI는 없다** — 파이썬 시연이고 화면 결선은 범위 밖이다.
+- Prediction Model(프런트엔드 `predictionModel.ts`)과의 연결은 값 하나뿐이다
+  — `CoefficientTableStore.calibration_runs(recipe_id)`가 `priorRunCount`의
+  미래 소스다. 이번 변경에 **백엔드 엔드포인트는 포함되지 않는다**; 프런트
+  엔드는 여전히 `priorRunCount=0`을 하드코딩한다(`AicePrototype.tsx`).
 
 ---
 

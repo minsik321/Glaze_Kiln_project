@@ -103,7 +103,7 @@ export function KilnSectionSimulator({
 
         <div className="kiln-controls">
           <fieldset><legend>센서 프리셋</legend><div className="choice-chip-row">{(["single", "three", "multi"] as const).map((item) => <button type="button" className="choice-chip" key={item} aria-pressed={plan === item} onClick={() => choosePlan(item)}>{item === "single" ? "기본 1개" : item === "three" ? "상·중·하 3개" : "다점 측정"}</button>)}</div></fieldset>
-          <p className="sensor-recommendation"><strong>추천: 상·중·하 3개</strong><br />{recommendation.reason}</p>
+          <p className="sensor-recommendation-badge">추천: 상·중·하 3개</p>
           <fieldset><legend>센서 위치 조정</legend><div className="sensor-adjust-list">{activeSensors.map((sensor, index) => <div key={sensor.id}><span>{sensor.id} · 높이 {Math.round(sensor.heightRatio * 100)}%</span><span><button type="button" aria-label={`${sensor.id} 아래로`} onClick={() => adjust(sensor.id, -.08)}>↓</button><button type="button" aria-label={`${sensor.id} 위로`} onClick={() => adjust(sensor.id, .08)}>↑</button></span><small>{frame.physical.sensorReadings[index]?.temperatureC == null ? "신호 없음" : `${frame.physical.sensorReadings[index].temperatureC} °C`} · 불확실성 ±{frame.physical.sensorReadings[index]?.uncertaintyC} °C</small></div>)}</div></fieldset>
         </div>
       </div>
@@ -118,6 +118,7 @@ export function KilnSectionSimulator({
       <div className="kiln-warning-timeline" aria-live="polite">{frame.physical.warnings.length ? frame.physical.warnings.map((warning) => <Alert key={`${warning.code}-${warning.sensorId ?? warning.layer}`} tone="danger" title="가상 경고">{warning.message}</Alert>) : <Alert tone="unavailable" title="가상 경고 없음">현재 선택한 합성 시나리오에는 경고가 없습니다.</Alert>}</div>
 
       <DetailDrawer summary="센서 대표성과 모델 상세 보기">
+        <p className="sensor-recommendation-reason"><strong>추천 사유</strong>: {recommendation.reason}</p>
         {activeSensors.map((sensor) => <p key={sensor.id}><strong>{sensor.id}</strong> — 대상: {sensor.target} · 사각지대: {sensor.blindSpot} · 한계: {sensor.limitation}</p>)}
         <p><strong>물리 데이터</strong>: 합성 스케줄·층별 온도·센서 응답, 모델 {frame.physical.modelVersion}</p>
         <p><strong>시각 효과</strong>: 냉색→온색과 흐름선은 물리값과 분리된 비정량적 설명용 근사입니다. CFD 결과가 아닙니다.</p>

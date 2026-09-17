@@ -209,6 +209,7 @@ def _profile_payload(profile) -> dict:
         ],
         "area_m2": profile.area_m2,
         "mean_mm": profile.mean_mm,
+        "areal_density_g_m2": profile.areal_density_g_m2,
         "glaze_weight_g": profile.glaze_weight_g,
         "rho_dry": profile.rho_dry,
         "has_distribution": profile.has_distribution,

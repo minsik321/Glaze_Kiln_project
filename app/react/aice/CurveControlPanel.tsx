@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, DetailDrawer, StatusBadge } from "./ui";
-import { buildCurveComparison, CONTROL_PLANS, curveSummary, simulateController, type ControlPreset, type ControllerSample, type CurveRole, type CurveSeries } from "./curvePlan";
+import { buildCurveComparison, CONTROL_PLANS, curveSummary, PRESET_ORDER, simulateController, type ControlDecision, type ControllerSample, type CurveRole, type CurveSeries } from "./curvePlan";
+import type { SourcedValue } from "./contract";
 import type { CoatingPreset } from "./thicknessView";
 
 const COLORS: Record<CurveRole, string> = { baseline: "#536772", adjusted: "#315f72", actual: "#9a2521", next: "#8a5a00" };
@@ -13,14 +14,27 @@ function samplePath(samples: ControllerSample[], field: "plannedC" | "sensorC" |
   return samples.map((sample) => `${30 + sample.minute / 480 * 420},${205 - sample[field] / 1250 * 175}`).join(" ");
 }
 
-export function CurveControlPanel({ coating, approved, onApprove }: { coating: CoatingPreset; approved: boolean; onApprove: (preset: ControlPreset, curves: CurveSeries[], samples: ControllerSample[]) => void }) {
+export function CurveControlPanel({
+  coating,
+  approved,
+  onApprove,
+}: {
+  coating: CoatingPreset;
+  approved: boolean;
+  onApprove: (decision: ControlDecision, samples: ControllerSample[], parameters: Record<string, SourcedValue<number>>) => void;
+}) {
   const curves = useMemo(() => buildCurveComparison(coating), [coating]);
   const [visible, setVisible] = useState<Record<CurveRole, boolean>>({ baseline: true, adjusted: true, actual: true, next: true });
-  const [preset, setPreset] = useState<ControlPreset>("balanced");
+  // LLM 프런트도어 TODO Phase 3: 사용자에게는 더 이상 이름 붙은 프리셋을
+  // 고르게 하지 않는다 — "다시 추천"을 누를 때마다 내부적으로 다음 합성
+  // 게인 세트로 순환할 뿐이다.
+  const [presetIndex, setPresetIndex] = useState(0);
+  const preset = PRESET_ORDER[presetIndex % PRESET_ORDER.length];
   const samples = useMemo(() => simulateController(curves[1], preset), [curves, preset]);
   const plan = CONTROL_PLANS[preset];
   const alarms = samples.filter((sample) => sample.alarm);
   const toggle = (role: CurveRole) => setVisible((current) => ({ ...current, [role]: !current[role] }));
+  const regenerate = () => setPresetIndex((current) => current + 1);
 
   return (
     <section className="curve-control-panel" aria-labelledby="curve-panel-title">
@@ -33,13 +47,7 @@ export function CurveControlPanel({ coating, approved, onApprove }: { coating: C
         {visible.adjusted && curves[1].annotation && <g className="curve-annotation"><line x1="328" y1="48" x2="350" y2="72" /><circle cx="350" cy="72" r="4" /><text x="220" y="40">도포 상태 반영 구간</text></g>}
         <text x="30" y="225">0분</text><text x="430" y="225">480분</text>
       </svg>
-      <p className="curve-change-reason"><strong>왜 바뀌었나요?</strong> {curves[1].reason}</p>
       <p className="curve-natural-summary">{curveSummary(curves)}</p>
-
-      <div className="control-preset-section">
-        <h3>설명형 제어 프리셋</h3>
-        <div className="control-preset-grid">{Object.values(CONTROL_PLANS).map((item) => <button type="button" key={item.preset} aria-pressed={preset === item.preset} onClick={() => setPreset(item.preset)}><strong>{item.label}</strong><span>{item.effect}</span></button>)}</div>
-      </div>
 
       <svg className="controller-svg" viewBox="0 0 480 235" role="img" aria-labelledby="controller-title controller-desc">
         <title id="controller-title">가상 PID 계획값 센서값 기물 추정값 그래프</title><desc id="controller-desc">합성 제어기의 계획, 센서, 기물 추정과 추종 오차가 같은 시간축에 표시됩니다.</desc>
@@ -51,14 +59,18 @@ export function CurveControlPanel({ coating, approved, onApprove }: { coating: C
       <div className="controller-readouts"><span><b>최대 |추종오차|</b>{Math.max(...samples.map((sample) => Math.abs(sample.errorC)))} °C</span><span><b>최대 히터 출력</b>{Math.max(...samples.map((sample) => sample.heaterPercent))}%</span><span><b>합성 경보</b>{alarms.length}개</span><span><b>샘플 주기</b>{plan.constraints.sampleSeconds}초</span></div>
       {alarms.length ? <Alert tone="warning" title="합성 추종 경보">초기 구간 등에서 설명용 추종오차가 큽니다. 실제 안전 경보가 아닙니다.</Alert> : <Alert tone="unavailable" title="합성 경보 없음">경보가 없더라도 실제 운전 안전을 뜻하지 않습니다.</Alert>}
 
-      <DetailDrawer summary="PID 게인·포화·원시 로그 보기">
+      <DetailDrawer summary="왜 바뀌었는지 · PID 게인·포화·원시 로그 보기">
+        <p className="curve-change-reason">{curves[1].reason}</p>
         <Alert tone="danger" title="실제 가마 사용 금지">{plan.warning}</Alert>
         <dl className="pid-parameters">{Object.entries(plan.parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value.value} {value.unit} · {value.source_type}</dd></div>)}</dl>
         <p>출력 포화 {plan.constraints.outputMinPercent}–{plan.constraints.outputMaxPercent}% · anti-windup: {plan.constraints.antiWindup} · 샘플링 {plan.constraints.sampleSeconds}초</p>
         <details><summary>원시 합성 로그</summary><pre>{JSON.stringify(samples, null, 2)}</pre></details>
       </DetailDrawer>
 
-      <button type="button" className="prototype-confirm" aria-pressed={approved} onClick={() => onApprove(preset, curves, samples)}>{approved ? "가상 제어기 전달 완료" : "이 후보로 가상 소성 준비"}</button>
+      <div className="curve-control-actions">
+        <button type="button" className="act ghost" onClick={regenerate}>다시 추천</button>
+        <button type="button" className="prototype-confirm" aria-pressed={approved} onClick={() => onApprove("accepted", samples, plan.parameters)}>{approved ? "가상 제어기 전달 완료" : "이대로 진행"}</button>
+      </div>
       <p className="approval-note">승인한 수정 후보만 AiceRun의 선택 곡선과 가상 제어 샘플에 기록됩니다.</p>
     </section>
   );

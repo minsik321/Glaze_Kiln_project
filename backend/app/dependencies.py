@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from .aimlapi import AimlapiClient
 from .models import AuthUser
 from .supabase import SupabaseError, SupabaseGateway
 
@@ -15,6 +16,10 @@ def error_detail(code: str, message: str) -> dict[str, str]:
 
 def get_gateway(request: Request) -> SupabaseGateway:
     return request.app.state.supabase
+
+
+def get_llm(request: Request) -> AimlapiClient:
+    return request.app.state.llm
 
 
 def access_token(

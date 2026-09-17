@@ -4,12 +4,17 @@ import { Alert, StatusBadge } from "./ui";
 
 const STATUS_LABELS: Record<ThicknessStatus, string> = { thin: "얇음", target: "목표 근처", thick: "두꺼움", unavailable: "판정 불가" };
 
-export function ThicknessSection({ ware, coating, evidence = "mass_only", meanMm = null }: { ware: WarePreset; coating: CoatingPreset; evidence?: ThicknessEvidence; meanMm?: number | null }) {
+export function ThicknessSection({ ware, coating, evidence = "mass_only", meanMm = null, arealDensityGm2 = null }: { ware: WarePreset; coating: CoatingPreset; evidence?: ThicknessEvidence; meanMm?: number | null; arealDensityGm2?: number | null }) {
   const asset = SECTION_ASSETS[ware];
   const view = buildThicknessView({ ware, coating, evidence, meanMm });
+  //: LLM 프런트도어 TODO Phase 3 — 시유 전/후 무게로 g/m²이 계산되면 mm
+  //: 추정보다 우선 표시한다(§5-a). mm은 건조밀도(ρ_dry) 입력이 없어 항상
+  //: 판정 불가이므로, 실측 무게에서 나온 g/m²이 더 근거 있는 값이다.
+  const primaryLabel = arealDensityGm2 !== null ? `평균 추정 ${arealDensityGm2.toFixed(0)} g/m²` : view.mean.label;
+  const primaryTone = arealDensityGm2 !== null || view.mean.valueMm !== null ? "info" : "unavailable";
   return (
     <section className="thickness-section" aria-labelledby="thickness-title">
-      <div className="thickness-summary"><h3 id="thickness-title">유약 두께 종단면</h3><StatusBadge tone={view.mean.valueMm === null ? "unavailable" : "info"}>{view.mean.label}</StatusBadge></div>
+      <div className="thickness-summary"><h3 id="thickness-title">유약 두께 종단면</h3><StatusBadge tone={primaryTone}>{primaryLabel}</StatusBadge></div>
       <svg viewBox="0 0 200 130" role="img" aria-label={`유약 두께 종단면. ${view.positionClaim}. ${view.risk}`}>
         <defs>
           <pattern id="pattern-thin" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6 6 0" /></pattern>

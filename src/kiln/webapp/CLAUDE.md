@@ -75,6 +75,25 @@ JSON 직렬화 가능한 dict. **모든 반환에 출처가 들어 있다** — 
 **그리고 이 경계에도 모델 호출이 없다**(부록 D: AI를 판단 주체로 쓰지 않는다).
 탐색은 `kiln.search` 의 규칙·최적화 알고리즘이 하고, 앱은 그 결과를 옮긴다.
 
+> **v9 각주 (docs/AICE_LLM_FRONTDOOR_PLAN.md §2-1)**: 위 문장은 이 경계(물리 판정
+> 코어의 UI 표시)에 한정된다. 신규 "추천·예측·개인화 계층"(LLM 채팅 입구, RAG
+> 레시피 추천, Prediction Model, Optimization Model)은 이 경계 밖에서 모델을
+> 호출하며, 그 결과는 `source_type`을 달고 이 웹앱 경계로 들어온다. 이 경계
+> 자체(두께·위험·소성 시뮬레이션 표시, 04절 "계산하지 않고 직렬화만 한다")는
+> 여전히 모델을 호출하지 않는다 — AI 계층의 출력도 여기서는 그대로 옮겨
+> 보여줄 뿐이다.
+>
+> **Phase 2에서 바로잡은 것**: 이 각주는 원래 "신규 모듈"을 `kiln.aice` 확장
+> 또는 `kiln.llm`으로만 적었는데, 실제로 만들어보니 그렇게 한 덩어리로 둘 수
+> 없었다. `src/kiln` 전체가 `app/kiln-manifest.json`을 통해 브라우저(Pyodide)로
+> 그대로 배송되고 그 경계는 순수 stdlib이어야 하기 때문이다
+> (`tests/webapp/test_manifest.py::test_manifest_is_pure_stdlib_on_the_browser_side`).
+> 그래서 실제로는 둘로 갈라진다 — `kiln.llm`(프롬프트 설계·`kiln.chem` 교차
+> 검증, 순수 stdlib, 브라우저에도 실림)과 `backend/app/aimlapi.py`(`httpx`로
+> aimlapi.com을 실제로 호출하는 게이트웨이, `backend.app.supabase.SupabaseGateway`
+> 와 같은 자리)다. "이 경계 밖에서 모델을 호출한다"는 문장은 결국 물리적으로도
+> 맞았다 — 그 호출이 브라우저 밖(백엔드)에서 일어난다는 뜻이었다.
+
 ## 배포와 매니페스트
 
 정적 호스팅에는 디렉터리 목록 API가 없으므로 브라우저가 받아야 할 파일

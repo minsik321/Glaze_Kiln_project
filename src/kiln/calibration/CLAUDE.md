@@ -79,6 +79,44 @@ g(ρ)·m(ρ)는 `kiln.batch` 문서를 본다.
 가르는 표기 규약을 자료형(`solid`/`dashed`)에 실은 점이다. 조성 계산기·상용
 컨트롤러는 계수를 상수로 박아두거나 아예 노출하지 않는다.
 
+## Phase 5 — 레시피별 계수 계열 · 합성 narrowing 시연
+
+LLM 프런트도어 TODO Phase 5("Optimization Model — 학습 루프, 화면 8~9")가
+이 모듈에 추가한 것은 두 파일뿐이다.
+
+- **`registry.py` — `CoefficientTableStore`**: `recipe_id -> CoefficientTable`
+  딕셔너리 하나. 처음 보는 `recipe_id`는 모든 계수가 미동정인 새
+  `CoefficientTable`을 받고, 그 갱신은 그 레시피의 항목만 바꾼다. 새 물리는
+  없다 — `apply_run_update`는 이 파일이 아니라 `update.run_update`를 그대로
+  부른다. 존재 이유는 딱 하나, **레시피 A의 회차가 레시피 B의 k1을 조용히
+  움직이지 않는다는 격리 보증**이다.
+- **`demo_convergence.py` — `run_convergence_demo`**: LLM 프런트도어 TODO
+  체크리스트 문구가 시키는 "v5/v7 더미 20회차 수렴" 방식은 그대로 재사용하지
+  않는다 — `docs/DECISIONS.md` §12-2 · `docs/kiln-plan-v7.md` 부록 E가 이미
+  "생성기와 추정 모델이 같으면 어떤 수렴도 자명하다"며 폐기했다. 대신
+  `kiln.firing.simulator.KilnSimulator`와 같은 원칙으로, `run_update`(√t만
+  보는 추정 모델)와 **구조적으로 다른** 생성기(√t + 담금시간에 선형인
+  크러스트 항 + 저울·비중 잡음)를 만들어 20회차를 굴린다. 결과는 "k1이
+  참값에 수렴했다"가 아니라 **"앞 5회차 대비 뒤 5회차 평균 gap이 X% 줄고,
+  크러스트 항이 만드는 편향 Y%가 남는다"**로 낸다(`ConvergenceDemoResult`).
+  `synthetic_target_k1`은 생성기 내부 허구값이고 부록 C 문헌값(k1=0.55)과
+  일부러 다르게 두었다 — "대장 초기값을 그대로 돌려받았다"는 우연과 섞이지
+  않기 위해서다. **UI 화면은 만들지 않았다** — 이 시연은 `kiln.calibration`
+  파이썬 단독이고, 화면 8~9절 표시는 이 함수의 출력을 그대로 붙이면 된다는
+  확인까지만 한다.
+- **Prediction Model(프런트엔드 `app/react/aice/predictionModel.ts`)과의
+  연결**: `predictNextRun`의 `priorRunCount`가 이어질 자리는
+  `CoefficientTableStore.calibration_runs(recipe_id)`(= 그 레시피
+  `CoefficientTable.calibration_runs`)다 — TS 예측기와 이 파이썬 갱신 루프가
+  "같은 것"이라는 주장은 아니다. `predictNextRun`은 지금도 기물 크기·레시피
+  소성범위·회차 수로 계산하는 **결정론적 합성 규칙**이고 `CoefficientTable`을
+  전혀 읽지 않는다. 이번 Phase 5에서는 **백엔드 엔드포인트를 새로 만들지
+  않았다** — `calibration_runs()`가 그 결선의 소스가 될 값을 내놓는 것까지만
+  하고, 프런트엔드 `priorRunCount`는 여전히 `AicePrototype.tsx`에 하드코딩된
+  0(주석 "Phase 5 몫")으로 남아 있다. 실제 화면 결선(엔드포인트 추가 +
+  프런트엔드 fetch)은 범위 밖으로 남겨 `docs/AICE_LLM_FRONTDOOR_TODO.md`
+  Phase 5 1항 완료 메모에 그대로 적었다.
+
 ## 결합 효과
 
 `kiln.thickness` 가 쓰는 k1·ρ_dry가 여기서 좁혀지고, ρ_dry가 좁혀지는 만큼

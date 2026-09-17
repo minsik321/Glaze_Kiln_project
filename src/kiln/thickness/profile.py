@@ -103,6 +103,16 @@ class ThicknessProfile:
         """국소 최대 − 국소 최소 [mm] — 응력 균열 판정에 쓰는 편차."""
         return self.local_max_mm - self.local_min_mm
 
+    @property
+    def areal_density_g_m2(self) -> float:
+        """면적당 시유량 [g/m²] — glaze_weight_g / area_m2 (LLM 프런트도어
+        TODO Phase 1). mean_mm과 달리 ρ_dry 가정에 기대지 않는 불변량이다 —
+        저울로 잰 무게와 시유 면적만으로 정의된다.
+        """
+        if self.area_m2 <= 0:
+            return 0.0
+        return self.glaze_weight_g / self.area_m2
+
 
 def _point_area_weights_mm2(profile: tuple[tuple[float, float], ...]) -> list[float]:
     """각 프로파일 점에 인접 구간 면적의 절반씩을 배분한 가중치 [mm²].

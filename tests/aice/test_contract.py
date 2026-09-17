@@ -11,7 +11,7 @@ def test_sample_round_trip_preserves_sources_units_and_versions() -> None:
     sample = sample_aice_run()
     restored = AiceRun.from_dict(json.loads(json.dumps(sample.to_dict())))
     assert restored == sample
-    assert restored.schema_version == 2
+    assert restored.schema_version == 3
     assert restored.recipe.firing_range.unit == "°C"
     assert restored.sources[0].source_type == "literature"
     assert restored.versions.predictor is None

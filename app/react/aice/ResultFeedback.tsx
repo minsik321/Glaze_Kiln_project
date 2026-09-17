@@ -2,7 +2,21 @@ import type { ResultEvaluation } from "./feedback";
 import { feedbackTrace } from "./feedback";
 import { Alert, DetailDrawer, StatusBadge } from "./ui";
 
-const PHOTO_GUIDE = ["중성 회색 배경", "같은 5000K 조명", "기물에서 약 50cm", "색상 기준표를 같은 프레임에 포함"];
+// LLM 프런트도어 TODO Phase 4 — "표준 촬영 규격 정의"(부록 B 최상단
+// 미해결 과제: "광택도·투명도 라벨링의 표준 촬영 규격" — 라벨 오차가
+// 탐색 동작 조건이므로 우선순위가 가장 높다고 명시됨, kiln-plan-v7.md 부록 B).
+// 여기 6개 항목이 그 정의다. 고정된 촬영 조건 하나로 라벨 오차가 사라지는
+// 것은 아니다 — 조건을 통제해 오차의 한 원인(촬영 환경 편차)을 줄일 뿐이고,
+// 실제 라벨 정확도는 축적된 사진으로 검증해야 한다(§00 — 검증 전까지는
+// 제안일 뿐, "표준"이 곧 "정확도 보장"은 아님).
+const PHOTO_GUIDE = [
+  "무광 중성 회색 배경(먼셀 N5 근사)",
+  "색온도 약 5000K(D50) 확산 조명 2개 이상, 그림자 최소화",
+  "기물에서 약 50cm, 렌즈 축을 시유면에 수직으로",
+  "색상 기준표(24색 컬러체커 또는 동급)를 같은 프레임에 포함",
+  "화이트밸런스 고정(자동 보정 끔), 기준표 흰색 패치가 날아가지 않게 노출 고정",
+  "최소 1600×1200px, 고품질(비압축 또는 JPEG 품질 90 이상)로 저장",
+];
 
 function ChipGroup<T extends string>({ label, value, options, onChange }: { label: string; value: T | null; options: Array<{ id: T; label: string }>; onChange: (value: T) => void }) {
   return <fieldset className="feedback-chip-group"><legend>{label}</legend><div className="choice-chip-row">{options.map((option) => <button type="button" className="choice-chip" aria-pressed={value === option.id} key={option.id} onClick={() => onChange(option.id)}>{option.label}</button>)}</div></fieldset>;

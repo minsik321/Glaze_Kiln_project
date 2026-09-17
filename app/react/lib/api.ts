@@ -1,4 +1,4 @@
-import { assertAiceRun, type AiceRun } from "../aice/contract";
+import { assertAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
@@ -24,7 +24,7 @@ export type AiceRunRecord = {
   id: string;
   title: string;
   run: AiceRun;
-  schema_version: 2;
+  schema_version: 3;
   status: AiceRun["status"];
   goal_gloss: string;
   goal_transparency: string;
@@ -104,9 +104,34 @@ export const recordsApi = {
 
 function validateAiceRecord(record: AiceRunRecord): AiceRunRecord {
   assertAiceRun(record.run);
-  if (record.schema_version !== 2) throw new Error("AiceRun record schema_version must be 2");
+  if (record.schema_version !== 3) throw new Error("AiceRun record schema_version must be 3");
   return record;
 }
+
+export type RecipeSuggestResponse = {
+  prompt_text: string;
+  candidates: RecipeCandidate[];
+  //: 화학적으로 성립하지 않아 버린 후보의 사유(백엔드가 개별 검증 후 버림).
+  dropped: string[];
+};
+
+export const recipeCandidatesApi = {
+  //: 화면 1(LLM 채팅) — 자연어 입력에서 검증된 레시피 후보를 만든다
+  //: (LLM 프런트도어 TODO Phase 2). 반환 후보는 kiln.chem UMF 교차 검증을
+  //: 통과한 것만 담긴다 — dropped에 버려진 후보의 사유가 함께 온다.
+  suggest: (token: string, promptText: string, candidateCount = 5) =>
+    request<RecipeSuggestResponse>("/aice/recipe-candidates", token, {
+      method: "POST",
+      body: JSON.stringify({ prompt_text: promptText, candidate_count: candidateCount }),
+    }),
+  //: 후보 카드 1장의 예상 이미지 — 비용이 붙으므로(§8) 카드별로 명시 요청한다.
+  //: 항상 AI 생성/플레이스홀더다 — 실제 소성 결과를 보여주지 않는다.
+  image: (token: string, input: { candidate_name: string; materials: Record<string, number>; style_note?: string }) =>
+    request<{ image_base64: string }>("/aice/recipe-candidates/image", token, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+};
 
 export const aiceRunsApi = {
   listMine: async (token: string, offset = 0) => {

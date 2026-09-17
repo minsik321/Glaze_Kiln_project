@@ -11,8 +11,8 @@ function Harness() { const [value, setValue] = useState(initial); return <Result
 describe("result feedback", () => {
   it("shows a standardized photo guide and easy evaluation choices", () => {
     render(<Harness />);
-    expect(screen.getByText("같은 5000K 조명")).toBeTruthy();
-    expect(screen.getByText(/색상 기준표를 같은 프레임/)).toBeTruthy();
+    expect(screen.getByText(/색온도 약 5000K/)).toBeTruthy();
+    expect(screen.getByText(/색상 기준표\(24색 컬러체커/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "차이가 있어요" }));
     fireEvent.click(screen.getByRole("button", { name: "핀홀" }));
     fireEvent.click(screen.getByText("다음 추천에 미치는 영향"));

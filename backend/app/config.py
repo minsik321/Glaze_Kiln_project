@@ -17,6 +17,13 @@ class Settings(BaseModel):
     supabase_publishable_key: str = ""
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    #: LLM 프런트도어(TODO Phase 2, §8) — aimlapi.com 단일 게이트웨이.
+    #: 프런트엔드로 절대 전달하지 않는다(backend/.env 전용).
+    aimlapi_api_key: str = ""
+    aimlapi_base_url: str = "https://api.aimlapi.com/v1"
+    aimlapi_text_model: str = ""
+    aimlapi_image_model: str = ""
+    aimlapi_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
 
     @field_validator("supabase_url", "supabase_publishable_key")
     @classmethod
@@ -26,6 +33,10 @@ class Settings(BaseModel):
     @property
     def configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_publishable_key)
+
+    @property
+    def aimlapi_configured(self) -> bool:
+        return bool(self.aimlapi_api_key and self.aimlapi_text_model)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -44,6 +55,11 @@ class Settings(BaseModel):
             or vite_env.get("VITE_SUPABASE_ANON_KEY") or "",
             cors_origins=origins,
             request_timeout_seconds=float(os.getenv("BACKEND_REQUEST_TIMEOUT_SECONDS", "10")),
+            aimlapi_api_key=os.getenv("AIMLAPI_API_KEY", ""),
+            aimlapi_base_url=os.getenv("AIMLAPI_BASE_URL", "https://api.aimlapi.com/v1"),
+            aimlapi_text_model=os.getenv("AIMLAPI_TEXT_MODEL", ""),
+            aimlapi_image_model=os.getenv("AIMLAPI_IMAGE_MODEL", ""),
+            aimlapi_timeout_seconds=float(os.getenv("AIMLAPI_TIMEOUT_SECONDS", "30")),
         )
 
 

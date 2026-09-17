@@ -7,7 +7,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function record(isPublic = false) {
   const run = sampleAiceRun();
-  return { id: "run-1", title: run.title, run, schema_version: 2, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: isPublic, created_at: run.created_at, updated_at: run.updated_at };
+  return { id: "run-1", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: isPublic, created_at: run.created_at, updated_at: run.updated_at };
 }
 
 describe("AiceRun records", () => {
@@ -18,7 +18,7 @@ describe("AiceRun records", () => {
     fireEvent.click(await screen.findByRole("button", { name: /사틴 청색 사발 샘플/ }));
     expect(screen.getByText(/aice-sample-1/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "이 실행 복원" }));
-    expect(onRestore).toHaveBeenCalledWith(expect.objectContaining({ schema_version: 2 }));
+    expect(onRestore).toHaveBeenCalledWith(expect.objectContaining({ schema_version: 3 }));
     expect(screen.getByRole("button", { name: "다음 20개" }).hasAttribute("disabled")).toBe(true);
   });
 

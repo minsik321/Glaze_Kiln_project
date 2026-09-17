@@ -190,7 +190,7 @@ async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
         if request.method == "POST":
             body = json.loads(request.content)
             assert body["user_id"] == str(USER_ID)
-            assert body["schema_version"] == 2
+            assert body["schema_version"] == 3
             assert body["payload"]["sources"][0]["source_type"] == "literature"
             assert body["payload"]["versions"]["rule_model"] == "rule-rank-1"
             return httpx.Response(201, json=[{
@@ -199,7 +199,7 @@ async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
         assert request.url.params["user_id"] == f"eq.{USER_ID}"
         return httpx.Response(200, json=[{
             "id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample",
-            "payload": payload, "schema_version": 2, "status": payload["status"],
+            "payload": payload, "schema_version": 3, "status": payload["status"],
             "goal_gloss": payload["goal"]["gloss"], "goal_transparency": payload["goal"]["transparency"],
             "recipe_id": payload["recipe"]["id"], "ware_preset": payload["ware"]["preset"],
             "is_public": False, "created_at": NOW, "updated_at": NOW,
@@ -214,7 +214,7 @@ async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
     assert loaded.status_code == 200
     assert created.json()["run"]["sources"] == loaded.json()["run"]["sources"]
     assert created.json()["run"]["versions"] == loaded.json()["run"]["versions"]
-    assert created.json()["run"]["schema_version"] == 2
+    assert created.json()["run"]["schema_version"] == 3
     await upstream.aclose()
 
 
@@ -240,7 +240,7 @@ async def test_aice_publish_requires_all_consent_and_withdraws_from_public_read(
 
     def row(is_public: bool, run: dict) -> dict:
         return {"id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample", "payload": run,
-                "schema_version": 2, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
+                "schema_version": 3, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
                 "goal_transparency": run["goal"]["transparency"], "recipe_id": run["recipe"]["id"],
                 "ware_preset": run["ware"]["preset"], "is_public": is_public, "created_at": NOW, "updated_at": NOW}
 
@@ -278,7 +278,7 @@ async def test_aice_withdraw_sets_timestamp_before_private_transition() -> None:
 
     def row(is_public: bool, run: dict) -> dict:
         return {"id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample", "payload": run,
-                "schema_version": 2, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
+                "schema_version": 3, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
                 "goal_transparency": run["goal"]["transparency"], "recipe_id": run["recipe"]["id"],
                 "ware_preset": run["ware"]["preset"], "is_public": is_public, "created_at": NOW, "updated_at": NOW}
 

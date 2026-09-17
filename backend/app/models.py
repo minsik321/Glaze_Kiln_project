@@ -165,3 +165,48 @@ class AicePublishConsent(ApiModel):
         if not all((self.photo_rights_confirmed, self.pii_reviewed, self.location_removed, self.withdrawal_understood)):
             raise ValueError("all publication consent checks are required")
         return self
+
+
+# ─── LLM 프런트도어 화면 1 (TODO Phase 2) ────────────────────────────────
+
+
+class RecipeSuggestRequest(ApiModel):
+    """화면 1 채팅 입력. 사진 첨부(§8 image-conditioned 이미지 생성)는
+    아직 이 엔드포인트에서 받지 않는다 — 텍스트 후보부터 배선한다."""
+
+    prompt_text: str = Field(min_length=1, max_length=2000)
+    candidate_count: int = Field(default=5, ge=1, le=8)
+
+    @field_validator("prompt_text")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("prompt_text must not be blank")
+        return value
+
+
+class RecipeSuggestResponse(ApiModel):
+    """검증을 통과한 후보만 담는다 — 절반만 검증된 후보를 내보내지 않는다
+    (``kiln.llm.recipe_candidates.build_recipe_candidates``)."""
+
+    prompt_text: str
+    candidates: list[dict[str, Any]]
+    #: 화학적으로 성립하지 않아 버린 후보의 사유(빈 배열이면 전부 통과).
+    dropped: list[str] = Field(default_factory=list)
+
+
+class RecipeImageRequest(ApiModel):
+    """후보 카드 1장의 예상 이미지 생성 요청 — 후보마다 비용이 붙으므로
+    (§8: 장당 약 $0.05~0.065) 화면 1의 5개 후보에 자동으로 걸지 않고
+    카드별로 명시 요청한다."""
+
+    candidate_name: str = Field(min_length=1, max_length=200)
+    materials: dict[str, float]
+    style_note: str = Field(default="", max_length=500)
+
+
+class RecipeImageResponse(ApiModel):
+    #: PNG 원본 바이트의 base64 인코딩. ``source_type="synthetic"`` 로만
+    #: 표시해야 한다(``PhotoAsset``) — 실물 사진이 아니다.
+    image_base64: str

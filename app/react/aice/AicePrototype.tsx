@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "../Simulator";
 import { Alert, AsyncState, DetailDrawer, ExplanationPanel, ProgressHeader, StateGallery, StatusBadge } from "./ui";
-import { sampleAiceRun } from "./contract";
+import { sampleAiceRun, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, SOURCE_LABELS, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
+import { DensityCheck } from "./DensityCheck";
+import { WeightInputs } from "./WeightInputs";
+import { computeArealDensity } from "./arealDensity";
 import { buildThicknessView, type CoatingPreset } from "./thicknessView";
 import { KilnSectionSimulator } from "./KilnSectionSimulator";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import { CurveControlPanel } from "./CurveControlPanel";
-import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControlPreset } from "./curvePlan";
+import { buildCurveComparison, CONTROL_PLANS, simulateController, toFiringCurve, type ControllerSample } from "./curvePlan";
+import { parseFiringRangeC, predictNextRun, PREDICTOR_VERSION } from "./predictionModel";
 import { RecommendationEvidence } from "./RecommendationEvidence";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
@@ -27,8 +31,16 @@ type PrototypeState = {
   coatingConfirmed: boolean;
   sensorPlan?: SensorPlan;
   sensors: SensorPlacement[];
-  controlPreset: ControlPreset;
+  //: LLM 프런트도어 TODO Phase 3 — 시유 전/후 무게(§5-a). 문자열로 들고
+  //: 있다가 계산 시점에 숫자로 바꾼다(빈 입력을 구분하기 위해).
+  beforeWeightG: string;
+  afterWeightG: string;
   curveApproved: boolean;
+  // LLM 프런트도어 TODO Phase 3: 승인 시점에 CurveControlPanel이 실제로
+  // 사용한 합성 게인·샘플을 그대로 받아 기록한다 — 이름 붙은 프리셋을 부모가
+  // 다시 고르지 않는다(§2-1 참고).
+  approvedControlSamples: ControllerSample[];
+  approvedControlParameters: Record<string, SourcedValue<number>>;
   simulationCompleted: boolean;
   result?: "close" | "different";
   evaluation: ResultEvaluation;
@@ -37,11 +49,14 @@ type PrototypeState = {
 const initialState: PrototypeState = {
   customWareNote: "",
   customSilhouette: "round",
+  beforeWeightG: "",
+  afterWeightG: "",
   coatingConfirmed: false,
   curveApproved: false,
+  approvedControlSamples: [],
+  approvedControlParameters: {},
   simulationCompleted: false,
   sensors: [],
-  controlPreset: "balanced",
   evaluation: { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal" },
 };
 
@@ -96,13 +111,22 @@ function ChoiceCard({
   );
 }
 
+// LLM 프런트도어 TODO Phase 3: "왜/가정/다음행동" 3줄은 상시 노출 설명문이었다
+// (§2-2). 근거 배지(StatusBadge)는 그대로 화면에 남기고, 문장형 설명만
+// 기본으로 접힌 DetailDrawer 안으로 옮긴다 — 지우지 않는 이유는 출처·가정을
+// 찾아볼 수 있어야 하기 때문이다.
 function Guidance({ reason, assumption, next }: { reason: string; assumption: string; next: string }) {
-  return <ExplanationPanel reason={reason} assumption={assumption} next={next} />;
+  return (
+    <DetailDrawer summary="왜 · 무엇을 가정 · 다음 행동 보기">
+      <ExplanationPanel reason={reason} assumption={assumption} next={next} />
+    </DetailDrawer>
+  );
 }
 
 export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun> }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(initialState);
+  const arealDensity = computeArealDensity(Number(state.beforeWeightG), Number(state.afterWeightG), state.ware ?? "bowl");
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
     const run = restoredRun ?? sampleAiceRun();
@@ -115,10 +139,19 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
     const sensorPlan = state.sensorPlan ?? "three";
     const sensors = state.sensors.length ? state.sensors : sensorPreset(sensorPlan);
     const kilnFrame = simulateKilnFrame({ minute: 320, sensors, coating: state.coating ?? "target" });
-    const curveSeries = buildCurveComparison(state.coating ?? "target");
+    const selectedRecipe = RECIPE_CANDIDATES.find((item) => item.id === state.recipe);
+    const prediction = predictNextRun({
+      coating: state.coating ?? "target",
+      ware: state.ware ?? "bowl",
+      recipeFiringRangeC: selectedRecipe ? parseFiringRangeC(selectedRecipe.firingRange) : null,
+      //: 화면 흐름에는 아직 과거 실행 이력을 세지 않는다 — 0회로 고정한
+      //: 초안. Phase 5(학습 루프)에서 실제 이력 카운트를 연결한다.
+      priorRunCount: 0,
+    });
+    const curveSeries = buildCurveComparison(state.coating ?? "target", prediction.holdDeltaC, prediction.reason);
     const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
-    const controlPlan = CONTROL_PLANS[state.controlPreset];
-    const controlSamples = state.curveApproved ? simulateController(adjustedCurve, state.controlPreset) : [];
+    const controlSamples = state.curveApproved ? state.approvedControlSamples : [];
+    const controlParameters = state.curveApproved ? state.approvedControlParameters : {};
     return {
       ...run,
       status: state.result ? "evaluated" : state.simulationCompleted ? "simulated" : "draft",
@@ -135,16 +168,25 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
           temperature: { value: kilnFrame.physical.sensorReadings[index]?.temperatureC ?? null, unit: "°C", source_type: "synthetic" as const, confidence: null, note: `설명용 합성 모델 ${kilnFrame.physical.modelVersion}; 불확실성 ±${kilnFrame.physical.sensorReadings[index]?.uncertaintyC ?? "판정 불가"} °C` },
         })),
       },
-      thickness: { ...run.thickness, warning: `${run.thickness.warning} · ${thicknessView.risk}` },
+      application: {
+        ...run.application,
+        before_weight: state.beforeWeightG.trim() ? { value: Number(state.beforeWeightG), unit: "g", source_type: "observed", confidence: 1, note: "사용자 입력" } : run.application.before_weight,
+        after_weight: state.afterWeightG.trim() ? { value: Number(state.afterWeightG), unit: "g", source_type: "observed", confidence: 1, note: "사용자 입력" } : run.application.after_weight,
+      },
+      thickness: {
+        ...run.thickness,
+        warning: `${run.thickness.warning} · ${thicknessView.risk}`,
+        areal_density: arealDensity ? { value: arealDensity.gramsPerM2, unit: "g/m²", source_type: "inferred", confidence: .5, note: "대표 형상 면적 가정 — 실측 면적 아님" } : run.thickness.areal_density,
+      },
       curves: { baseline: toFiringCurve(curveSeries[0], false), candidates: curveSeries.slice(1).map((curve) => toFiringCurve(curve, state.curveApproved && curve.role === "adjusted")), selected_id: state.curveApproved ? adjustedCurve.id : null },
       pid: {
-        preset: state.controlPreset,
+        decision: "accepted",
         controller_kind: "pid",
-        parameters: state.curveApproved ? controlPlan.parameters : {},
+        parameters: controlParameters,
         samples: controlSamples.map((sample) => ({ minute: sample.minute, planned_c: sample.plannedC, sensor_c: sample.sensorC, estimated_ware_c: sample.estimatedWareC, heater_percent: sample.heaterPercent })),
         alarms: controlSamples.filter((sample) => sample.alarm).map((sample) => `${sample.minute}분: ${sample.alarm}`),
       },
-      versions: { ...run.versions, rule_model: AI_RULE_VERSION, simulator: "aice-kiln-explanatory-1", predictor: null },
+      versions: { ...run.versions, rule_model: AI_RULE_VERSION, simulator: "aice-kiln-explanatory-1", predictor: PREDICTOR_VERSION },
       result: {
         ...run.result,
         color: state.evaluation.color,
@@ -161,7 +203,19 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
     if (!restoredRun) return;
     const knownRecipe = RECIPE_CANDIDATES.some((candidate) => candidate.id === restoredRun.recipe.id) ? restoredRun.recipe.id as RecipeId : undefined;
     const knownClay = CLAY_BODIES.some((body) => body.id === restoredRun.ware.clay_body) ? restoredRun.ware.clay_body as PrototypeState["clayBody"] : undefined;
-    setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), controlPreset: restoredRun.pid.preset, curveApproved: Boolean(restoredRun.curves.selected_id), simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
+    const curveApproved = Boolean(restoredRun.curves.selected_id);
+    // 복원된 기록에는 승인 당시 내부적으로 어떤 합성 게인 세트가 쓰였는지
+    // 이름이 남아있지 않는다(사용자에게 애초에 노출하지 않으므로) — 기본
+    // 게인으로 다시 계산해 채운다.
+    let approvedControlSamples: ControllerSample[] = [];
+    let approvedControlParameters: Record<string, SourcedValue<number>> = {};
+    if (curveApproved) {
+      const curveSeries = buildCurveComparison("target");
+      const adjustedCurve = curveSeries.find((curve) => curve.role === "adjusted")!;
+      approvedControlSamples = simulateController(adjustedCurve, "balanced");
+      approvedControlParameters = CONTROL_PLANS.balanced.parameters;
+    }
+    setState({ ...initialState, goal: restoredRun.goal.transparency === "transparent" ? "clear-warm" : restoredRun.goal.gloss === "matte" ? "matte-white" : "satin-blue", recipe: knownRecipe, ware: restoredRun.ware.preset, clayBody: knownClay, coating: "target", coatingConfirmed: true, sensorPlan: restoredRun.loading.sensor_plan, sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원된 센서 주변", blindSpot: "복원 기록에 상세 없음", limitation: sensor.temperature.note })), curveApproved, approvedControlSamples, approvedControlParameters, simulationCompleted: restoredRun.status !== "draft", result: restoredRun.status === "evaluated" ? "close" : undefined, evaluation: { ...initialState.evaluation, match: restoredRun.status === "evaluated" ? "close" : null, defects: restoredRun.result.defects, scope: restoredRun.result.feedback_scope ?? "personal" } });
     setStep(restoredRun.status === "evaluated" ? 8 : restoredRun.status === "simulated" ? 7 : 0);
   }, [restoredRun]);
 
@@ -264,7 +318,9 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
         {step === 4 && (
           <>
             <div className="coating-presets" aria-label="도포 상태 예시 선택">{(["thin", "target", "thick"] as const).map((preset) => <button type="button" className="choice-chip" aria-pressed={state.coating === preset} key={preset} onClick={() => setState({ ...state, coating: preset, coatingConfirmed: false })}>{preset === "thin" ? "얇게 도포" : preset === "target" ? "목표 근처" : "두껍게 도포"}</button>)}</div>
-            <ThicknessSection ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} evidence="mass_only" />
+            <ThicknessSection ware={state.ware ?? "bowl"} coating={state.coating ?? "target"} evidence="mass_only" arealDensityGm2={arealDensity ? arealDensity.gramsPerM2 : null} />
+            <WeightInputs beforeG={state.beforeWeightG} afterG={state.afterWeightG} onBeforeChange={(value) => setState((current) => ({ ...current, beforeWeightG: value }))} onAfterChange={(value) => setState((current) => ({ ...current, afterWeightG: value }))} result={arealDensity} />
+            <DensityCheck />
             <Guidance reason={buildThicknessView({ ware: state.ware ?? "bowl", coating: state.coating ?? "target", meanMm: null }).risk} assumption="실제 무게·면적·건조밀도가 없어 평균은 판정 불가이며 위치별 값은 형상 기반 합성 분포입니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
             <button type="button" className="prototype-confirm" disabled={!state.coating} aria-pressed={state.coatingConfirmed} onClick={() => setState({ ...state, coatingConfirmed: true })}>가상 분포와 위험을 확인했어요</button>
           </>
@@ -275,7 +331,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun }: SimulatorProps &
         )}
 
         {step === 6 && (
-          <CurveControlPanel coating={state.coating ?? "target"} approved={state.curveApproved} onApprove={(controlPreset) => setState((current) => ({ ...current, controlPreset, curveApproved: true }))} />
+          <CurveControlPanel coating={state.coating ?? "target"} approved={state.curveApproved} onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))} />
         )}
 
         {step === 7 && (

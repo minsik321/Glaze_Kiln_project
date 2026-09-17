@@ -74,6 +74,11 @@ CoefficientTable SearchState` 와 열거형
 **3. 가마 프로필이 복수다.** 등록 실물은 1대지만 처방 변환 검증(12-2절)에
 프로필 2종이 필요하다. "가마 1대"는 사용자 소유 대수이지 스키마 제약이 아니다.
 
+**LLM 프런트도어 TODO Phase 1**: `FiringRun.ramp_rate_c_per_h` ·
+`FiringRun.hold_minutes` 를 1급 필드로 추가했다. 이전에는 `schedule` 점열의
+기울기로만 암묵적으로 존재했다 — 값이 없으면 `None`이며, `schedule`을
+되짚어 지어내지 않는다.
+
 **4. 냉각이 설정 스케줄과 분리되어 회차에 붙어 있다.** `FiringRun` 은
 `schedule`(온도–시간 점열)과 `cooling`(`CoolingSegment` 열)을 **따로** 들고
 있다. H는 급냉과 서냉을 구분하지 못하므로(9-4절: 둘 다 H=7801) 냉각은
