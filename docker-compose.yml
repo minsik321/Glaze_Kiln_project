@@ -8,9 +8,9 @@
 # 사용법 (최초 1회):
 #   1) docker compose up -d
 #   2) backend/.env 에 QDRANT_URL=http://localhost:6333 확인(기본값 그대로면 됨)
-#   3) 원료 화학·성분 상관관계 코퍼스 시딩:
-#        cd backend && pip install -e ".[backend-dev]"
-#        python ../scripts/ingest_corpus.py
+#   3) 원료 화학·성분 상관관계 코퍼스 시딩(레포 루트에서 실행):
+#        pip install -e ".[backend-dev]"
+#        python backend/scripts/ingest_corpus.py
 #      (과거 레시피 코퍼스는 이 스크립트가 아니라, 회차를 저장할 때마다
 #      backend/app/routes.py의 create_aice_run이 자동으로 인덱싱한다 —
 #      "데이터를 저장하면 벡터 db에 저장되는 방식" 요구사항)
