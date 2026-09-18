@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WarePreset } from "./catalog";
 import type { SourcedValue } from "./contract";
-import { Alert, AsyncState, DetailDrawer, StatusBadge } from "./ui";
+import { Alert, AsyncState, StatusBadge } from "./ui";
 import { moveSensor, sensorPreset, simulateKilnFrame, TOTAL_MINUTES, type KilnScenario, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import type { CoatingPreset } from "./thicknessView";
-import { buildCurveComparison, curveSummary, SCENARIO_CONTROL_PLANS, simulateController, type ControlDecision, type ControllerRun, type ControllerSample, type CurveRole } from "./curvePlan";
+import { buildCurveComparison, curveSummary, SCENARIO_CONTROL_PLANS, simulateController, type ControlDecision, type ControllerRun, type ControllerSample } from "./curvePlan";
 import { ApiError } from "../lib/api";
 import { isSupabaseConfigured, requireSupabase } from "../lib/supabase";
 
@@ -30,13 +30,6 @@ const SCENARIOS: Array<{ id: KilnScenario; label: string }> = [
   { id: "layer_variance", label: "층간 편차" },
 ];
 
-const SEGMENTS = [
-  { label: "예열", minute: 30 },
-  { label: "승온", minute: 210 },
-  { label: "유지", minute: 380 },
-  { label: "냉각", minute: 440 },
-] as const;
-
 const WARE_PATHS: Record<WarePreset, string> = {
   bowl: "M-16,-9 Q0,13 16,-9 Q0,-3 -16,-9Z",
   plate: "M-18,-5 Q0,6 18,-5 L16,-1 Q0,10 -16,-1Z",
@@ -47,7 +40,11 @@ const WARE_PATHS: Record<WarePreset, string> = {
   other: "M-14,-10 Q0,-17 14,-7 L10,13 L-12,11Z",
 };
 
-const COLORS: Record<CurveRole, string> = { baseline: "#536772", adjusted: "#315f72", actual: "#9a2521", next: "#8a5a00" };
+//: v9 후속(4페이지): 그래프를 하나로 합치면서 curves의 actual/next
+//: 역할(합성 삽화)은 더 이상 그리지 않는다 — 대신 실제 반응형 제어 결과
+//: (samples.sensorC/estimatedWareC, kiln.firing 물리 코어가 낸 값)를
+//: 같은 그래프에 겹쳐 그린다. 그래서 토글은 baseline/adjusted 둘뿐이다.
+const CURVE_COLORS: Record<"baseline" | "adjusted", string> = { baseline: "#536772", adjusted: "#315f72" };
 
 function pointsPath(points: Array<{ minute: number; temperatureC: number }>) {
   return points.map((point) => `${30 + point.minute / 480 * 420},${205 - point.temperatureC / 1250 * 175}`).join(" ");
@@ -65,7 +62,6 @@ export function KilnFiringScreen({
   onSensorsChange,
   recipeFiringRangeC,
   riskMitigationApplied,
-  approved,
   onApprove,
   simulationCompleted,
   onSimulationStart,
@@ -77,7 +73,6 @@ export function KilnFiringScreen({
   onSensorsChange: (sensors: SensorPlacement[]) => void;
   recipeFiringRangeC?: readonly [number, number] | null;
   riskMitigationApplied: boolean;
-  approved: boolean;
   onApprove: (decision: ControlDecision, samples: ControllerSample[], parameters: Record<string, SourcedValue<number>>) => void;
   simulationCompleted: boolean;
   onSimulationStart: () => void;
@@ -121,10 +116,10 @@ export function KilnFiringScreen({
   const heatHue = 210 - frame.visual.heatLevel * 196;
 
   const curves = useMemo(() => buildCurveComparison(coating, recipeFiringRangeC ?? null), [coating, recipeFiringRangeC]);
-  //: riskMitigationApplied가 true면(5페이지에서 위험을 줄이는 소성 계획을
+  //: riskMitigationApplied가 true면(3페이지에서 위험을 줄이는 소성 계획을
   //: 이미 적용했으면) "기준 계획" 대신 "두께 반영 수정 계획"을 기본으로
   //: 강조한다 — 기준 계획 자체는 지워지지 않고 체크박스로 다시 켤 수 있다.
-  const [visible, setVisible] = useState<Record<CurveRole, boolean>>({ baseline: !riskMitigationApplied, adjusted: true, actual: true, next: true });
+  const [visible, setVisible] = useState<Record<"baseline" | "adjusted", boolean>>({ baseline: !riskMitigationApplied, adjusted: true });
   const [run, setRun] = useState<ControllerRun | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "complete">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -152,22 +147,81 @@ export function KilnFiringScreen({
 
   const samples = run?.samples ?? [];
   const alarms = samples.filter((sample) => sample.alarm);
-  const toggle = (role: CurveRole) => setVisible((current) => ({ ...current, [role]: !current[role] }));
+  const toggle = (role: "baseline" | "adjusted") => setVisible((current) => ({ ...current, [role]: !current[role] }));
   const plan = SCENARIO_CONTROL_PLANS[scenario];
   const cursorX = 30 + minute / 480 * 420;
 
+  //: v9 후속(4페이지): "이대로 진행" 승인 버튼을 따로 두지 않는다 — 가상
+  //: 소성을 재생하는 것 자체가 곧 이 계획을 가마에 적용해 시작하는
+  //: 행동이다. 아직 반응형 제어 계산이 끝나지 않았으면(status !==
+  //: "complete") 재생을 시작할 수 없다.
   const playFiring = () => {
+    if (status !== "complete") return;
     setPlaying(true);
     onSimulationStart();
+    onApprove("accepted", samples, plan.parameters);
   };
 
   return (
     <section className="kiln-firing-screen" aria-labelledby="kiln-firing-heading">
       <div className="kiln-section-summary">
-        <div><h3 id="kiln-firing-heading">가상 전기가마와 소성곡선</h3><p>같은 재생 시간을 가마 단면과 곡선이 함께 씁니다.</p></div>
-        <StatusBadge tone="unavailable">합성 · 설명용 근사</StatusBadge>
+        <div><h3 id="kiln-firing-heading">소성 계획과 실제 값</h3><p>기준 계획은 고정, 두께 반영 수정 계획과 실제 값은 이상 시나리오에 따라 바뀝니다.</p></div>
+        <StatusBadge tone="unavailable">가상 제어 · 실제 제어 아님</StatusBadge>
       </div>
 
+      {/* v9 후속(4페이지): 소성 계획 그래프를 맨 위로 올리고, 예전에
+          따로 있던 "곡선 비교"·"반응형 제어" 그래프 두 장을 하나로
+          합친다 — 기준/수정 계획은 curves에서, "실제 값"은 실제
+          반응형 제어 결과(samples.sensorC/estimatedWareC)를 같은
+          좌표계에 겹쳐 그린다. */}
+      <div className="curve-toggle-row" aria-label="곡선 표시 전환">
+        {(["baseline", "adjusted"] as const).map((role) => {
+          const curve = curves.find((item) => item.role === role)!;
+          return <label key={role}><input type="checkbox" checked={visible[role]} onChange={() => toggle(role)} /><i style={{ background: CURVE_COLORS[role] }} />{curve.label}</label>;
+        })}
+      </div>
+      <svg className="curve-comparison-svg" viewBox="0 0 480 235" role="img" aria-labelledby="curve-title curve-desc">
+        <title id="curve-title">소성 계획과 실제 값 비교 그래프</title><desc id="curve-desc">기준 계획, 두께 반영 수정 계획, 실제 값(관측)과 기물 추정이 같은 시간축에 표시되며 가마 단면과 같은 재생 시간이 커서로 표시됩니다.</desc>
+        {[20, 400, 800, 1200].map((temp) => <g key={temp}><line x1="30" x2="450" y1={205 - temp / 1250 * 175} y2={205 - temp / 1250 * 175} /><text x="26" y={209 - temp / 1250 * 175} textAnchor="end">{temp}</text></g>)}
+        {(["baseline", "adjusted"] as const).map((role) => {
+          const curve = curves.find((item) => item.role === role)!;
+          return visible[role] && <polyline key={role} points={pointsPath(curve.points)} fill="none" stroke={CURVE_COLORS[role]} strokeWidth={role === "adjusted" ? 4 : 2.5} />;
+        })}
+        {visible.adjusted && curves[1].annotation && <g className="curve-annotation"><line x1="328" y1="48" x2="350" y2="72" /><circle cx="350" cy="72" r="4" /><text x="220" y="40">도포 상태 반영 구간</text></g>}
+        {status === "complete" && samples.length > 0 && (
+          <>
+            <polyline points={samplePath(samples, "sensorC")} className="pid-sensor-line" />
+            <polyline points={samplePath(samples, "estimatedWareC")} className="pid-ware-line" />
+            {samples.filter((sample) => sample.alarm).map((sample) => <circle className="pid-alarm-point" key={sample.minute} cx={30 + sample.minute / 480 * 420} cy={205 - sample.sensorC / 1250 * 175} r="5" />)}
+          </>
+        )}
+        <line className="kiln-time-cursor" x1={cursorX} x2={cursorX} y1="20" y2="210" />
+        <text x="34" y="23">굵은 선 실제 값 · 가는 점선 기물 추정</text>
+        <text x="30" y="225">0분</text><text x="430" y="225">480분</text>
+      </svg>
+      <p className="curve-natural-summary">{curveSummary(curves)}</p>
+
+      {status === "loading" && <AsyncState kind="loading" />}
+      {status === "error" && <Alert tone="danger" title="가상 제어 계산 오류">{error}</Alert>}
+      {status === "complete" && run && (
+        <div className="controller-readouts"><span><b>최대 |추종오차|</b>{Math.max(...samples.map((sample) => Math.abs(sample.errorC)))} °C</span><span><b>최대 히터 출력</b>{Math.max(...samples.map((sample) => sample.heaterPercent))}%</span><span><b>경보</b>{alarms.length}개</span><span><b>샘플 주기</b>{plan.constraints.sampleSeconds}초</span></div>
+      )}
+      {status === "complete" && (alarms.length ? <Alert tone="warning" title="추종 경보">초기 구간 등에서 추종오차가 크거나 센서 이상이 감지됐습니다. 실제 안전 경보가 아닙니다.</Alert> : <Alert tone="unavailable" title="경보 없음">경보가 없더라도 실제 운전 안전을 뜻하지 않습니다.</Alert>)}
+
+      <fieldset className="scenario-controls"><legend>이상 시나리오 — 기준 계획은 고정, 위 실제 값만 다시 계산됩니다</legend><div className="choice-chip-row">{SCENARIOS.map((item) => <button type="button" className="choice-chip" key={item.id} aria-pressed={scenario === item.id} onClick={() => setScenario(item.id)}>{item.label}</button>)}</div></fieldset>
+      {riskMitigationApplied && <Alert tone="warning" title="두께 위험 완화가 반영된 계획">이전 화면에서 위험을 줄이는 소성 계획을 적용했습니다 — 위 "두께 반영 수정 계획"이 그 조치입니다.</Alert>}
+
+      {/* 재생 자체가 곧 "이 계획대로 가마에 적용해서 시작"이다 — 별도의
+          승인 버튼을 두지 않는다. */}
+      <div className="curve-control-actions">
+        <button type="button" className="prototype-confirm" aria-pressed={playing} disabled={!playing && status !== "complete"} onClick={() => (playing ? setPlaying(false) : playFiring())}>
+          {playing ? "일시정지" : simulationCompleted ? "다시 재생" : "이 계획대로 가마에 적용해서 시작"}
+        </button>
+      </div>
+      <p className="approval-note">재생을 시작하면 지금 그래프의 계획이 그대로 가마에 적용되어 기록됩니다.</p>
+
+      {/* 아래는 지금 존재하는 가상 전기가마 시뮬레이터 — 재생 시간을
+          위 그래프와 공유한다. */}
       <div className="kiln-layout">
         <div>
           <svg className="kiln-section-svg" viewBox="0 0 360 450" role="img" aria-labelledby="kiln-svg-title kiln-svg-desc">
@@ -205,59 +259,10 @@ export function KilnFiringScreen({
       </div>
 
       <div className="kiln-timeline">
-        <div className="timeline-actions"><button type="button" className="prototype-confirm" aria-pressed={playing} onClick={() => (playing ? setPlaying(false) : playFiring())}>{playing ? "일시정지" : simulationCompleted ? "다시 재생" : "가상 소성 재생"}</button>{SEGMENTS.map((segment) => <button type="button" className="choice-chip" key={segment.label} onClick={() => setMinute(segment.minute)}>{segment.label}</button>)}</div>
         <label htmlFor="kiln-time">가상 시간 {minute}분 · {frame.physical.segment}</label><input id="kiln-time" type="range" min="0" max={TOTAL_MINUTES} step="5" value={minute} onChange={(event) => setMinute(Number(event.target.value))} />
         <div className="kiln-readouts" aria-live="polite"><span><b>센서 대표값</b>{frame.physical.sensorReadings.find((reading) => reading.temperatureC !== null)?.temperatureC ?? "판정 불가"} °C</span><span><b>기물 추정</b>{frame.physical.estimatedWareTemperatureC} °C</span><span><b>층별 편차</b>{frame.physical.layerSpreadC} °C</span><span><b>히터 출력</b>{frame.physical.heaterOutputPercent}%</span></div>
       </div>
-
-      <fieldset className="scenario-controls"><legend>이상 시나리오 — 기준 계획은 고정, 아래 반응형 계획만 다시 계산됩니다</legend><div className="choice-chip-row">{SCENARIOS.map((item) => <button type="button" className="choice-chip" key={item.id} aria-pressed={scenario === item.id} onClick={() => setScenario(item.id)}>{item.label}</button>)}</div></fieldset>
       <div className="kiln-warning-timeline" aria-live="polite">{frame.physical.warnings.length ? frame.physical.warnings.map((warning) => <Alert key={`${warning.code}-${warning.sensorId ?? warning.layer}`} tone="danger" title="가상 경고">{warning.message}</Alert>) : <Alert tone="unavailable" title="가상 경고 없음">현재 선택한 합성 시나리오에는 경고가 없습니다.</Alert>}</div>
-
-      {riskMitigationApplied && <Alert tone="warning" title="두께 위험 완화가 반영된 계획">이전 화면에서 위험을 줄이는 소성 계획을 적용했습니다 — 아래 "두께 반영 수정 계획"이 그 조치입니다.</Alert>}
-
-      <div className="curve-panel-heading"><div><h3>곡선 보상과 반응형 제어</h3><p>네 역할은 모두 같은 0–480분 시간축을 쓰고, 위 재생 시간이 두 그래프에 같은 커서로 표시됩니다.</p></div><StatusBadge tone="unavailable">가상 제어 · 실제 제어 아님</StatusBadge></div>
-      <div className="curve-toggle-row" aria-label="곡선 표시 전환">{curves.map((curve) => <label key={curve.role}><input type="checkbox" checked={visible[curve.role]} onChange={() => toggle(curve.role)} /><i style={{ background: COLORS[curve.role] }} />{curve.label}</label>)}</div>
-      <svg className="curve-comparison-svg" viewBox="0 0 480 235" role="img" aria-labelledby="curve-title curve-desc">
-        <title id="curve-title">기준 계획과 두께 반영 수정 계획 비교 그래프</title><desc id="curve-desc">기준, 수정, 합성 실제, 다음 제안을 켜고 끌 수 있으며 가마 단면과 같은 재생 시간이 커서로 표시됩니다.</desc>
-        {[20, 400, 800, 1200].map((temp) => <g key={temp}><line x1="30" x2="450" y1={205 - temp / 1250 * 175} y2={205 - temp / 1250 * 175} /><text x="26" y={209 - temp / 1250 * 175} textAnchor="end">{temp}</text></g>)}
-        {curves.map((curve) => visible[curve.role] && <polyline key={curve.role} points={pointsPath(curve.points)} fill="none" stroke={COLORS[curve.role]} strokeWidth={curve.role === "adjusted" ? 4 : 2.5} strokeDasharray={curve.role === "next" ? "7 5" : undefined} />)}
-        {visible.adjusted && curves[1].annotation && <g className="curve-annotation"><line x1="328" y1="48" x2="350" y2="72" /><circle cx="350" cy="72" r="4" /><text x="220" y="40">도포 상태 반영 구간</text></g>}
-        <line className="kiln-time-cursor" x1={cursorX} x2={cursorX} y1="20" y2="210" />
-        <text x="30" y="225">0분</text><text x="430" y="225">480분</text>
-      </svg>
-      <p className="curve-natural-summary">{curveSummary(curves)}</p>
-
-      {status === "loading" && <AsyncState kind="loading" />}
-      {status === "error" && <Alert tone="danger" title="가상 제어 계산 오류">{error}</Alert>}
-      {status === "complete" && run && (
-        <>
-          <svg className="controller-svg" viewBox="0 0 480 235" role="img" aria-labelledby="controller-title controller-desc">
-            <title id="controller-title">가상 제어기 계획값 센서값 기물 추정값 그래프</title><desc id="controller-desc">kiln.firing 제어기·시뮬레이터의 계획, 센서, 기물 추정과 추종 오차가 같은 시간축에 표시됩니다.</desc>
-            {[20, 400, 800, 1200].map((temp) => <line key={temp} x1="30" x2="450" y1={205 - temp / 1250 * 175} y2={205 - temp / 1250 * 175} />)}
-            <polyline points={samplePath(samples, "plannedC")} className="pid-plan-line" /><polyline points={samplePath(samples, "sensorC")} className="pid-sensor-line" /><polyline points={samplePath(samples, "estimatedWareC")} className="pid-ware-line" />
-            {samples.filter((sample) => sample.alarm).map((sample) => <circle className="pid-alarm-point" key={sample.minute} cx={30 + sample.minute / 480 * 420} cy={205 - sample.sensorC / 1250 * 175} r="5" />)}
-            <line className="kiln-time-cursor" x1={cursorX} x2={cursorX} y1="20" y2="210" />
-            <text x="34" y="23">— 계획  -- 센서  ·· 기물 추정</text><text x="30" y="225">0분</text><text x="430" y="225">480분</text>
-          </svg>
-          <div className="controller-readouts"><span><b>최대 |추종오차|</b>{Math.max(...samples.map((sample) => Math.abs(sample.errorC)))} °C</span><span><b>최대 히터 출력</b>{Math.max(...samples.map((sample) => sample.heaterPercent))}%</span><span><b>경보</b>{alarms.length}개</span><span><b>샘플 주기</b>{plan.constraints.sampleSeconds}초</span></div>
-          {alarms.length ? <Alert tone="warning" title="추종 경보">초기 구간 등에서 추종오차가 크거나 센서 이상이 감지됐습니다. 실제 안전 경보가 아닙니다.</Alert> : <Alert tone="unavailable" title="경보 없음">경보가 없더라도 실제 운전 안전을 뜻하지 않습니다.</Alert>}
-
-          <DetailDrawer summary="왜 바뀌었는지 · 외란 시나리오·포화·원시 로그 보기">
-            <p className="curve-change-reason">{curves[1].reason}</p>
-            <Alert tone="danger" title="실제 가마 사용 금지">{plan.warning}</Alert>
-            <dl className="pid-parameters">{Object.entries(plan.parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value.value} {value.unit} · {value.source_type}</dd></div>)}</dl>
-            <p>출력 포화 {plan.constraints.outputMinPercent}–{plan.constraints.outputMaxPercent}% · {plan.constraints.antiWindup} · 적분 주기 {plan.constraints.sampleSeconds}초</p>
-            <p className="controller-provenance">{run.eNote}</p>
-            <ul className="controller-provenance-notes">{run.provenanceNotes.map((note) => <li key={note}>{note}</li>)}</ul>
-            <details><summary>원시 물리 엔진 로그</summary><pre>{JSON.stringify(samples, null, 2)}</pre></details>
-          </DetailDrawer>
-        </>
-      )}
-
-      <div className="curve-control-actions">
-        <button type="button" className="prototype-confirm" aria-pressed={approved} disabled={status !== "complete"} onClick={() => onApprove("accepted", samples, plan.parameters)}>{approved ? "가상 제어기 전달 완료" : "이대로 진행"}</button>
-      </div>
-      <p className="approval-note">승인한 수정 후보만 AiceRun의 선택 곡선과 가상 제어 샘플에 기록됩니다. 재생 버튼을 눌러야 가상 소성이 완료된 것으로 기록됩니다.</p>
     </section>
   );
 }

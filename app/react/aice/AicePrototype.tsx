@@ -556,7 +556,6 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
             }))}
             recipeFiringRangeC={activeFiringRangeC}
             riskMitigationApplied={state.riskMitigationApplied}
-            approved={state.curveApproved}
             onApprove={(decision, samples, parameters) => setState((current) => ({ ...current, curveApproved: decision === "accepted", approvedControlSamples: samples, approvedControlParameters: parameters }))}
             simulationCompleted={state.simulationCompleted}
             onSimulationStart={() => setState((current) => ({ ...current, simulationCompleted: true }))}

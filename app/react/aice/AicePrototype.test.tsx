@@ -132,11 +132,10 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(riskButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    // 6/7/8페이지 통합: 가마 화면 하나에서 제어 계획 승인 + 가상 소성 재생을 모두 한다.
-    const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });
-    await waitFor(() => expect((proceedButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(proceedButton);
-    fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
+    // v9 후속: 가마 화면에서 재생 버튼 하나가 승인과 재생을 함께 한다.
+    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
     expect(screen.getByTestId("aice-step-5")).toBeTruthy();
@@ -172,9 +171,9 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     let getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({ curves: { selected_id: null }, pid: { parameters: {}, samples: [] } });
-    const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });
-    await waitFor(() => expect((proceedButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(proceedButton);
+    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(playButton);
     getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     const run = await getter();
     expect(run.curves.selected_id).toMatch(/thickness-target/);
@@ -249,10 +248,9 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(riskButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    const proceedButton = screen.getByRole("button", { name: /이대로 진행/ });
-    await waitFor(() => expect((proceedButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(proceedButton);
-    fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
+    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
 

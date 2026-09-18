@@ -29,9 +29,8 @@ function kilnSimulateResponse() {
   });
 }
 
-function Harness({ userId }: { userId?: string }) {
+function Harness({ userId, onApprove = () => {} }: { userId?: string; onApprove?: () => void }) {
   const [sensors, setSensors] = useState<SensorPlacement[]>([]);
-  const [approved, setApproved] = useState(false);
   const [simulationCompleted, setSimulationCompleted] = useState(false);
   return (
     <KilnFiringScreen
@@ -42,8 +41,7 @@ function Harness({ userId }: { userId?: string }) {
       onSensorsChange={setSensors}
       recipeFiringRangeC={null}
       riskMitigationApplied={false}
-      approved={approved}
-      onApprove={() => setApproved(true)}
+      onApprove={onApprove}
       simulationCompleted={simulationCompleted}
       onSimulationStart={() => setSimulationCompleted(true)}
     />
@@ -91,7 +89,7 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
     const initialCalls = fetchMock.mock.calls.length;
 
     fireEvent.click(screen.getByRole("button", { name: "센서 고장" }));
-    fireEvent.click(screen.getByRole("button", { name: "유지" }));
+    fireEvent.change(screen.getByLabelText(/가상 시간/), { target: { value: "380" } });
 
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(initialCalls));
     const lastCall = fetchMock.mock.calls.at(-1)!;
@@ -101,16 +99,16 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
     expect(screen.getByText(/신호 없음/)).toBeTruthy();
   });
 
-  it("approves the reactive plan and starts the firing playback from one screen", async () => {
+  it("starting the firing playback is itself the approval — no separate proceed button", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => kilnSimulateResponse());
-    render(<Harness />);
+    const onApprove = vi.fn();
+    render(<Harness onApprove={onApprove} />);
 
-    const approveButton = await screen.findByRole("button", { name: /이대로 진행/ });
-    await waitFor(() => expect((approveButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(approveButton);
-    expect(await screen.findByRole("button", { name: /가상 제어기 전달 완료/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /가상 소성 재생/ }));
+    expect(screen.queryByRole("button", { name: /이대로 진행/ })).toBeNull();
+    const startButton = await screen.findByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(startButton);
+    expect(onApprove).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "일시정지" })).toBeTruthy();
   });
 });
