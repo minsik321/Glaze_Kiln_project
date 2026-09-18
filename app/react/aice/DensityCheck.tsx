@@ -10,11 +10,15 @@ const ALERT_TONE: Record<DensityAdvice["status"], "warning" | "danger" | "unavai
   out_of_range: "danger",
 };
 
-export function DensityCheck() {
+export function DensityCheck({ defaultTargetMm }: { defaultTargetMm?: number } = {}) {
   const [rho, setRho] = useState("");
   const [minutes, setMinutes] = useState("0");
   const [advice, setAdvice] = useState<DensityAdvice | null>(null);
-  const [targetMm, setTargetMm] = useState("1.0");
+  //: v9 후속: "레시피상 유약 두께를 목표 평균 두께로 설정" — 목표 두께를
+  //: 빈 칸에서 직접 타이핑하게 하지 않고, 현재 레시피의 안전 두께 범위
+  //: 중앙값(AicePrototype.tsx가 계산해 넘긴다)을 초깃값으로 채운다.
+  //: 사용자는 여전히 이 값을 직접 바꿀 수 있다.
+  const [targetMm, setTargetMm] = useState(String(defaultTargetMm ?? 1.0));
   const [dipTime, setDipTime] = useState<DipTimeResponse | null>(null);
   const [dipTimeStatus, setDipTimeStatus] = useState<"idle" | "loading" | "error">("idle");
   const [dipTimeError, setDipTimeError] = useState<string | null>(null);

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
-import { Alert, DetailDrawer, ExplanationPanel, ProgressHeader, StatusBadge } from "./ui";
+import { Alert, ProgressHeader, StatusBadge } from "./ui";
 import { assertAiceRun, sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
 import { WeightInputs } from "./WeightInputs";
 import { arealDensityFromProfile } from "./arealDensity";
-import { buildThicknessView, type CoatingPreset } from "./thicknessView";
+import { buildThicknessView, DEFAULT_SAFE_RANGE_MM, type CoatingPreset } from "./thicknessView";
 import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
 import { KilnFiringScreen } from "./KilnFiringScreen";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
@@ -117,17 +117,14 @@ function ChoiceCard({
   );
 }
 
-// LLM 프런트도어 TODO Phase 3: "왜/가정/다음행동" 3줄은 상시 노출 설명문이었다
-// (§2-2). 근거 배지(StatusBadge)는 그대로 화면에 남기고, 문장형 설명만
-// 기본으로 접힌 DetailDrawer 안으로 옮긴다 — 지우지 않는 이유는 출처·가정을
-// 찾아볼 수 있어야 하기 때문이다.
-function Guidance({ reason, assumption, next }: { reason: string; assumption: string; next: string }) {
-  return (
-    <DetailDrawer summary="왜 · 무엇을 가정 · 다음 행동 보기">
-      <ExplanationPanel reason={reason} assumption={assumption} next={next} />
-    </DetailDrawer>
-  );
-}
+//: v9 후속(3페이지): 상시 노출 "왜/가정/다음행동" 드로어 대신, 두께 판단
+//: 결과에 따라 사용자가 직접 다음 행동을 고르는 문장+버튼 조합을 쓴다
+//: (아래 step===2 블록). 상태별 안내 제목만 여기 모아 둔다.
+const THICKNESS_DECISION_TITLE: Record<CoatingPreset, string> = {
+  thin: "지금 두께가 목표보다 얇아요",
+  target: "지금 두께가 목표 범위 안이에요",
+  thick: "지금 두께가 목표보다 두꺼워요",
+};
 
 export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void }) {
   const [step, setStep] = useState(0);
@@ -217,10 +214,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
   //: null(0과 다른 진술)이며, predictNextRun이 이 값을 다음 유지온도
   //: 제안에 부호를 뒤집어 반영한다.
   const [firingGlossBias, setFiringGlossBias] = useState<number | null>(null);
+  //: v9 후속(3페이지) — "레시피상 유약 두께를 목표 평균 두께로 설정"의
+  //: 근거. 레시피별로 캘리브레이션된 안전 두께 범위가 있으면 그 값을,
+  //: 없으면 07절 기본 안전 범위(DEFAULT_SAFE_RANGE_MM)를 쓴다.
+  const [safeThicknessMm, setSafeThicknessMm] = useState<readonly [number, number] | null>(null);
   useEffect(() => {
     if (!token || !activeRecipeId) {
       setCalibrationRuns(0);
       setFiringGlossBias(null);
+      setSafeThicknessMm(null);
       return;
     }
     let cancelled = false;
@@ -230,18 +232,24 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         if (!cancelled) {
           setCalibrationRuns(table.calibration_runs);
           setFiringGlossBias(table.gloss_bias_level);
+          setSafeThicknessMm(table.safe_thickness_mm);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setCalibrationRuns(0);
           setFiringGlossBias(null);
+          setSafeThicknessMm(null);
         }
       });
     return () => {
       cancelled = true;
     };
   }, [token, activeRecipeId]);
+  const recipeTargetThicknessMm = useMemo(() => {
+    const [lo, hi] = safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM;
+    return Number(((lo + hi) / 2).toFixed(2));
+  }, [safeThicknessMm]);
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
     const run = restoredRun ?? sampleAiceRun();
@@ -484,10 +492,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
 
         {step === 2 && (
           <>
-            {/* v9: 비중·담금시간 역산(무게 입력의 근원)을 위로, 그 계산
-                결과로 그려지는 종단면 이미지를 아래로 — 입력 → 결과 순서로
-                맞춘다. 도포 상태 버튼은 없앴다: 아래 종단면·위험 문장은
-                이 무게 입력에서 실제로 계산된 값이다. */}
+            {/* v9 후속: 비중 확인 → 담금시간 역산을 맨 위로 올린다(목표
+                두께는 이 레시피의 안전 두께 범위 중앙값을 기본값으로
+                채운다). 그 아래 실측 무게 입력 → 계산된 종단면 순서. */}
+            <DensityCheck defaultTargetMm={recipeTargetThicknessMm} />
             <WeightInputs
               beforeG={state.beforeWeightG}
               afterG={state.afterWeightG}
@@ -499,19 +507,36 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               onDipSecondsChange={(value) => setState((current) => ({ ...current, dipSeconds: value }))}
               result={arealDensity}
             />
-            <DensityCheck />
             {thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
             <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} />
-            <Guidance reason={thicknessViewData.risk} assumption="실측 무게·형상 근사 기반 계산입니다. 담금 방식이 아니면 위치별 분포는 계산되지 않습니다." next="단면과 위험 문장을 확인하고 적재 화면으로 이동하세요." />
-            <button
-              type="button"
-              className="prototype-confirm"
-              disabled={thicknessViewData.evidence === "unavailable"}
-              aria-pressed={state.riskMitigationApplied}
-              onClick={() => setState({ ...state, riskMitigationApplied: true })}
-            >
-              {computedCoating === "target" ? "이 상태로 소성 계획 확정하기" : "위험을 줄이는 소성 계획 적용하기"}
-            </button>
+            {/* v9 후속: 단일 "적용" 버튼 대신 지금 두께가 목표와 어떤
+                관계인지 설명하고, 그에 맞는 행동을 사용자가 고르게 한다. */}
+            <section className="thickness-decision" aria-labelledby="thickness-decision-heading">
+              <h3 id="thickness-decision-heading">두께 판단과 다음 행동</h3>
+              <Alert tone={computedCoating === "target" ? "unavailable" : "warning"} title={THICKNESS_DECISION_TITLE[computedCoating]}>
+                {thicknessViewData.risk}
+              </Alert>
+              <div className="thickness-decision-actions">
+                <button
+                  type="button"
+                  className="prototype-confirm"
+                  disabled={thicknessViewData.evidence === "unavailable"}
+                  aria-pressed={state.riskMitigationApplied}
+                  onClick={() => setState({ ...state, riskMitigationApplied: true })}
+                >
+                  {computedCoating === "target" ? "이 상태로 소성 계획 확정하기" : "이대로 진행하고 소성 계획으로 위험 줄이기"}
+                </button>
+                {computedCoating !== "target" && (
+                  <button
+                    type="button"
+                    className="act ghost"
+                    onClick={() => setState((current) => ({ ...current, beforeWeightG: "", afterWeightG: "", dipSeconds: "", riskMitigationApplied: false }))}
+                  >
+                    다시 시유하기
+                  </button>
+                )}
+              </div>
+            </section>
           </>
         )}
 

@@ -51,7 +51,7 @@ export type ThicknessView = {
 //: 레시피별로 캘리브레이션되면 달라질 수 있지만(calibrationApi.get()),
 //: 이 화면은 아직 레시피별 계수 테이블을 불러오지 않는다 — 기본값 사용
 //: 사실 자체가 사용자에게 보이는 문구(uncertainty)에 남는다.
-const DEFAULT_SAFE_RANGE_MM: readonly [number, number] = [0.8, 1.3];
+export const DEFAULT_SAFE_RANGE_MM: readonly [number, number] = [0.8, 1.3];
 
 function classify(totalMm: number, [lo, hi]: readonly [number, number] = DEFAULT_SAFE_RANGE_MM): ThicknessStatus {
   if (totalMm < lo) return "thin";
