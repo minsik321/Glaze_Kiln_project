@@ -93,7 +93,6 @@ describe("RecipeChatScreen (화면 1)", () => {
     fireEvent.click(screen.getByText("후보 만들기"));
 
     await waitFor(() => expect(screen.getByText("해안 사틴")).toBeTruthy());
-    expect(screen.getByText("AI 제안 · 실측 아님")).toBeTruthy();
     expect(screen.getByText("장석")).toBeTruthy();
     expect(screen.getByText("발색 산화물 (외배합)")).toBeTruthy();
     expect(screen.getByText("CuO")).toBeTruthy();

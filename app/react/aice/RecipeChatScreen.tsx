@@ -177,23 +177,20 @@ export function RecipeChatScreen({
 
   return (
     <section className="recipe-chat-screen" aria-labelledby="recipe-chat-title">
-      <div className="evidence-heading recipe-chat-heading">
-        <button
-          type="button"
-          className="recipe-history-toggle"
-          aria-label="이전 질문 기록 열기"
-          aria-expanded={sidebarOpen}
-          onClick={toggleSidebar}
-          disabled={!token}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-        </button>
-        <div>
-          <h3 id="recipe-chat-title">원하는 유약을 문장으로 설명해요</h3>
-          <p>LLM이 문헌·일반 지식으로 제안한 출발점이며, 실제 소성 결과를 보장하지 않습니다.</p>
-        </div>
-        <StatusBadge tone="unavailable">AI 제안 · 실측 아님</StatusBadge>
-      </div>
+      {/* v9 후속 개편: 채팅창을 여는 첫 표지처럼 아무 설명 없이 입력만
+          보이게 한다 — 안내문·배지는 지웠다. 제목은 시각적으로는 숨기되
+          스크린리더용으로만 남긴다(sr-only). */}
+      <h3 id="recipe-chat-title" className="sr-only">원하는 유약을 문장으로 설명해요</h3>
+      <button
+        type="button"
+        className="recipe-history-toggle"
+        aria-label="이전 질문 기록 열기"
+        aria-expanded={sidebarOpen}
+        onClick={toggleSidebar}
+        disabled={!token}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
 
       {sidebarOpen && (
         <>
@@ -217,7 +214,7 @@ export function RecipeChatScreen({
       )}
 
       <form onSubmit={submit} className="recipe-prompt-form">
-        <label htmlFor="recipe-prompt">원하는 결과를 설명해 주세요</label>
+        <label htmlFor="recipe-prompt" className="sr-only">원하는 결과를 설명해 주세요</label>
         <textarea
           id="recipe-prompt"
           value={promptText}
