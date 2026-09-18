@@ -10,15 +10,21 @@ Docker로 띄운 Qdrant(루트 docker-compose.yml)에 최초 1회 실행한다:
 ``sys.path`` 보정으로 동작하지만, ``backend/.env``는 항상
 ``backend/app/config.py`` 기준 경로에서 읽으므로 실행 위치와 무관하다.)
 
-여기서는 두 코퍼스만 채운다:
+여기서는 세 코퍼스를 채운다(모두 코드에 이미 있는 값을 그대로 문서화할
+뿐이다 — 새 수치를 지어내지 않는다):
 
-  1. **원료 화학** — ``kiln.chem.materials.MATERIALS``(05-1절). 코드에 이미
-     있는 산화물 조성표를 그대로 문서화한다 — 새 수치를 지어내지 않는다.
+  1. **원료 화학** — ``kiln.chem.materials.MATERIALS``(05-1절). 원료별
+     산화물 조성표.
   2. **성분 상관관계** — ``kiln.chem.stull.StullZone``의 문헌 추정 초기값
-     (부록 C, Stull 경계표)과 ``docs/kiln-plan-v7.md`` 09절의 냉각-결정화
-     관계를 그대로 옮긴 요약. 전부 "문헌 추정 초기값"이며 이 프로젝트가
-     실측 검증한 값이 아니다 — 각 문서의 ``citation`` 메타데이터에 정확한
-     출처 모듈/절을 남긴다.
+     (부록 C, Stull 경계표. ``StullZone`` 전 항목을 빠짐없이 다룬다 —
+     테스트가 이걸 강제한다)과 ``docs/kiln-plan-v7.md`` 09절의 냉각-결정화
+     관계를 그대로 옮긴 요약.
+  3. **착색 산화물 참고 색상표** — ``kiln.chem.colorants.COLORANTS``
+     (4-4-a절). 6종 착색 산화물의 문헌 참고 색상·통상 첨가량.
+
+전부 "문헌 추정 초기값/참고값"이며 이 프로젝트가 실측 검증한 값이
+아니다 — 각 문서의 ``citation`` 메타데이터에 정확한 출처 모듈/절을
+남긴다.
 
 **세 번째 코퍼스인 "과거 레시피"는 이 스크립트가 다루지 않는다.** 이유:
 
@@ -52,11 +58,14 @@ for _path in (_ROOT_DIR, _ROOT_DIR / "src"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from kiln.chem.colorants import COLORANTS  # noqa: E402
 from kiln.chem.materials import MATERIALS  # noqa: E402
+from kiln.chem.stull import StullZone  # noqa: E402
 
 from backend.app.config import get_settings  # noqa: E402
 from backend.app.vectorstore import (  # noqa: E402
     AiceVectorStore,
+    SOURCE_COLORANT_REFERENCE,
     SOURCE_CORRELATION_NOTE,
     SOURCE_MATERIAL_CHEMISTRY,
     VectorDocument,
@@ -106,33 +115,57 @@ _CORRELATION_NOTES: list[dict[str, str]] = [
         "id": "corr-matte-high-al2o3",
         "text": "Al2O3가 SiO2 대비 상대적으로 높으면 무광(알루미나 매트) 방향이다.",
         "citation": "src/kiln/chem/stull.py StullZone.MATTE",
+        "zone": StullZone.MATTE,
+    },
+    {
+        "id": "corr-semi-matte-between",
+        "text": "SiO2·Al2O3가 매트와 광택 사이 중간 정도이면 세미매트(완전한 광택도 뚜렷한 무광도 아닌) 방향이다.",
+        "citation": "src/kiln/chem/stull.py StullZone.SEMI_MATTE",
+        "zone": StullZone.SEMI_MATTE,
     },
     {
         "id": "corr-bright-balanced",
         "text": "SiO2·Al2O3가 함께 충분히 높고 균형 잡히면 광택(잘 녹은 유리질) 방향이다.",
         "citation": "src/kiln/chem/stull.py StullZone.BRIGHT",
+        "zone": StullZone.BRIGHT,
     },
     {
         "id": "corr-crazing-low-both",
         "text": "SiO2·Al2O3가 모두 낮으면(융제 비중이 매우 크면) 열팽창이 크고 유동성이 높아 크레이징(관유)·흘러내림에 취약해진다.",
         "citation": "src/kiln/chem/stull.py StullZone.CRAZING",
+        "zone": StullZone.CRAZING,
     },
     {
         "id": "corr-underfired-high-silica",
         "text": "SiO2가 과다하고 Al2O3가 상대적으로 부족하면, 유리형성제가 융제량 대비 너무 많아 그 콘·그 융제량으로는 다 녹이기 어려운 미용융 방향이다.",
         "citation": "src/kiln/chem/stull.py StullZone.UNDERFIRED",
+        "zone": StullZone.UNDERFIRED,
     },
     {
         "id": "corr-low-silica-ambiguous",
         "text": "SiO2가 아주 낮은 영역은 '유리질 자체가 부족해 안 녹은 미용융'과 '녹았지만 유리형성제가 모자라 냉각 중 결정화한 저실리카 매트'가 조성 좌표만으로는 구분되지 않는다 — 구분은 콘·유지시간·냉각 조건이 결정한다.",
         "citation": "src/kiln/chem/stull.py StullZone.LOW_SILICA_AMBIGUOUS",
+        "zone": StullZone.LOW_SILICA_AMBIGUOUS,
     },
     {
         "id": "corr-cooling-crystallization",
         "text": "석회질·저실리카 매트는 냉각 중 결정 석출로 무광이 된다 — 조성과 최고온도가 같아도 급냉하면 광택, 서냉하면 매트로 나올 수 있다.",
         "citation": "docs/kiln-plan-v7.md 09절",
+        #: 특정 StullZone 하나에 매인 내용이 아니라(냉각 조건 전체에 관한
+        #: 별도 참조) zone이 없다 — 아래 커버리지 확인에서 제외한다.
+        "zone": None,
     },
 ]
+
+#: 테스트(및 이 스크립트 자신)가 "StullZone 전 항목을 빠짐없이 다뤘는가"를
+#: 기계적으로 확인할 수 있도록, 특정 zone에 매인 노트만 모은다.
+_ZONES_COVERED: frozenset[StullZone] = frozenset(
+    note["zone"] for note in _CORRELATION_NOTES if note["zone"] is not None
+)
+assert _ZONES_COVERED == set(StullZone), (
+    f"_CORRELATION_NOTES가 StullZone 전 항목을 다루지 않는다 — 빠진 항목: "
+    f"{set(StullZone) - _ZONES_COVERED}"
+)
 
 
 def _correlation_documents() -> list[VectorDocument]:
@@ -144,6 +177,32 @@ def _correlation_documents() -> list[VectorDocument]:
         )
         for note in _CORRELATION_NOTES
     ]
+
+
+#: 착색 산화물 참고 색상표 — kiln.chem.colorants.COLORANTS(4-4-a절)를
+#: 그대로 문서화한다. 각 ColorantOxide.note에는 이미 문헌 참고값
+#: 캐비어트가 포함돼 있으므로(모듈 자체가 __post_init__에서 강제한다)
+#: 그 텍스트를 그대로 재사용한다 — 새로 지어내지 않는다.
+def _colorant_documents() -> list[VectorDocument]:
+    docs = []
+    for symbol, colorant in COLORANTS.items():
+        lo, hi = colorant.typical_pct
+        text = (
+            f"{colorant.name_ko}({symbol}) — {colorant.note} "
+            f"통상 첨가량(건조 재료 대비) {lo:.1f}~{hi:.1f}wt%."
+        )
+        docs.append(
+            VectorDocument(
+                doc_id=f"colorant-{symbol}",
+                text=text,
+                metadata={
+                    "source_type": SOURCE_COLORANT_REFERENCE,
+                    "symbol": symbol,
+                    "citation": "src/kiln/chem/colorants.py (4-4-a절)",
+                },
+            )
+        )
+    return docs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -161,10 +220,11 @@ def main(argv: list[str] | None = None) -> int:
 
     material_docs = _material_documents()
     correlation_docs = _correlation_documents()
+    colorant_docs = _colorant_documents()
 
     try:
         store = AiceVectorStore(url=settings.qdrant_url, collection=settings.qdrant_collection)
-        store.upsert_documents(material_docs + correlation_docs)
+        store.upsert_documents(material_docs + correlation_docs + colorant_docs)
     except VectorStoreUnavailable as exc:
         print(f"Qdrant 색인에 실패했습니다: {exc}", file=sys.stderr)
         print(
@@ -174,8 +234,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    total = len(material_docs) + len(correlation_docs) + len(colorant_docs)
     print(
-        f"원료 화학 {len(material_docs)}건, 성분 상관관계 {len(correlation_docs)}건을 "
+        f"원료 화학 {len(material_docs)}건, 성분 상관관계 {len(correlation_docs)}건, "
+        f"착색 산화물 참고표 {len(colorant_docs)}건(총 {total}건)을 "
         f"'{settings.qdrant_collection}' 컬렉션({settings.qdrant_url})에 색인했습니다."
     )
     print("(과거 레시피 코퍼스는 회차를 저장할 때마다 자동으로 색인됩니다 — 이 스크립트가 다루는 범위가 아닙니다.)")

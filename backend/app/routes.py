@@ -65,6 +65,7 @@ from .models import (
 from .supabase import SupabaseError, SupabaseGateway
 from .vectorstore import (
     AiceVectorStore,
+    SOURCE_COLORANT_REFERENCE,
     SOURCE_CORRELATION_NOTE,
     SOURCE_MATERIAL_CHEMISTRY,
     SOURCE_PERSONAL_RECIPE,
@@ -691,7 +692,11 @@ async def suggest_recipe_candidates(
         general_docs = vectorstore.search(
             body.prompt_text,
             limit=4,
-            source_types=(SOURCE_MATERIAL_CHEMISTRY, SOURCE_CORRELATION_NOTE),
+            #: 착색 산화물 참고표(SOURCE_COLORANT_REFERENCE, ingest_corpus.py
+            #: 참고)도 원료 화학·성분 상관관계와 같은 "전역 문헌 참고"
+            #: 자격으로 함께 검색한다 — 사용자 지시색(예: "청색 계열")이
+            #: 담긴 프롬프트일 때 관련 산화물이 걸린다.
+            source_types=(SOURCE_MATERIAL_CHEMISTRY, SOURCE_CORRELATION_NOTE, SOURCE_COLORANT_REFERENCE),
         )
         personal_docs = vectorstore.search(
             body.prompt_text,

@@ -68,6 +68,10 @@ EmbedFn = Callable[[Sequence[str]], list[list[float]]]
 SOURCE_MATERIAL_CHEMISTRY = "material_chemistry"
 SOURCE_CORRELATION_NOTE = "correlation_note"
 SOURCE_PERSONAL_RECIPE = "personal_recipe"
+#: 착색 산화물 참고 색상표(kiln.chem.colorants, 4-4-a절) — 원료 화학과는
+#: 별도 출처라 구분한다(문헌 참고값이라는 성격은 같지만, 색상·통상
+#: 첨가량 표라는 다른 종류의 문서라 필터링 시 나눠 쓸 수 있게 한다).
+SOURCE_COLORANT_REFERENCE = "colorant_reference"
 
 
 class VectorStoreUnavailable(Exception):
@@ -139,7 +143,12 @@ class AiceVectorStore:
                 ) from _QDRANT_IMPORT_ERROR
             if not url:
                 raise VectorStoreUnavailable("QDRANT_URL이 설정되지 않았습니다.")
-            client = QdrantClient(url=url)
+            #: check_compatibility=False — 이 클래스의 모든 공개 메서드가 이미
+            #: VectorStoreUnavailable로 실패를 명시적으로 처리하므로, 백그라운드
+            #: 스레드로 서버 버전 호환성을 확인하고 콘솔에 UserWarning을 띄우는
+            #: qdrant-client의 기본 동작은 불필요한 소음이다(특히 Qdrant가 아직
+            #: 안 떠 있거나 네트워크 격리된 테스트 환경에서 매번 경고가 난다).
+            client = QdrantClient(url=url, check_compatibility=False)
         self.client = client
         self.collection = collection
         self._embed_fn = embed_fn
