@@ -110,6 +110,13 @@ def _material_documents() -> list[VectorDocument]:
 #: 콘6/11 경계표)과 docs/kiln-plan-v7.md 09절 냉각 관계에서 그대로 옮긴
 #: 요약이다. 이 프로젝트가 실측 검증한 값이 아니므로 각 문서 텍스트에
 #: 그 사실을 명시한다(부록 A와 같은 태도 — "판정이 아니라 참조").
+#:
+#: Stull 영역에 매인 노트(zone이 있는 것)에는 docs/AICE_CITATIONS.md
+#: §1에서 서지사항을 확인해 둔 1차 문헌(R.T. Stull, 1912)을 실제로
+#: 병기한다 — "문헌 추정"이라는 말이 어떤 문헌인지 이제 특정할 수
+#: 있다는 뜻이다. 냉각-결정화 노트는 Stull 원 논문이 아니라
+#: docs/kiln-plan-v7.md 09절의 요업공학 일반 지식 요약이라 이 인용을
+#: 붙이지 않는다 — 없는 서지사항을 지어내지 않는다.
 _CORRELATION_NOTES: list[dict[str, str]] = [
     {
         "id": "corr-matte-high-al2o3",
@@ -168,15 +175,26 @@ assert _ZONES_COVERED == set(StullZone), (
 )
 
 
+#: docs/AICE_CITATIONS.md §1에서 서지사항을 확인한 Stull 원 논문 —
+#: zone이 있는 노트(=Stull 경계표에서 온 노트)에만 병기한다.
+_STULL_PRIMARY_SOURCE = "R.T. Stull, \"Fusibility and Viscosity Tests\", Trans. Am. Ceram. Soc. 14, 62-70 (1912)"
+
+
 def _correlation_documents() -> list[VectorDocument]:
-    return [
-        VectorDocument(
-            doc_id=note["id"],
-            text=f"{note['text']} (문헌 추정 초기값 — 이 프로젝트의 실측 검증은 아님)",
-            metadata={"source_type": SOURCE_CORRELATION_NOTE, "citation": note["citation"]},
+    docs = []
+    for note in _CORRELATION_NOTES:
+        if note["zone"] is not None:
+            suffix = f"(문헌 추정 초기값 — {_STULL_PRIMARY_SOURCE}의 경계표 기반. 이 프로젝트가 실측 검증한 값은 아님)"
+        else:
+            suffix = "(문헌 추정 초기값 — 이 프로젝트의 실측 검증은 아님)"
+        docs.append(
+            VectorDocument(
+                doc_id=note["id"],
+                text=f"{note['text']} {suffix}",
+                metadata={"source_type": SOURCE_CORRELATION_NOTE, "citation": note["citation"]},
+            )
         )
-        for note in _CORRELATION_NOTES
-    ]
+    return docs
 
 
 #: 착색 산화물 참고 색상표 — kiln.chem.colorants.COLORANTS(4-4-a절)를

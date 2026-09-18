@@ -52,6 +52,21 @@ def test_correlation_documents_cover_every_stull_zone() -> None:
         assert "문헌 추정 초기값" in doc.text
 
 
+def test_stull_zone_notes_cite_the_verified_primary_source() -> None:
+    """docs/AICE_CITATIONS.md §1이 서지사항을 확인해 둔 Stull(1912) 원
+    논문은, StullZone에 매인 노트에서만 인용되고 냉각-결정화 노트(Stull
+    경계표가 아니라 kiln-plan-v7.md 09절 출처)에는 지어내 붙이지 않는다."""
+    docs = {doc.metadata["citation"]: doc for doc in _correlation_documents()}
+    zone_docs = [doc for doc in docs.values() if "StullZone" in doc.metadata["citation"]]
+    other_docs = [doc for doc in docs.values() if "StullZone" not in doc.metadata["citation"]]
+    assert zone_docs, "StullZone 노트가 하나도 없다"
+    assert other_docs, "StullZone 이외의 노트가 하나도 없다(냉각-결정화 노트가 사라졌다)"
+    for doc in zone_docs:
+        assert "Stull" in doc.text and "1912" in doc.text
+    for doc in other_docs:
+        assert "1912" not in doc.text
+
+
 def test_colorant_documents_cover_every_colorant_oxide() -> None:
     docs = _colorant_documents()
     assert len(docs) == len(COLORANTS)
