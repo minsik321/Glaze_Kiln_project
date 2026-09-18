@@ -84,7 +84,7 @@ const screens = [
 
 const screenTitles = [
   ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
-  ["자주 쓰는 기물에서 골라요", "대표 형상을 사용한 추정임을 계속 표시합니다."],
+  ["자주 쓰는 기물에서 골라요", "형상과 소지를 고르면 다음 화면의 두께 계산에 함께 쓰입니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
   ["가마와 소성곡선을 함께 확인해요", "센서 위치·이상 시나리오·제어 계획·가상 소성이 한 화면입니다."],
   ["결과를 남기고 다음 제안을 봐요", "개인 보정과 공통 개선 후보는 분리합니다."],
@@ -478,7 +478,6 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               <h3 id="clay-body-heading">소지 선택</h3>
               <div className="choice-chip-row">{CLAY_BODIES.map((body) => <button type="button" className="choice-chip" aria-pressed={state.clayBody === body.id} key={body.id} onClick={() => setState({ ...state, clayBody: body.id })}><strong>{body.label}</strong><small>{body.note}</small></button>)}</div>
               {state.ware === "other" && <div className="custom-ware"><label htmlFor="custom-ware-note">기타 기물 설명</label><textarea id="custom-ware-note" value={state.customWareNote} onChange={(event) => setState({ ...state, customWareNote: event.target.value })} placeholder="예: 낮고 넓은 손잡이 화병" /><fieldset><legend>가까운 실루엣</legend>{(["round", "tall", "flat"] as const).map((shape) => <button type="button" className="choice-chip" aria-pressed={state.customSilhouette === shape} key={shape} onClick={() => setState({ ...state, customSilhouette: shape })}>{shape === "round" ? "둥근형" : shape === "tall" ? "세로형" : "평판형"}</button>)}</fieldset></div>}
-              <Alert tone="unavailable" title="대표 형상에 근거한 추정">정밀 치수나 사용자 메시가 아닌 대표 형상으로 면적과 분포를 추정합니다.</Alert>
             </section>
           </>
         )}
