@@ -54,4 +54,25 @@ describe("DensityCheck", () => {
     expect(screen.getByText(/정상/)).toBeTruthy();
     expect(screen.getByText(/1\.50–1\.60/)).toBeTruthy();
   });
+
+  it("shows the recipe's target specific gravity, distinguishing calibrated from literature default", () => {
+    const { rerender } = render(<Harness defaultTargetRho={1.45} />);
+    expect(screen.getByText(/목표 비중은 약 1\.45/)).toBeTruthy();
+    expect(screen.getByText(/문헌 기본값/)).toBeTruthy();
+
+    rerender(<Harness defaultTargetRho={1.52} densityRange={[1.5, 1.54]} />);
+    expect(screen.getByText(/목표 비중은 약 1\.52/)).toBeTruthy();
+    expect(screen.getByText(/개인 실측 이력 기반/)).toBeTruthy();
+  });
+
+  it("keeps the target thickness field in sync when the recipe's calculated default changes", () => {
+    // 2026-09-20 수정 대상 버그: useState 초기값으로만 받으면 레시피별
+    // 계산이 나중에 끝나도(또는 레시피가 바뀌어도) 입력칸이 그대로
+    // 굳어 있어 하드코딩처럼 보였다.
+    const { rerender } = render(<Harness defaultTargetMm={1.0} />);
+    expect((screen.getByLabelText("목표 평균 두께(mm)") as HTMLInputElement).value).toBe("1");
+
+    rerender(<Harness defaultTargetMm={1.35} />);
+    expect((screen.getByLabelText("목표 평균 두께(mm)") as HTMLInputElement).value).toBe("1.35");
+  });
 });

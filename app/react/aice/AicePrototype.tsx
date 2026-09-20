@@ -11,7 +11,7 @@ import { buildThicknessView, DEFAULT_SAFE_RANGE_MM, type CoatingPreset } from ".
 import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
 import { KilnFiringScreen } from "./KilnFiringScreen";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
-import { buildCurveComparison, toFiringCurve, type CurveSeries, type ControllerSample } from "./curvePlan";
+import { buildCurveComparison, curveSummary, toFiringCurve, type CurveSeries, type ControllerSample } from "./curvePlan";
 import { parseFiringRangeC, predictNextRun, PREDICTOR_VERSION } from "./predictionModel";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
@@ -303,6 +303,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     const [lo, hi] = nextTrialThicknessMm ?? safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM;
     return Number(((lo + hi) / 2).toFixed(2));
   }, [nextTrialThicknessMm, safeThicknessMm]);
+  //: v9 후속(2026-09-20) — "비중도 해당 레시피의 비중이어야" 요구사항의
+  //: 화면 표시 근거. 이 레시피의 실측 비중 범위(densityRange)가 있으면
+  //: 그 중앙값을, 없으면 문헌 기본 범위([1.4, 1.5])의 중앙값을 쓴다.
+  //: DensityCheck의 ρ 입력칸 자체는 실제 측정값을 받는 자리라 이 값으로
+  //: 덮어쓰지 않고, 목표값은 별도 안내 문구로 보여준다.
+  const recipeTargetRho = useMemo(() => {
+    const [lo, hi] = densityRange ?? [1.4, 1.5];
+    return Number(((lo + hi) / 2).toFixed(2));
+  }, [densityRange]);
 
   const executionCurves = useMemo(() => {
     const prediction = predictNextRun({
@@ -632,6 +641,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               rho={state.specificGravity}
               onRhoChange={(value) => updateInputs({ specificGravity: value })}
               defaultTargetMm={recipeTargetThicknessMm}
+              defaultTargetRho={recipeTargetRho}
               densityRange={densityRange}
             />
             <WeightInputs
@@ -656,6 +666,16 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               <Alert tone={computedCoating === "target" ? "unavailable" : "warning"} title={THICKNESS_DECISION_TITLE[computedCoating]}>
                 {thicknessViewData.risk}
               </Alert>
+              {/* v9 후속(2026-09-20): "이대로 진행하고 소성 계획으로 위험
+                  줄이기" 버튼이 실제로 무엇을 하는지 문구만으로는 안 보여서
+                  사용자가 하드코딩된 버튼처럼 느꼈다 — 실제로 계산된 조정
+                  계획(curvePlan.buildCurveComparison)의 내용을 버튼을
+                  누르기 전에 그대로 보여준다. */}
+              {computedCoating !== "target" && (
+                <Alert tone="unavailable" title="소성 계획이 이렇게 위험을 줄입니다">
+                  {executionCurves[1].reason} {curveSummary(executionCurves)}
+                </Alert>
+              )}
               <div className="thickness-decision-actions">
                 <button
                   type="button"
