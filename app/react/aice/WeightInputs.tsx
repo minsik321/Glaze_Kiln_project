@@ -12,6 +12,8 @@ export function WeightInputs({
   onMethodChange,
   onDipSecondsChange,
   result,
+  dryingComplete = false,
+  onDryingChange,
 }: {
   beforeG: string;
   afterG: string;
@@ -22,6 +24,8 @@ export function WeightInputs({
   onMethodChange: (value: string) => void;
   onDipSecondsChange: (value: string) => void;
   result: ArealDensityResult | null;
+  dryingComplete?: boolean;
+  onDryingChange?: (value: boolean) => void;
 }) {
   return (
     <section className="weight-inputs" aria-labelledby="weight-inputs-title">
@@ -38,6 +42,7 @@ export function WeightInputs({
           <label htmlFor="dip-seconds">담금시간(초)<input id="dip-seconds" type="number" min="0" step="0.5" value={dipSeconds} onChange={(event) => onDipSecondsChange(event.target.value)} /></label>
         )}
       </div>
+      <label><input type="checkbox" checked={dryingComplete} onChange={(event) => onDryingChange?.(event.target.checked)} /> 시유 후 완전히 건조된 상태에서 무게를 측정했습니다</label>
       {result ? (
         <p className="weight-inputs-result"><strong>{result.gramsPerM2.toFixed(0)} g/m²</strong> (유약 무게 {result.glazeWeightG.toFixed(1)} g ÷ 대표 형상 면적 {result.areaM2.toFixed(3)} m²)</p>
       ) : (

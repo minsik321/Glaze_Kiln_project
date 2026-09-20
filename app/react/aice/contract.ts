@@ -34,6 +34,7 @@ export type PhotoAsset = {
   id: string;
   kind: "recipe" | "result";
   storage_path: string | null;
+  data_url?: string | null;
   placeholder: boolean;
   source_type: SourceType;
   rights_confirmed: boolean;
@@ -106,6 +107,8 @@ export type AiceRun = {
     //: 과거 회차의 조성을 다시 읽으려면 필요하다 — 기존 레코드는 비어
     //: 있을 수 있고, 그런 레코드는 되먹임 대상에서 제외된다.
     materials: Record<string, number>;
+    colorants?: Record<string, number>;
+    colorant_note?: string;
   };
   ware: {
     preset: "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "tile" | "other";
@@ -119,6 +122,8 @@ export type AiceRun = {
     before_weight: SourcedValue<number>;
     after_weight: SourcedValue<number>;
     density: SourcedValue<number>;
+    dip_seconds?: number | null;
+    drying_complete?: boolean;
   };
   thickness: {
     mean: SourcedValue<number>;
@@ -150,6 +155,8 @@ export type AiceRun = {
     alarms: string[];
   };
   result: {
+    match?: "close" | "different" | null;
+    defects_reviewed?: boolean;
     photo: PhotoAsset | null;
     color: string | null;
     gloss: string | null;

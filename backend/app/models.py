@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from kiln.aice import AiceRun
+from kiln.aice.identity import normalize_run_recipe
 
 
 class ApiModel(BaseModel):
@@ -100,11 +101,13 @@ class WorkRecordPage(ApiModel):
 
 def validate_aice_payload(value: dict[str, Any]) -> dict[str, Any]:
     """공유 Python 계약으로 AiceRun payload를 검증한다."""
+    value = normalize_run_recipe(value)
     AiceRun.from_dict(value)
     return value
 
 
 class AiceRunCreate(ApiModel):
+    request_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
     run: dict[str, Any]
     is_public: bool = False
@@ -120,6 +123,12 @@ class AiceRunCreate(ApiModel):
     @field_validator("run")
     @classmethod
     def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if value.get("status") == "evaluated":
+            result = value.get("result") or {}
+            if result.get("gloss") not in {"matte", "satin", "gloss"} or result.get("transparency") not in {"opaque", "translucent", "transparent"}:
+                raise ValueError("평가 완료에는 실제 광택과 투명도 입력이 필요합니다.")
+            if result.get("defects_reviewed") is not True or result.get("match") not in {"close", "different"}:
+                raise ValueError("평가 완료에는 목표 비교와 결함 확인이 필요합니다.")
         return validate_aice_payload(value)
 
     @model_validator(mode="after")
@@ -131,6 +140,8 @@ class AiceRunCreate(ApiModel):
 
 
 class AiceRunResponse(ApiModel):
+    request_id: UUID | None = None
+    feedback_status: Literal["pending", "applied", "skipped"] = "skipped"
     id: UUID
     user_id: UUID | None = Field(default=None, exclude=True)
     title: str
@@ -149,6 +160,11 @@ class AiceRunResponse(ApiModel):
     @classmethod
     def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
         return validate_aice_payload(value)
+
+    @model_validator(mode="after")
+    def use_canonical_recipe_id(self) -> "AiceRunResponse":
+        self.recipe_id = self.run["recipe"]["id"]
+        return self
 
 
 class AiceRunPage(ApiModel):
@@ -369,6 +385,16 @@ class CoefficientTableOut(ApiModel):
     #: 쓴다.
     gloss_bias_level: float | None = None
     firing_calibration_runs: int = 0
+    #: 비중 개인화 보정(kiln.calibration.density) — 이 레시피로 실제 시유에
+    #: 쓴 비중 실측값들의 관측 범위. None이면 아직 관측이 없다(0과 다른
+    #: 진술) — 화면은 이때 문헌 기본 범위([1.4, 1.5])로 대체해야 한다.
+    specific_gravity_range: tuple[float, float] | None = None
+    density_calibration_runs: int = 0
+    #: 같은 모듈(kiln.calibration.density)의 개인 다음-시도 두께 제안. 위
+    #: safe_thickness_mm(kiln.risk 08절 위험 판정 경계, 문헌/물리 계수
+    #: 캘리브레이션 출처)과 이름·의미가 다르다 — 절대 같은 값으로 합치지
+    #: 않는다. None이면 아직 관측이 없다.
+    next_trial_thickness_mm: tuple[float, float] | None = None
 
 
 class CalibrationRunRequest(ApiModel):

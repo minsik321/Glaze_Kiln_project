@@ -5,9 +5,9 @@ import { Alert, AsyncState, StatusBadge } from "./ui";
 
 const STATUS_LABELS: Record<ThicknessStatus, string> = { thin: "얇음", target: "목표 근처", thick: "두꺼움", unavailable: "판정 불가" };
 
-export function ThicknessSection({ ware, profile, loading = false }: { ware: WarePreset; profile: ThicknessComputeResponse | null; loading?: boolean }) {
+export function ThicknessSection({ ware, profile, loading = false, safeRangeMm }: { ware: WarePreset; profile: ThicknessComputeResponse | null; loading?: boolean; safeRangeMm?: readonly [number, number] }) {
   const asset = SECTION_ASSETS[ware];
-  const view = buildThicknessView({ ware, profile });
+  const view = buildThicknessView({ ware, profile, safeRangeMm });
   //: mm 평균과 g/m² 면적당 시유량은 같은 compute_profile 응답에서 함께
   //: 나온다(둘 다 실측 무게 기반). g/m²은 ρ_dry 가정에 기대지 않는
   //: 불변량이라 우선 표시한다(§5-a).

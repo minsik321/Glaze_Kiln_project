@@ -23,6 +23,11 @@ from datetime import datetime, timezone
 
 from kiln import constants
 from kiln.batch.dip_time import DipRecommendation, recommend_dip_time as _recommend_dip_time
+from kiln.calibration.density import (
+    DensityCoefficientTable,
+    DensityRunUpdate,
+    update_after_evaluated_run as _apply_density_calibration_update,
+)
 from kiln.calibration.firing import (
     FiringCoefficientTable,
     FiringRunUpdate,
@@ -57,6 +62,9 @@ __all__ = [
     "firing_coefficient_table_to_dict",
     "firing_coefficient_table_from_dict",
     "apply_firing_calibration_update",
+    "density_coefficient_table_to_dict",
+    "density_coefficient_table_from_dict",
+    "apply_density_calibration_update",
 ]
 
 #: 7개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
@@ -414,6 +422,71 @@ def apply_firing_calibration_update(
     `kiln.calibration.firing.update_after_evaluated_run` 그대로."""
     return update_after_evaluated_run(
         table, goal_gloss=goal_gloss, result_gloss=result_gloss, defects=defects
+    )
+
+
+# ─── 비중 개인화 보정 — 레시피별 적정 비중 범위 누적 (kiln.calibration.density) ──
+
+#: `DensityCoefficientTable`의 필드 이름 그대로 jsonb에 직렬화한다 —
+#: `personal_calibrations.coefficients`의 같은 행 안에 `"density"` 키로
+#: 중첩한다("firing" 키와 같은 패턴). 두께 계수(평면 키)·소성 개인화
+#: ("firing" 키)와 이름이 겹치지 않아 한 행에 공존할 수 있다.
+_DENSITY_COEFFICIENT_FIELDS = ("recipe_id", "specific_gravity_range", "calibration_runs", "provenance_notes")
+
+
+def density_coefficient_table_to_dict(table: DensityCoefficientTable) -> dict:
+    """`personal_calibrations.coefficients["density"]`에 그대로 넣을 사전."""
+    data = asdict(table)
+    if data["specific_gravity_range"] is not None:
+        data["specific_gravity_range"] = list(data["specific_gravity_range"])
+    if data["next_trial_thickness_mm"] is not None:
+        data["next_trial_thickness_mm"] = list(data["next_trial_thickness_mm"])
+    data["provenance_notes"] = list(data["provenance_notes"])
+    return data
+
+
+def density_coefficient_table_from_dict(recipe_id: str, data: dict | None) -> DensityCoefficientTable:
+    """저장된 `coefficients["density"]`(없으면 빈 사전)에서 복원한다.
+
+    `coefficient_table_from_dict`와 같은 이유로 `recipe_id`는 호출부가
+    정본이다."""
+    if not data:
+        return DensityCoefficientTable(recipe_id=recipe_id)
+    range_raw = data.get("specific_gravity_range")
+    thickness_raw = data.get("next_trial_thickness_mm")
+    return DensityCoefficientTable(
+        recipe_id=recipe_id,
+        specific_gravity_range=tuple(range_raw) if range_raw else None,
+        calibration_runs=data.get("calibration_runs", 0),
+        provenance_notes=tuple(data.get("provenance_notes", ())),
+        next_trial_thickness_mm=tuple(thickness_raw) if thickness_raw else None,
+        successful_runs=data.get("successful_runs", 0),
+        failed_runs=data.get("failed_runs", 0),
+        anchor_specific_gravity=data.get("anchor_specific_gravity"),
+        anchor_thickness_mm=data.get("anchor_thickness_mm"),
+    )
+
+
+def apply_density_calibration_update(
+    table: DensityCoefficientTable,
+    *,
+    specific_gravity: float | None,
+    mean_thickness_mm: float | None = None,
+    goal_gloss: str | None = None,
+    goal_transparency: str | None = None,
+    result_gloss: str | None = None,
+    result_transparency: str | None = None,
+    overall: str | None = None,
+    defects: tuple[str, ...] = (),
+    defects_reviewed: bool = False,
+) -> DensityRunUpdate:
+    """평가 완료 회차 1건으로 `table`을 갱신한다 —
+    `kiln.calibration.density.update_after_evaluated_run` 그대로."""
+    return _apply_density_calibration_update(
+        table, specific_gravity=specific_gravity, mean_thickness_mm=mean_thickness_mm,
+        goal_gloss=goal_gloss, goal_transparency=goal_transparency,
+        result_gloss=result_gloss, result_transparency=result_transparency,
+        overall=overall, defects=defects, defects_reviewed=defects_reviewed,
     )
 
 

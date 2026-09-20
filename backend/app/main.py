@@ -22,8 +22,10 @@ def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
         api_key=settings.aimlapi_api_key,
         base_url=settings.aimlapi_base_url,
         text_model=settings.aimlapi_text_model,
+        target_model=settings.aimlapi_target_model,
         image_model=settings.aimlapi_image_model,
         timeout_seconds=settings.aimlapi_timeout_seconds,
+        connect_timeout_seconds=settings.aimlapi_connect_timeout_seconds,
         max_retries=settings.aimlapi_max_retries,
         retry_backoff_seconds=settings.aimlapi_retry_backoff_seconds,
     )

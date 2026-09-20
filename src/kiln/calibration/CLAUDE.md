@@ -105,17 +105,23 @@ LLM 프런트도어 TODO Phase 5("Optimization Model — 학습 루프, 화면 8
   파이썬 단독이고, 화면 8~9절 표시는 이 함수의 출력을 그대로 붙이면 된다는
   확인까지만 한다.
 - **Prediction Model(프런트엔드 `app/react/aice/predictionModel.ts`)과의
-  연결**: `predictNextRun`의 `priorRunCount`가 이어질 자리는
-  `CoefficientTableStore.calibration_runs(recipe_id)`(= 그 레시피
-  `CoefficientTable.calibration_runs`)다 — TS 예측기와 이 파이썬 갱신 루프가
-  "같은 것"이라는 주장은 아니다. `predictNextRun`은 지금도 기물 크기·레시피
-  소성범위·회차 수로 계산하는 **결정론적 합성 규칙**이고 `CoefficientTable`을
-  전혀 읽지 않는다. 이번 Phase 5에서는 **백엔드 엔드포인트를 새로 만들지
-  않았다** — `calibration_runs()`가 그 결선의 소스가 될 값을 내놓는 것까지만
-  하고, 프런트엔드 `priorRunCount`는 여전히 `AicePrototype.tsx`에 하드코딩된
-  0(주석 "Phase 5 몫")으로 남아 있다. 실제 화면 결선(엔드포인트 추가 +
-  프런트엔드 fetch)은 범위 밖으로 남겨 `docs/AICE_LLM_FRONTDOOR_TODO.md`
-  Phase 5 1항 완료 메모에 그대로 적었다.
+  연결 — v9 후속으로 실제 결선됨, 이 문단은 그 최종 배선을 기록한다**:
+  `predictNextRun`의 `priorRunCount`는 **`CoefficientTableStore.calibration_runs`
+  (이 모듈, 두께 계수 k1·k2·ρ_dry 캘리브레이션)를 읽지 않는다.** 그
+  캘리브레이션은 파단면 실측 제출 화면을 의도적으로 만들지 않았으므로
+  (MVP 스코프, `submit_calibration_run` 엔드포인트는 있으나 어떤 화면도
+  호출하지 않는다) `calibration_runs`가 영원히 0으로 남는 죽은 카운터이기
+  때문이다 — 그 값을 그대로 이어받으면 `predictNextRun`의
+  `historyDamping`("회차가 쌓일수록 보정폭을 줄인다")이 실행 횟수와
+  무관하게 항상 최대 폭으로 고정된다. 대신 `kiln.calibration.firing
+  .FiringCoefficientTable.calibration_runs`(`GET /aice/calibration
+  /{recipe_id}`의 `firing_calibration_runs`)를 쓴다 — 이 레시피로 평가
+  완료되고 목표·실제 광택이 둘 다 기록된 회차 수이며, 별도 제출 화면
+  없이 회차 저장 시점에 자동으로 늘어난다(`_index_firing_calibration_
+  best_effort`). TS 예측기와 이 모듈의 파이썬 갱신 루프가 "같은 것"이라는
+  주장은 아니다 — `predictNextRun`은 지금도 기물 크기·레시피 소성범위·
+  회차 수로 계산하는 **결정론적 합성 규칙**이고 이 모듈의 `CoefficientTable`
+  을 전혀 읽지 않는다.
 
 ## 결합 효과
 

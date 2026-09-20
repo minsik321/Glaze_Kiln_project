@@ -64,10 +64,13 @@ def _app_with_llm(llm_handler, aice_runs: list[dict] | None = None, vectorstore:
             return response
         if request.url.path == "/rest/v1/aice_runs" and request.method == "GET":
             return httpx.Response(200, json=aice_runs or [])
-        if request.url.path == "/rest/v1/aice_runs" and request.method == "POST":
+        if request.url.path == "/rest/v1/rpc/save_aice_run" and request.method == "POST":
             body = json.loads(request.content)
+            values = body["p_values"]
+            feedback_status = "pending" if values["status"] == "evaluated" else "skipped"
             return httpx.Response(201, json=[{
-                "id": str(RUN_ID), **body, "created_at": NOW, "updated_at": NOW,
+                "id": str(RUN_ID), **values, "request_id": body["p_request_id"],
+                "feedback_status": feedback_status, "created_at": NOW, "updated_at": NOW,
             }])
         return httpx.Response(500)
 
@@ -83,14 +86,28 @@ def _app_with_llm(llm_handler, aice_runs: list[dict] | None = None, vectorstore:
     return create_app(make_settings(), gateway, llm, vectorstore), auth_upstream, llm_upstream
 
 
-def _aice_run_row(*, materials: dict, defects: list[str], gloss="satin", transparency="opaque"):
+def _aice_run_row(
+    *, materials: dict, defects: list[str], gloss="satin", transparency="opaque",
+    result_gloss="satin", result_transparency="opaque",
+):
+    """`result_gloss`/`result_transparency`는 사용자가 **실제로 관찰해
+    기록한** 값이다 — `_personal_search_history`가 조성 되먹임에 쓰는 건
+    이 실측 결과이지 `goal_gloss`/`goal_transparency`(그 회차가 노렸던
+    목표)가 아니다. 기본값은 목표와 같게 둬 "목표를 그대로 달성한 회차"를
+    나타내고, 목표를 빗나간 회차를 표현하려면 `result_gloss`/
+    `result_transparency`를 다르게 준다."""
     return {
         "status": "evaluated",
         "goal_gloss": gloss,
         "goal_transparency": transparency,
         "payload": {
             "recipe": {"materials": materials},
-            "result": {"defects": defects},
+            "result": {
+                "defects": defects,
+                "gloss": result_gloss,
+                "transparency": result_transparency,
+                "defects_reviewed": True,
+            },
         },
     }
 
@@ -384,6 +401,10 @@ async def test_create_aice_run_indexes_evaluated_run_into_personal_rag_corpus() 
     store = _memory_vectorstore()
     payload = sample_aice_run().to_dict()
     payload["status"] = "evaluated"
+    payload["result"]["gloss"] = "satin"
+    payload["result"]["transparency"] = "opaque"
+    payload["result"]["defects_reviewed"] = True
+    payload["result"]["match"] = "close"
 
     app, auth_upstream, llm_upstream = _app_with_llm(lambda _: httpx.Response(500), vectorstore=store)
     async with httpx.AsyncClient(

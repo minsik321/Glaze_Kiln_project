@@ -192,16 +192,18 @@ async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
     payload = sample_aice_run().to_dict()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/rest/v1/aice_runs"
         if request.method == "POST":
+            assert request.url.path == "/rest/v1/rpc/save_aice_run"
             body = json.loads(request.content)
-            assert body["user_id"] == str(USER_ID)
-            assert body["schema_version"] == 3
-            assert body["payload"]["sources"][0]["source_type"] == "literature"
-            assert body["payload"]["versions"]["rule_model"] == "rule-rank-1"
+            values = body["p_values"]
+            assert values["user_id"] == str(USER_ID)
+            assert values["schema_version"] == 3
+            assert values["payload"]["sources"][0]["source_type"] == "literature"
+            assert values["payload"]["versions"]["rule_model"] == "rule-rank-1"
             return httpx.Response(201, json=[{
-                "id": str(RECORD_ID), **body, "created_at": NOW, "updated_at": NOW,
+                "id": str(RECORD_ID), **values, "created_at": NOW, "updated_at": NOW,
             }])
+        assert request.url.path == "/rest/v1/aice_runs"
         assert request.url.params["user_id"] == f"eq.{USER_ID}"
         return httpx.Response(200, json=[{
             "id": str(RECORD_ID), "user_id": str(USER_ID), "title": "AICE sample",

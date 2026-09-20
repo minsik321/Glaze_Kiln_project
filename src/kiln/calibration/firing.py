@@ -91,9 +91,11 @@ class FiringRunUpdate:
 def _gloss_level(label: str | None) -> int | None:
     """저장된 광택 라벨(예: "satin"/"SATIN")을 :class:`Gloss` 레벨로.
 
-    ``routes.py`` 의 ``_goal_to_coordinate`` 와 같은 대소문자 무시
-    ``.strip().upper()`` 매핑 — 프런트엔드 문자열과 열거형 멤버 이름이
-    이미 같은 어휘라 별도 변환표가 필요 없다. 모르는 값이면 ``None``
+    ``goal_gloss``는 대소문자 무시 ``.strip().upper()`` 매핑으로 충분하다
+    — 프런트엔드 문자열과 열거형 멤버 이름이 이미 같은 어휘다(목표는
+    화면이 고른 값 그대로 올라온다). ``result_gloss``는 사용자가
+    ``ResultFeedback``에서 직접 고른 값이라 어휘가 다를 수 있지만, 이
+    함수는 두 입력 모두 같은 매핑을 쓴다 — 모르는 값이면 ``None``
     (판정 불가를 지어내지 않는다).
     """
     if not label:
@@ -120,6 +122,13 @@ def update_after_evaluated_run(
     """
     notes: list[str] = []
 
+    if any(defect not in {"pinholes", "crawling", "crazing", "running"} for defect in defects):
+        return FiringRunUpdate(
+            table=replace(table), applied=False, observed_error_level=None,
+            notes=("알 수 없는 결함 기록은 자동 소성 보정에 사용하지 않습니다.",),
+        )
+    notes.append("광택 차이는 관측의 순서형 오차입니다. 온도 보정은 다음 실험 가설이며 과용융·미용융의 원인을 입증하지 않습니다.")
+
     goal_level = _gloss_level(goal_gloss)
     if goal_level is None:
         notes.append(f"목표 광택 값 {goal_gloss!r}을 알려진 등급으로 해석할 수 없다 — 갱신하지 않는다")
@@ -138,10 +147,10 @@ def update_after_evaluated_run(
     error_level = result_level - goal_level
     notes.append(
         f"목표 {goal_gloss}(레벨 {goal_level}) vs 실제 {result_gloss}(레벨 {result_level}) "
-        f"= 오차 {error_level:+d} (양수: 목표보다 더 유광/과용융, 음수: 더 무광/미용융)"
+        f"= 오차 {error_level:+d} (양수: 목표보다 더 유광, 음수: 더 무광)"
     )
     if "running" in defects:
-        notes.append("'흘러내림' 결함이 함께 기록됨 — 과소성 방향과 일치하는 참고 신호(이 누적치 자체에는 합산하지 않는다)")
+        notes.append("'흘러내림' 결함이 함께 기록됨 — 조성·두께·소성 중 원인은 미확정이며 광택 오차에 합산하지 않는다")
 
     n = table.calibration_runs
     if table.gloss_bias_level is None or n <= 0:

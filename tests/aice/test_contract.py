@@ -40,3 +40,27 @@ def test_selected_curve_must_exist() -> None:
     data["curves"]["selected_id"] = "missing"
     with pytest.raises(ValueError, match="후보"):
         AiceRun.from_dict(data)
+
+
+def test_observation_fields_and_photo_survive_json_roundtrip() -> None:
+    data = sample_aice_run().to_dict()
+    data["recipe"].update(colorants={"CuO": 2.0}, colorant_note="외배합")
+    data["application"].update(method="pouring", dip_seconds=None, drying_complete=True)
+    data["result"].update(match="different", gloss="matte", transparency="opaque", defects_reviewed=True)
+    data["result"]["photo"] = {"id": "observation", "kind": "result", "storage_path": None, "data_url": "data:image/png;base64,aGVsbG8=", "placeholder": False, "source_type": "observed", "rights_confirmed": False, "alt": "관찰.png"}
+    restored = AiceRun.from_dict(json.loads(json.dumps(data)))
+    assert restored.result.photo.data_url == data["result"]["photo"]["data_url"]
+    assert restored.application.method == "pouring"
+    assert restored.application.drying_complete is True
+    assert restored.result.match == "different"
+    assert restored.result.defects_reviewed is True
+    assert restored.recipe.colorants == {"CuO": 2.0}
+
+
+def test_legacy_run_does_not_invent_review_or_drying_confirmation() -> None:
+    data = sample_aice_run().to_dict()
+    del data["application"]["drying_complete"]
+    del data["result"]["defects_reviewed"]
+    restored = AiceRun.from_dict(data)
+    assert restored.application.drying_complete is False
+    assert restored.result.defects_reviewed is False

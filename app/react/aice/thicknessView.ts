@@ -59,7 +59,7 @@ function classify(totalMm: number, [lo, hi]: readonly [number, number] = DEFAULT
   return "target";
 }
 
-export function buildThicknessView({ ware, profile }: { ware: WarePreset; profile: ThicknessComputeResponse | null }): ThicknessView {
+export function buildThicknessView({ ware, profile, safeRangeMm = DEFAULT_SAFE_RANGE_MM }: { ware: WarePreset; profile: ThicknessComputeResponse | null; safeRangeMm?: readonly [number, number] }): ThicknessView {
   const asset = SECTION_ASSETS[ware];
 
   if (!profile || profile.points.length === 0) {
@@ -77,7 +77,7 @@ export function buildThicknessView({ ware, profile }: { ware: WarePreset; profil
   const points = profile.points;
   const midIndex = Math.floor((points.length - 1) / 2);
   const sampled = [points[0], points[midIndex], points[points.length - 1]];
-  const statuses = sampled.map((point) => classify(point.total));
+  const statuses = sampled.map((point) => classify(point.total, safeRangeMm));
   const worst: ThicknessStatus = statuses.includes("thick") ? "thick" : statuses.includes("thin") ? "thin" : "target";
   const risk = worst === "thick"
     ? "하단과 안쪽 바닥의 흘러내림 위험을 먼저 확인하세요."

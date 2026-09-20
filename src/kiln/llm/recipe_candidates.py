@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from kiln.aice.contract import PhotoAsset, RecipeCandidate, RecipeCandidateSet, SourcedValue
+from kiln.aice.identity import canonical_recipe_id
 from kiln.chem.stull import classify
 from kiln.chem.umf import unity_formula_from_materials
 from kiln.chem.colorants import COLORANTS
@@ -112,6 +113,7 @@ def build_recipe_candidates(
                 raise ValueError("발색 산화물 외배합은 음수일 수 없습니다")
             name = str(item.get("name") or cid)
             GlazeRecipe(recipe_id=cid, name=name, materials=materials)
+            recipe_id = canonical_recipe_id(materials, colorants)
             umf = unity_formula_from_materials(materials)
             reading = classify(umf)
 
@@ -128,12 +130,12 @@ def build_recipe_candidates(
             full_note = f"{note} ({stull_note})" if note else stull_note
 
             candidate = RecipeCandidate(
-                id=cid,
+                id=recipe_id,
                 name=name,
                 materials=materials,
                 predicted_firing_range=firing_range,
                 predicted_firing_note=full_note,
-                photo=_placeholder_photo(cid),
+                photo=_placeholder_photo(recipe_id),
                 source_type="inferred",
                 source_ids=source_ids,
                 colorants=colorants,
@@ -145,7 +147,10 @@ def build_recipe_candidates(
         except (KeyError, ValueError, TypeError) as exc:
             errors.append(f"{cid}: {exc}")
             continue
-        built.append(candidate)
+        if any(existing.id == candidate.id for existing in built):
+            errors.append(f"{cid}: 동일 배합·외배합 후보를 중복 제거했습니다")
+        else:
+            built.append(candidate)
 
     if not built:
         raise RecipeCandidateValidationError(

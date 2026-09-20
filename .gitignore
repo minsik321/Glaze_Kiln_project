@@ -15,3 +15,5 @@ supabase/.branches/
 
 test-results/
 playwright-report/
+
+backend/scripts/_manual_review/

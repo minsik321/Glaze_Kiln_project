@@ -21,6 +21,8 @@ export type WorkRecordPage = {
 };
 
 export type AiceRunRecord = {
+  request_id?: string | null;
+  feedback_status?: "pending" | "applied" | "skipped";
   id: string;
   title: string;
   run: AiceRun;
@@ -248,6 +250,14 @@ export type CoefficientTableOut = {
   provenance_notes: string[];
   gloss_bias_level: number | null;
   firing_calibration_runs: number;
+  //: 비중 개인화 보정(kiln.calibration.density) — 이 레시피로 실제 시유에
+  //: 쓴 비중 실측값들의 관측 범위. null이면 아직 관측이 없다(0과 다른
+  //: 진술) — 화면은 이때 문헌 기본 범위([1.4, 1.5])로 대체해야 한다.
+  specific_gravity_range: [number, number] | null;
+  density_calibration_runs: number;
+  //: 같은 보정(kiln.calibration.density)의 개인 다음-시도 두께 제안 —
+  //: 위 safe_thickness_mm(위험 판정 경계)과 절대 같은 값이 아니다.
+  next_trial_thickness_mm: [number, number] | null;
 };
 export type CalibrationRunInput = {
   ware_preset: string;
@@ -292,8 +302,10 @@ export const aiceRunsApi = {
     return { ...page, items: page.items.map(validateAiceRecord) };
   },
   getPublic: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/public/aice-runs/${id}`, token)),
-  create: async (token: string, input: { title: string; run: AiceRun; is_public?: boolean }) =>
+  create: async (token: string, input: { title: string; run: AiceRun; request_id?: string; is_public?: boolean }) =>
     validateAiceRecord(await request<AiceRunRecord>("/aice-runs", token, { method: "POST", body: JSON.stringify({ ...input, is_public: input.is_public ?? false }) })),
+  retryFeedback: async (token: string, id: string) =>
+    validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/feedback/retry`, token, { method: "POST" })),
   publish: async (token: string, id: string, consent: { photo_rights_confirmed: boolean; pii_reviewed: boolean; location_removed: boolean; withdrawal_understood: boolean }) =>
     validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publish`, token, { method: "POST", body: JSON.stringify(consent) })),
   withdraw: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publication`, token, { method: "DELETE" })),

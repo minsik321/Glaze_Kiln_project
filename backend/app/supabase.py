@@ -58,6 +58,13 @@ class SupabaseGateway:
         )
         return self._list_json(response)
 
+    async def rpc(self, name: str, token: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+        response = await self._request(
+            "POST", f"{self.settings.supabase_url}/rest/v1/rpc/{name}",
+            headers=self._headers(token), json=body,
+        )
+        return self._list_json(response)
+
     async def insert(
         self, table: str, token: str, body: dict[str, Any], *, upsert: bool = False,
         conflict: str = "id",

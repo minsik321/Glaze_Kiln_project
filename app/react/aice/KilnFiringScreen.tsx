@@ -4,7 +4,7 @@ import type { SourcedValue } from "./contract";
 import { Alert, AsyncState, StatusBadge } from "./ui";
 import { moveSensor, sensorPreset, simulateKilnFrame, TOTAL_MINUTES, type KilnScenario, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import type { CoatingPreset } from "./thicknessView";
-import { buildCurveComparison, curveSummary, SCENARIO_CONTROL_PLANS, simulateController, type ControlDecision, type ControllerRun, type ControllerSample } from "./curvePlan";
+import { buildCurveComparison, curveSummary, SCENARIO_CONTROL_PLANS, simulateController, type CurveSeries, type ControlDecision, type ControllerRun, type ControllerSample } from "./curvePlan";
 import { ApiError } from "../lib/api";
 import { isSupabaseConfigured, requireSupabase } from "../lib/supabase";
 
@@ -61,6 +61,7 @@ export function KilnFiringScreen({
   sensors,
   onSensorsChange,
   recipeFiringRangeC,
+  executionCurves,
   riskMitigationApplied,
   onApprove,
   simulationCompleted,
@@ -72,6 +73,7 @@ export function KilnFiringScreen({
   sensors: SensorPlacement[];
   onSensorsChange: (sensors: SensorPlacement[]) => void;
   recipeFiringRangeC?: readonly [number, number] | null;
+  executionCurves?: CurveSeries[];
   riskMitigationApplied: boolean;
   onApprove: (decision: ControlDecision, samples: ControllerSample[], parameters: Record<string, SourcedValue<number>>) => void;
   simulationCompleted: boolean;
@@ -115,7 +117,7 @@ export function KilnFiringScreen({
   const adjust = (id: string, delta: number) => onSensorsChange(moveSensor(sensors, id, delta));
   const heatHue = 210 - frame.visual.heatLevel * 196;
 
-  const curves = useMemo(() => buildCurveComparison(coating, recipeFiringRangeC ?? null), [coating, recipeFiringRangeC]);
+  const curves = useMemo(() => executionCurves ?? buildCurveComparison(coating, recipeFiringRangeC ?? null), [executionCurves, coating, recipeFiringRangeC]);
   //: riskMitigationApplied가 true면(3페이지에서 위험을 줄이는 소성 계획을
   //: 이미 적용했으면) "기준 계획" 대신 "두께 반영 수정 계획"을 기본으로
   //: 강조한다 — 기준 계획 자체는 지워지지 않고 체크박스로 다시 켤 수 있다.
@@ -124,12 +126,19 @@ export function KilnFiringScreen({
   const [status, setStatus] = useState<"loading" | "error" | "complete">("loading");
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
+  const onApproveRef = useRef(onApprove);
+  onApproveRef.current = onApprove;
+  const previousScenario = useRef(scenario);
 
   //: 이상 시나리오를 고르면 "두께 반영 수정 계획"만 그 외란으로 다시
   //: 계산한다("기준 계획"은 buildCurveComparison이 낸 그대로 고정).
   useEffect(() => {
     const plan = SCENARIO_CONTROL_PLANS[scenario];
     const id = ++requestId.current;
+    if (previousScenario.current !== scenario) onApproveRef.current("regenerate", [], {});
+    previousScenario.current = scenario;
+    setRun(null);
+    setPlaying(false);
     setStatus("loading");
     setError(null);
     simulateController(curves[1], plan.disturbance, plan.constraints.sampleSeconds)
@@ -143,6 +152,7 @@ export function KilnFiringScreen({
         setError(err instanceof ApiError ? err.message : "가상 제어 계산을 불러오지 못했습니다.");
         setStatus("error");
       });
+    return () => { requestId.current++; };
   }, [curves, scenario]);
 
   const samples = run?.samples ?? [];

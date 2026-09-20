@@ -42,8 +42,19 @@ class AimlapiSettings:
     api_key: str
     base_url: str = "https://api.aimlapi.com/v1"
     text_model: str = ""
+    #: 1차 호출(목표 분류)에만 쓰는 가벼운 모델. 비우면 text_model로 대체된다
+    #: — 두 필드짜리 분류에 배합 서술용 무거운 모델의 지연을 물려받지
+    #: 않도록 분리할 수 있다(``effective_target_model``).
+    target_model: str = ""
     image_model: str = ""
+    #: 응답 생성(read) 대기 상한. connect_timeout_seconds와 분리한 이유는
+    #: connect_timeout_seconds의 docstring 참고.
     timeout_seconds: float = 30.0
+    #: 연결 대기 상한 — 응답이 느린 것과 서버에 붙지 못하는 것은 서로 다른
+    #: 실패라 같은 시간을 줄 이유가 없다. timeout_seconds를 늘려도(느린
+    #: 생성을 기다려주려고) 진짜 네트워크 장애는 여전히 이 짧은 시간 안에
+    #: 실패해야 재시도·에러 응답이 지연 없이 나간다.
+    connect_timeout_seconds: float = 10.0
     #: aimlapi.com은 제3자 중계 게이트웨이라 장애 시 대체 경로가 없다
     #: (docs/AICE_LLM_FRONTDOOR_PLAN.md §9). 순간적인 지연·과부하까지
     #: 즉시 사용자 실패로 보여주지 않기 위해 일시적 오류(429·502·503·504)에
@@ -59,6 +70,10 @@ class AimlapiSettings:
     @property
     def image_configured(self) -> bool:
         return bool(self.api_key and self.image_model)
+
+    @property
+    def effective_target_model(self) -> str:
+        return self.target_model or self.text_model
 
 
 class AimlapiError(Exception):
@@ -81,7 +96,11 @@ class AimlapiClient:
     ) -> None:
         self.settings = settings
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
+        self.client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                settings.timeout_seconds, connect=settings.connect_timeout_seconds
+            )
+        )
 
     async def close(self) -> None:
         if self._owns_client:
@@ -118,7 +137,11 @@ class AimlapiClient:
         return parsed
 
     async def chat_json(
-        self, messages: list[dict[str, Any]], *, temperature: float = 0.4
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        temperature: float = 0.4,
+        model: str | None = None,
     ) -> dict[str, Any]:
         """고정 JSON 스키마 응답을 기대하는 채팅 호출.
 
@@ -126,10 +149,15 @@ class AimlapiClient:
         이를 무시할 수 있으므로, JSON이 아닌 응답을 조용히 빈 값으로
         넘기지 않고 ``AimlapiError`` 로 실패시킨다 — 화면 1이 지어낸
         후보를 받는 것보다 빈 화면을 보여주는 편이 낫다.
+
+        ``model``을 생략하면 ``settings.text_model``을 쓴다. 1차 호출(목표
+        분류)처럼 가벼운 작업엔 호출부가
+        ``settings.effective_target_model``을 명시로 넘겨 더 빠른 모델로
+        보낼 수 있다.
         """
         self._require_configured()
         payload = {
-            "model": self.settings.text_model,
+            "model": model or self.settings.text_model,
             "messages": messages,
             "temperature": temperature,
             "response_format": {"type": "json_object"},

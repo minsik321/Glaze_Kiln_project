@@ -4,6 +4,7 @@ import pytest
 
 from kiln.domain.enums import Gloss, Transparency
 from kiln.domain.models import TargetCoordinate
+from kiln.aice.identity import canonical_recipe_id
 from kiln.llm.recipe_candidates import RecipeCandidateValidationError, build_recipe_candidates, parse_target
 from kiln.search.objective import Candidate
 
@@ -12,7 +13,7 @@ _MATERIALS = {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15
 
 def _search_candidates(count: int = 2) -> list[Candidate]:
     return [
-        Candidate(materials=dict(_MATERIALS), expected_distance=float(i), umf_note=f"검색 후보 {i + 1} 근거")
+        Candidate(materials={**_MATERIALS, "장석": 40.0 - i, "규석": 25.0 + i}, expected_distance=float(i), umf_note=f"검색 후보 {i + 1} 근거")
         for i in range(count)
     ]
 
@@ -66,7 +67,7 @@ def test_search_candidate_with_invalid_composition_is_dropped_not_crashed() -> N
     raw = {"candidates": [_raw_candidate("cand-1"), _raw_candidate("cand-2")]}
     candidate_set, errors = build_recipe_candidates(raw, [bad_candidate, *_search_candidates(1)])
     assert len(candidate_set.candidates) == 1
-    assert candidate_set.candidates[0].id == "cand-2"
+    assert candidate_set.candidates[0].id == canonical_recipe_id(_MATERIALS, {"CuO": 2.0, "CoO": 0.2})
     assert len(errors) == 1
     assert "cand-1" in errors[0]
 
@@ -108,3 +109,20 @@ def test_parse_target_rejects_unknown_label() -> None:
 def test_parse_target_rejects_missing_keys() -> None:
     with pytest.raises(RecipeCandidateValidationError):
         parse_target({"target_gloss": "SATIN"})
+
+
+def test_candidate_identity_is_composition_not_llm_slot_or_name() -> None:
+    raw = {"candidates": [_raw_candidate("cand-1")]}
+    first, _ = build_recipe_candidates(raw, _search_candidates(1))
+    changed = Candidate(materials={**_MATERIALS, "장석": 30.0, "규석": 35.0}, expected_distance=0, umf_note="")
+    second, _ = build_recipe_candidates(raw, [changed])
+    reordered, _ = build_recipe_candidates({"candidates": [_raw_candidate("cand-8", name="다른 이름")]}, _search_candidates(1))
+    assert first.candidates[0].id != second.candidates[0].id
+    assert first.candidates[0].id == reordered.candidates[0].id
+
+
+def test_identical_candidate_recipes_are_deduplicated() -> None:
+    one = _search_candidates(1)[0]
+    result, errors = build_recipe_candidates({"candidates": [_raw_candidate(), _raw_candidate("cand-2")]}, [one, one])
+    assert len(result.candidates) == 1
+    assert "중복" in errors[0]

@@ -99,11 +99,15 @@ function mockFetch({
 }
 
 //: 5페이지에서 도포 상태가 계산되려면 시유 전/후 무게(기본 방식이
-//: "담금"이라 담금시간도)를 입력해야 한다 — 선택 버튼이 없어졌으므로.
+//: "담금"이라 담금시간도)와 건조 완료 확인을 입력해야 한다 — 선택 버튼이
+//: 없어졌고(weightsReady가 state.dryingComplete를 요구, AicePrototype.tsx),
+//: 입력 변경 시 이전 계산이 무효화되는 게 항목 6의 요구사항이므로 여기서도
+//: 실제 사용자 흐름과 같은 순서로 체크박스를 눌러야 한다.
 function fillWeightInputs() {
   fireEvent.change(screen.getByLabelText(/시유 전\(g\)/), { target: { value: "100" } });
   fireEvent.change(screen.getByLabelText(/시유 후\(g\)/), { target: { value: "120" } });
   fireEvent.change(screen.getByLabelText(/담금시간\(초\)/), { target: { value: "5" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /완전히 건조된 상태/ }));
 }
 
 afterEach(() => {
@@ -176,7 +180,7 @@ describe("AICE guided prototype", () => {
     fireEvent.click(playButton);
     getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     const run = await getter();
-    expect(run.curves.selected_id).toMatch(/thickness-target/);
+    expect(run.curves.selected_id).toMatch(/personalized-target/);
     expect(run.curves.candidates.find((curve: { id: string }) => curve.id === run.curves.selected_id)?.role).toBe("selected");
     expect(run.pid).toMatchObject({ decision: "accepted", controller_kind: "feedforward_p" });
     expect(run.pid.samples.length).toBeGreaterThan(0);
@@ -219,13 +223,17 @@ describe("AICE guided prototype", () => {
     // 반영되지 않는다 — 버튼을 실제로 눌러야 onSelect가 불린다.
     const cardA = screen.getByText("해안 사틴 A").closest("article")!;
     fireEvent.click(within(cardA).getByRole("button"));
+    // toFiringCurve(curvePlan.ts)는 아직 승인되지 않은 개인화 후보(내부
+    // role "adjusted")를 노출 role "candidate"로 매핑한다 — 승인되면
+    // "selected"로 바뀐다("records only an approved curve" 테스트가
+    // 그 경로를 검증). 여기서는 아직 승인 전이므로 "candidate"를 찾는다.
     const coastalRun = await onSnapshotReady.mock.calls.at(-1)?.[0]();
-    const coastalNext = coastalRun.curves.candidates.find((curve: { role: string }) => curve.role === "next");
+    const coastalNext = coastalRun.curves.candidates.find((curve: { role: string }) => curve.role === "candidate");
 
     const cardB = screen.getByText("웜 클리어 B").closest("article")!;
     fireEvent.click(within(cardB).getByRole("button"));
     const warmClearRun = await onSnapshotReady.mock.calls.at(-1)?.[0]();
-    const warmClearNext = warmClearRun.curves.candidates.find((curve: { role: string }) => curve.role === "next");
+    const warmClearNext = warmClearRun.curves.candidates.find((curve: { role: string }) => curve.role === "candidate");
 
     // 레시피 후보(예상 소성범위)를 바꾸면 predictionModel.predictNextRun()의
     // 보정값이 달라지고, 그 값이 "다음 실행 제안" 곡선 한 장에 그대로
@@ -252,7 +260,13 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    // 평가 완료(evaluationComplete, feedback.ts)는 전체 인상뿐 아니라
+    // 광택·투명도·결함 확인까지 모두 요구한다 — 항목 4("평가 완료... 필수로
+    // 검증"): 불완전한 기록은 저장 버튼이 계속 비활성 상태로 남는다.
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
+    fireEvent.click(screen.getByRole("button", { name: "사틴" }));
+    fireEvent.click(screen.getByRole("button", { name: "불투명" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /결함을 확인했습니다/ }));
 
     const saveButton = screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ });
     expect((saveButton as HTMLButtonElement).disabled).toBe(false);

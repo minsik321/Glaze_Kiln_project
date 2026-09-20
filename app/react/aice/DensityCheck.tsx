@@ -10,8 +10,26 @@ const ALERT_TONE: Record<DensityAdvice["status"], "warning" | "danger" | "unavai
   out_of_range: "danger",
 };
 
-export function DensityCheck({ defaultTargetMm }: { defaultTargetMm?: number } = {}) {
-  const [rho, setRho] = useState("");
+export function DensityCheck({
+  rho,
+  onRhoChange,
+  defaultTargetMm,
+  densityRange,
+}: {
+  //: v9 후속: 비중 실측값을 이 화면 안에서만 들고 있지 않는다 — 부모
+  //: (AicePrototype.tsx)가 끌어올려 두께 계산(`/kiln/thickness/profile`의
+  //: `specific_gravity`)과 저장 기록(`application.density`)에도 같은 값을
+  //: 쓴다. 이전에는 여기 로컬 상태였던 탓에 사용자가 입력한 비중이 두께
+  //: 계산에도, 저장에도 전달되지 않고 이 화면의 판정 문구에만 쓰였다.
+  rho: string;
+  onRhoChange: (value: string) => void;
+  defaultTargetMm?: number;
+  //: 이 레시피로 실제 시유에 쓴 비중 실측값의 누적 범위
+  //: (`kiln.calibration.density`, `GET /aice/calibration/{recipe_id}`의
+  //: `specific_gravity_range`). 관측이 아직 없으면 `null`이고, 이때는
+  //: `assessDensity`의 문헌 기본 범위([1.4, 1.5])가 그대로 쓰인다.
+  densityRange?: readonly [number, number] | null;
+}) {
   const [minutes, setMinutes] = useState("0");
   const [advice, setAdvice] = useState<DensityAdvice | null>(null);
   //: v9 후속: "레시피상 유약 두께를 목표 평균 두께로 설정" — 목표 두께를
@@ -31,7 +49,11 @@ export function DensityCheck({ defaultTargetMm }: { defaultTargetMm?: number } =
   const check = () => {
     if (!rhoValid) return;
     const parsedMinutes = Number(minutes);
-    setAdvice(assessDensity(parsedRho, Number.isFinite(parsedMinutes) ? parsedMinutes : 0));
+    setAdvice(
+      densityRange
+        ? assessDensity(parsedRho, Number.isFinite(parsedMinutes) ? parsedMinutes : 0, [...densityRange])
+        : assessDensity(parsedRho, Number.isFinite(parsedMinutes) ? parsedMinutes : 0),
+    );
   };
 
   const suggestDipTime = async () => {
@@ -52,7 +74,7 @@ export function DensityCheck({ defaultTargetMm }: { defaultTargetMm?: number } =
     <section className="density-check" aria-labelledby="density-check-title">
       <h3 id="density-check-title">비중 확인</h3>
       <div className="density-check-fields">
-        <label htmlFor="density-check-rho">비중(ρ)<input id="density-check-rho" type="number" step="0.01" min="1.01" placeholder="예: 1.45" value={rho} onChange={(event) => setRho(event.target.value)} /></label>
+        <label htmlFor="density-check-rho">비중(ρ)<input id="density-check-rho" type="number" step="0.01" min="1.01" placeholder="예: 1.45" value={rho} onChange={(event) => onRhoChange(event.target.value)} /></label>
         <label htmlFor="density-check-minutes">교반 후 경과(분)<input id="density-check-minutes" type="number" step="1" min="0" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>
         <button type="button" className="act ghost" disabled={!rhoValid} onClick={check}>비중 확인하기</button>
       </div>
@@ -61,7 +83,12 @@ export function DensityCheck({ defaultTargetMm }: { defaultTargetMm?: number } =
           {advice.annotation}{advice.remeasureRecommended ? " · 재측정 권장" : ""}
         </Alert>
       )}
-      <p className="density-check-note">이 판정은 진행을 막지 않는 참고 안내이며, kiln.batch의 비중 경고 로직(6-4절)과 같은 기준을 프런트엔드에서 재현합니다.</p>
+      <p className="density-check-note">
+        {densityRange
+          ? `이 레시피로 실제 시유에 쓴 비중 실측 범위(${densityRange[0].toFixed(2)}–${densityRange[1].toFixed(2)})를 기준으로 판정합니다.`
+          : "이 판정은 진행을 막지 않는 참고 안내이며, kiln.batch의 비중 경고 로직(6-4절)과 같은 기준(문헌 기본 범위)을 프런트엔드에서 재현합니다."}
+      </p>
+      <p className="density-check-hint">여기 입력한 비중은 아래 두께 계산과 이 회차 저장 기록에도 함께 쓰입니다.</p>
 
       <h4>담금시간 역산 (06절)</h4>
       <div className="density-check-fields">

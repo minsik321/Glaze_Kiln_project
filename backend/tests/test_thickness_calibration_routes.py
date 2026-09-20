@@ -97,8 +97,8 @@ async def test_dip_time_endpoint_needs_no_auth() -> None:
 @pytest.mark.asyncio
 async def test_get_calibration_defaults_to_undetermined_when_no_row() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/rest/v1/personal_calibrations"
         assert request.method == "GET"
+        assert request.url.path in {"/rest/v1/aice_runs", "/rest/v1/personal_calibrations"}
         return httpx.Response(200, json=[])
 
     app, upstream = client_for(handler)
@@ -173,8 +173,10 @@ async def test_get_calibration_reports_firing_bias_when_present() -> None:
     predictionModel.ts가 다음 회차 제안에 반영할 수 있다."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/rest/v1/personal_calibrations"
         assert request.method == "GET"
+        if request.url.path == "/rest/v1/aice_runs":
+            return httpx.Response(200, json=[])
+        assert request.url.path == "/rest/v1/personal_calibrations"
         return httpx.Response(200, json=[{
             "coefficients": {
                 "recipe_id": "coastal-satin", "k1": 0.55, "calibration_runs": 3,

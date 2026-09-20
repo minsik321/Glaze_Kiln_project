@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import base64
+import math
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -63,11 +66,20 @@ class PhotoAsset:
     source_type: SourceType
     rights_confirmed: bool
     alt: str
+    data_url: str | None = None
 
     def __post_init__(self) -> None:
         _source(self.source_type)
         if self.storage_path and not self.rights_confirmed:
             raise ValueError("사진 파일은 권리 확인 없이 연결할 수 없습니다")
+        if self.data_url is not None:
+            match = re.fullmatch(r"data:image/(?:png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)", self.data_url)
+            if not match or len(self.data_url) > 8_000_000:
+                raise ValueError("관찰 사진은 6MB 이하의 PNG/JPEG/GIF/WebP 데이터여야 합니다")
+            try:
+                base64.b64decode(match[1], validate=True)
+            except ValueError as exc:
+                raise ValueError("사진 base64 형식이 올바르지 않습니다") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +104,8 @@ class RecipeSelection:
     #: 생기기 전에 저장된 기존 레코드와의 호환을 위한 것이고, 그런
     #: 레코드는 되먹임 대상에서 제외된다(조성을 모르므로).
     materials: dict[str, float] = field(default_factory=dict)
+    colorants: dict[str, float] = field(default_factory=dict)
+    colorant_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +182,8 @@ class RecipeCandidateSet:
             firing_range=chosen.predicted_firing_range,
             source_ids=chosen.source_ids,
             materials=dict(chosen.materials),
+            colorants=dict(chosen.colorants),
+            colorant_note=chosen.colorant_note,
         )
 
 
@@ -189,6 +205,12 @@ class ApplicationRecord:
     before_weight: SourcedValue
     after_weight: SourcedValue
     density: SourcedValue
+    dip_seconds: float | None = None
+    drying_complete: bool = False
+
+    def __post_init__(self) -> None:
+        if self.dip_seconds is not None and (not math.isfinite(self.dip_seconds) or self.dip_seconds <= 0):
+            raise ValueError("담금시간은 유한한 양수여야 합니다")
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +288,14 @@ class ResultEvaluation:
     transparency: str | None
     defects: tuple[str, ...]
     feedback_scope: Literal["personal", "common_candidate"] | None
+    match: Literal["close", "different"] | None = None
+    defects_reviewed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.match not in (None, "close", "different"):
+            raise ValueError("전체 인상은 close 또는 different여야 합니다")
+        if not isinstance(self.defects_reviewed, bool):
+            raise ValueError("결함 확인은 boolean이어야 합니다")
 
 
 @dataclass(frozen=True, slots=True)
