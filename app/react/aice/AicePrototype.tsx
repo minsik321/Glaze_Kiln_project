@@ -11,7 +11,7 @@ import { buildThicknessView, DEFAULT_SAFE_RANGE_MM, type CoatingPreset } from ".
 import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
 import { KilnFiringScreen } from "./KilnFiringScreen";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
-import { buildCurveComparison, curveSummary, toFiringCurve, type CurveSeries, type ControllerSample } from "./curvePlan";
+import { buildCurveComparison, toFiringCurve, type CurveSeries, type ControllerSample } from "./curvePlan";
 import { parseFiringRangeC, predictNextRun, PREDICTOR_VERSION } from "./predictionModel";
 import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
@@ -667,15 +667,21 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
                 {thicknessViewData.risk}
               </Alert>
               {/* v9 후속(2026-09-20): "이대로 진행하고 소성 계획으로 위험
-                  줄이기" 버튼이 실제로 무엇을 하는지 문구만으로는 안 보여서
-                  사용자가 하드코딩된 버튼처럼 느꼈다 — 실제로 계산된 조정
-                  계획(curvePlan.buildCurveComparison)의 내용을 버튼을
-                  누르기 전에 그대로 보여준다. */}
-              {computedCoating !== "target" && (
-                <Alert tone="unavailable" title="소성 계획이 이렇게 위험을 줄입니다">
-                  {executionCurves[1].reason} {curveSummary(executionCurves)}
-                </Alert>
-              )}
+                  줄이기" 버튼이 실제로 무엇을 하는지 안 보이던 문제를
+                  고치되, curveSummary 전체 문장은 그래프 범례용이라
+                  장황해서(사유 문장 + 캐빗 2개) 여기선 실제 계산된
+                  최고온도 오프셋 한 줄로 줄인다. */}
+              {computedCoating !== "target" && (() => {
+                const peakDeltaC = Math.round(
+                  Math.max(...executionCurves[1].points.map((point) => point.temperatureC)) -
+                  Math.max(...executionCurves[0].points.map((point) => point.temperatureC)),
+                );
+                return (
+                  <Alert tone="unavailable" title="소성 계획이 이렇게 위험을 줄입니다">
+                    최고 구간 온도를 {Math.abs(peakDeltaC)}°C {peakDeltaC < 0 ? "낮춰" : "올려"} 조정합니다.
+                  </Alert>
+                );
+              })()}
               <div className="thickness-decision-actions">
                 <button
                   type="button"
