@@ -125,6 +125,10 @@ export function KilnFiringScreen({
   const [run, setRun] = useState<ControllerRun | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "complete">("loading");
   const [error, setError] = useState<string | null>(null);
+  //: 계산 요청이 실패하면(네트워크 순단 등) 시나리오를 바꾸지 않는 한 재시도할
+  //: 방법이 없어 "이 계획대로 가마에 적용해서 시작" 버튼이 영구히 눌리지
+  //: 않는 문제가 있었다 — retryToken을 바꿔 같은 시나리오로 다시 요청한다.
+  const [retryToken, setRetryToken] = useState(0);
   const requestId = useRef(0);
   const onApproveRef = useRef(onApprove);
   onApproveRef.current = onApprove;
@@ -153,7 +157,7 @@ export function KilnFiringScreen({
         setStatus("error");
       });
     return () => { requestId.current++; };
-  }, [curves, scenario]);
+  }, [curves, scenario, retryToken]);
 
   const samples = run?.samples ?? [];
   const alarms = samples.filter((sample) => sample.alarm);
@@ -212,7 +216,11 @@ export function KilnFiringScreen({
       <p className="curve-natural-summary">{curveSummary(curves)}</p>
 
       {status === "loading" && <AsyncState kind="loading" />}
-      {status === "error" && <Alert tone="danger" title="가상 제어 계산 오류">{error}</Alert>}
+      {status === "error" && (
+        <Alert tone="danger" title="가상 제어 계산 오류">
+          {error} <button type="button" className="choice-chip" onClick={() => setRetryToken((current) => current + 1)}>다시 시도</button>
+        </Alert>
+      )}
       {status === "complete" && run && (
         <div className="controller-readouts"><span><b>최대 |추종오차|</b>{Math.max(...samples.map((sample) => Math.abs(sample.errorC)))} °C</span><span><b>최대 히터 출력</b>{Math.max(...samples.map((sample) => sample.heaterPercent))}%</span><span><b>경보</b>{alarms.length}개</span><span><b>샘플 주기</b>{plan.constraints.sampleSeconds}초</span></div>
       )}
