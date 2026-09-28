@@ -425,16 +425,29 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   overflow: hidden;
-  background: rgba(255, 255, 255, .96);
+  background: rgba(255, 255, 255, .7);
   border: 1px solid rgba(0, 0, 0, .05);
   border-radius: 32px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
   backdrop-filter: blur(16px);
   transform: translateX(-50%);
 }
+.bottom-nav-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--nav-count));
+  border-radius: 28px;
+  background: rgba(92, 92, 92, .3);
+  transform: translateX(calc(var(--nav-index) * 100%));
+  transition: transform 300ms cubic-bezier(.22, .8, .24, 1);
+  pointer-events: none;
+}
 .bottom-nav button {
   position: relative;
-  isolation: isolate;
+  z-index: 1;
   appearance: none;
   border: 0;
   background: transparent;
@@ -450,15 +463,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   cursor: pointer;
 }
 .bottom-nav button[aria-current="page"] { color: #000; font-weight: 600; }
-.bottom-nav button[aria-current="page"]::before {
-  position: absolute;
-  z-index: -1;
-  width: 55px;
-  height: 55px;
-  border-radius: 50%;
-  background: #e2e2e2;
-  content: "";
-}
 .bottom-nav svg {
   width: 22px;
   height: 22px;
@@ -467,6 +471,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.workflow-slide-panel {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  transform: translateX(var(--workflow-drag-x));
+  touch-action: pan-y;
+}
+.workflow-slide-panel-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  animation: workflow-slide-in 340ms cubic-bezier(.22, .8, .24, 1) both;
+}
+.workflow-slide-panel-content.is-closing { animation: workflow-slide-out 280ms cubic-bezier(.4, 0, .7, .2) both; }
+@keyframes workflow-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes workflow-slide-out { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .bottom-nav-indicator { transition-duration: .01ms; }
+  .workflow-slide-panel-content,
+  .workflow-slide-panel-content.is-closing { animation-duration: .01ms; }
 }
 
 header.top {
@@ -649,7 +679,7 @@ button.act.next { display: flex; justify-content: space-between; align-items: ce
 .option { grid-template-columns: 1fr auto; }
 
 .app-utility-view { overflow-y: auto; background: var(--bg); padding-bottom: var(--app-bar-height); }
-.utility-header { padding: 26px 18px 8px; }
+.utility-header { padding: calc(var(--app-safe-top) + 18px) 18px 8px; }
 .utility-header h1 { margin: 5px 0 4px; font-size: 1.45rem; }
 .utility-header p { color: var(--muted); font-size: .82rem; }
 

@@ -597,6 +597,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               <li />
               <li />
               <li />
+              <li />
             </ol>
           </div>
         )}

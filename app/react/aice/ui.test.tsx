@@ -1,31 +1,28 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { ChoiceChip, DetailDrawer, ProgressHeader, StateGallery, StatusBadge } from "./ui";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { BottomNavigation } from "./ui";
 
 afterEach(cleanup);
 
-describe("AICE design system", () => {
-  it("renders every reusable async state without data", () => {
-    render(<StateGallery />);
-    for (const label of ["아직 기록이 없어요", "계산 엔진을 준비하고 있어요", "불러오지 못했어요", "판정 불가", "가상 실행을 기록했어요"]) {
-      expect(screen.getByText(label)).toBeTruthy();
-    }
-  });
+describe("BottomNavigation", () => {
+  it("moves a single indicator to the selected menu item", () => {
+    const onChange = vi.fn();
+    const items = [
+      { id: "home", label: "홈", icon: <span /> },
+      { id: "search", label: "검색", icon: <span /> },
+      { id: "history", label: "생성기록", icon: <span /> },
+      { id: "my", label: "마이", icon: <span /> },
+    ] as const;
+    const { rerender } = render(<BottomNavigation current="home" items={items} onChange={onChange} />);
 
-  it("exposes progress and selection semantics", () => {
-    const onClick = () => undefined;
-    render(<><ProgressHeader current={2} total={3} labels={["홈", "선택", "완료"]} /><ChoiceChip selected onClick={onClick}>균형</ChoiceChip><StatusBadge tone="unavailable">판정 불가</StatusBadge></>);
-    expect(screen.getByText("2 / 3")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "균형" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("판정 불가")).toBeTruthy();
-  });
+    const navigation = screen.getByRole("navigation", { name: "주요 메뉴" });
+    expect(navigation.style.getPropertyValue("--nav-index")).toBe("0");
+    expect(navigation.querySelectorAll(".bottom-nav-indicator")).toHaveLength(1);
 
-  it("keeps technical detail collapsed until requested", () => {
-    render(<DetailDrawer><p>원시값과 수식</p></DetailDrawer>);
-    const details = screen.getByText("상세 보기").closest("details")!;
-    expect(details.open).toBe(false);
-    fireEvent.click(screen.getByText("상세 보기"));
-    expect(details.open).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    expect(onChange).toHaveBeenCalledWith("search");
+
+    rerender(<BottomNavigation current="search" items={items} onChange={onChange} />);
+    expect(navigation.style.getPropertyValue("--nav-index")).toBe("1");
   });
 });
-

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export function AppShell({ children, navigation }: { children: ReactNode; navigation: ReactNode }) {
   return <div className="app-stage"><div className="app-shell">{children}{navigation}</div></div>;
@@ -19,8 +19,15 @@ export function BottomNavigation<T extends string>({
   items: readonly NavigationItem<T>[];
   onChange: (view: T) => void;
 }) {
+  const activeIndex = Math.max(0, items.findIndex((item) => item.id === current));
+
   return (
-    <nav className="bottom-nav" aria-label="주요 메뉴">
+    <nav
+      className="bottom-nav"
+      aria-label="주요 메뉴"
+      style={{ "--nav-index": activeIndex, "--nav-count": items.length } as CSSProperties}
+    >
+      <span className="bottom-nav-indicator" aria-hidden="true" />
       {items.map((item) => (
         <button key={item.id} type="button" aria-current={current === item.id ? "page" : undefined} onClick={() => onChange(item.id)}>
           {item.icon}<span>{item.label}</span>

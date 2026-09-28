@@ -124,6 +124,14 @@ async function skipToWare() {
 }
 
 describe("AICE guided prototype", () => {
+  it("shows the five-stage progress rail from the updated work screen", () => {
+    render(<AicePrototype token="" />);
+
+    const progress = screen.getByLabelText("유약 작업 진행 단계");
+    expect(progress.querySelectorAll(".recipe-step-lines li")).toHaveLength(5);
+    expect(progress.querySelectorAll(".recipe-step-lines li.active")).toHaveLength(1);
+  });
+
   it("keeps the recipe prompt editable before login", () => {
     mockFetch();
     render(<AicePrototype />);
