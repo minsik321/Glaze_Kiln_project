@@ -7,11 +7,11 @@ npm ci
 npm run dev
 ```
 
-앱은 `http://127.0.0.1:5173/`에서 실행합니다. 작업 기록과 LLM 레시피 추천을
-사용하려면 FastAPI도 별도 터미널에서 실행해야 합니다.
+앱은 `http://127.0.0.1:5173/`에서 실행합니다. `npm run dev`는 프런트엔드와
+FastAPI 백엔드(`http://127.0.0.1:8000`)를 함께 실행합니다.
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+npm run dev:backend
 ```
 
 ## 구조

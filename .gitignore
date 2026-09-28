@@ -8,6 +8,7 @@ dist/
 _shots/
 
 node_modules/
+.npm-cache/
 .env*
 !.env.example
 supabase/.temp/

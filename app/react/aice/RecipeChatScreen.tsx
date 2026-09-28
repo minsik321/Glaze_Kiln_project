@@ -1,9 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
 import type { RecipeCandidate } from "./contract";
-import { SOURCE_LABELS } from "./catalog";
 import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
-import { Alert, AsyncState, DetailDrawer, StatusBadge } from "./ui";
+import { Alert, AsyncState, DetailDrawer } from "./ui";
 
 /**
  * 화면 1(LLM 채팅) — LLM 프런트도어 TODO Phase 2, v9 개편.
@@ -52,6 +51,7 @@ export function RecipeChatScreen({
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
   const [historyMatches, setHistoryMatches] = useState<HistoryMatch[]>([]);
+  const [detailCandidate, setDetailCandidate] = useState<RecipeCandidate | null>(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [history, setHistory] = useState<AiceRunRecord[]>([]);
@@ -176,7 +176,7 @@ export function RecipeChatScreen({
   ];
 
   return (
-    <section className="recipe-chat-screen" aria-labelledby="recipe-chat-title">
+    <section className={`recipe-chat-screen${cards.length > 0 || status !== "idle" ? " has-response" : ""}`} aria-labelledby="recipe-chat-title">
       {/* v9 후속 개편: 채팅창을 여는 첫 표지처럼 아무 설명 없이 입력만
           보이게 한다 — 안내문·배지는 지웠다. 제목은 시각적으로는 숨기되
           스크린리더용으로만 남긴다(sr-only). */}
@@ -189,7 +189,7 @@ export function RecipeChatScreen({
         onClick={toggleSidebar}
         disabled={!token}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="1.5" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></svg>
       </button>
 
       {sidebarOpen && (
@@ -213,21 +213,41 @@ export function RecipeChatScreen({
         </>
       )}
 
+      <div className="recipe-chat-intro">
+        <p><strong>Chloe 님 안녕하세요,</strong><br />오늘은 어떤 실험을 해볼까요?</p>
+      </div>
       <form onSubmit={submit} className="recipe-prompt-form">
-        <label htmlFor="recipe-prompt" className="sr-only">원하는 결과를 설명해 주세요</label>
-        <textarea
-          id="recipe-prompt"
-          value={promptText}
-          onChange={(event) => setPromptText(event.target.value)}
-          placeholder="예: 사발에 어울리는 청록색 사틴 유약을 찾고 있어요"
-          rows={3}
-          disabled={disabled}
-        />
-        <button type="submit" disabled={disabled || status === "loading" || !promptText.trim()}>
-          {status === "loading" ? "후보 만드는 중…" : "후보 만들기"}
-        </button>
+        <div className="recipe-prompt-pill">
+          <label htmlFor="recipe-prompt" className="sr-only">원하는 결과를 설명해 주세요</label>
+          <textarea
+            id="recipe-prompt"
+            value={promptText}
+            onChange={(event) => setPromptText(event.target.value)}
+            placeholder="예: 청록색 결정이 있는 청자유 시편을 만들고 싶어요"
+            rows={1}
+            disabled={disabled}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          <button type="submit" disabled={disabled || status === "loading" || !promptText.trim()} aria-label={status === "loading" ? "후보 만드는 중" : "후보 만들기"}>
+            <span className="sr-only">{status === "loading" ? "후보 만드는 중…" : "후보 만들기"}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V6M7.5 10.5 12 6l4.5 4.5" /></svg>
+          </button>
+        </div>
+        <div className="recipe-suggestions" aria-label="입력 예시">
+          <span>매트한 초록색</span><span>백토, 환원 분위기</span><span>반광, 크랙</span><span>시유 두께 보통</span>
+        </div>
       </form>
-      {status === "loading" && <AsyncState kind="loading" />}
+      {status === "loading" && (
+        <div className="recipe-generation-loader" role="status" aria-live="polite">
+          <p>레시피 생성 중...</p>
+          <div className="recipe-loading-dots" aria-hidden="true"><i /><i /><i /></div>
+        </div>
+      )}
       {status === "error" && (
         <Alert tone="danger" title="후보를 만들지 못했어요">
           {error}
@@ -235,76 +255,85 @@ export function RecipeChatScreen({
       )}
       {status === "complete" && cards.length === 0 && <AsyncState kind="empty" />}
       {cards.length > 0 && (
-        <div className="evidence-card-grid">
+        <div className="evidence-card-grid recipe-result-list">
           {cards.map(({ candidate, remark }) => {
             const [lo, hi] = candidate.predicted_firing_range.value ?? [null, null];
             const colorants = candidate.colorants ?? {};
+            const compactMaterials = Object.entries(candidate.materials).slice(0, 3);
             return (
               <article
                 key={candidate.id}
-                className="evidence-card"
+                className="evidence-card recipe-result-card"
                 aria-current={selectedId === candidate.id ? "true" : undefined}
+                tabIndex={0}
+                onClick={() => selectCandidate(candidate)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectCandidate(candidate);
+                  }
+                }}
               >
-                <div>
-                  <StatusBadge tone="unavailable">{SOURCE_LABELS[candidate.source_type]}</StatusBadge>
-                  <strong>{candidate.name}</strong>
-                  {remark && <span className="history-match-badge">과거 이력 · 유사 후보</span>}
+                <div className="recipe-card-copy">
+                  <strong className="recipe-card-name">{candidate.name}</strong>
+                  <dl className="recipe-card-ratio">
+                    {compactMaterials.map(([name, pct]) => (
+                      <div key={name}><dt>{name}</dt><dd>{pct}%</dd></div>
+                    ))}
+                  </dl>
                 </div>
-                {remark && <p className="history-match-remark">{remark}</p>}
-                {imageLoading[candidate.id] && <AsyncState kind="loading" />}
-                {images[candidate.id] && (
+                <button
+                  type="button"
+                  className="recipe-detail-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    selectCandidate(candidate);
+                    setDetailCandidate(candidate);
+                  }}
+                >상세보기</button>
+                <div className="recipe-card-image-wrap" aria-busy={imageLoading[candidate.id] || undefined}>
+                  {images[candidate.id] ? (
                   <img
                     src={`data:${images[candidate.id].mediaType};base64,${images[candidate.id].base64}`}
                     alt={`${candidate.name} AI 예상 이미지 — 실물 사진 아님`}
                     className="recipe-candidate-image"
                   />
-                )}
-                {imageErrors[candidate.id] && (
-                  <Alert tone="danger" title="이미지를 만들지 못했어요">
-                    {imageErrors[candidate.id]}
-                  </Alert>
-                )}
-                <h4>기본 유약 배합 (합계 100%)</h4>
-                <dl>
-                  {Object.entries(candidate.materials).map(([name, pct]) => (
-                    <div key={name}>
-                      <dt>{name}</dt>
-                      <dd>{pct}%</dd>
-                    </div>
-                  ))}
-                  <div>
-                    <dt>예상 소성</dt>
-                    <dd>{lo ?? "?"}–{hi ?? "?"} °C</dd>
-                  </div>
-                </dl>
-                <h4>발색 산화물 (외배합)</h4>
-                {Object.keys(colorants).length > 0 ? (
-                  <dl>
-                    {Object.entries(colorants).map(([name, pct]) => (
-                      <div key={name}>
-                        <dt>{name}</dt>
-                        <dd>{pct}%</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : <p>추가 발색 산화물 없음</p>}
-                {candidate.colorant_note && <p>{candidate.colorant_note}</p>}
-                <p className="recipe-uncertainty">외배합은 건조 기본 유약 100g 기준 참고값이며 실제 발색은 소지·두께·분위기·냉각에 따라 달라집니다.</p>
-                <p>{candidate.predicted_firing_note}</p>
-                {candidate.composition_note && (
-                  <DetailDrawer summary="배합비 출처 보기">
-                    <p>{candidate.composition_note}</p>
-                    <p className="recipe-uncertainty">배합비(위 %)는 LLM이 지어낸 값이 아니라 규칙 기반 조성 탐색이 낸 값입니다 — LLM은 이름·착색·소성 메모만 붙였습니다.</p>
-                  </DetailDrawer>
-                )}
-                <div className="recipe-candidate-actions">
-                  <button type="button" onClick={() => selectCandidate(candidate)} aria-pressed={selectedId === candidate.id}>
-                    {selectedId === candidate.id ? "선택됨" : "이 후보 선택"}
-                  </button>
+                  ) : <span className="recipe-image-placeholder">{imageErrors[candidate.id] ? "이미지 없음" : ""}</span>}
+                </div>
+                <span className="sr-only">{selectedId === candidate.id ? "선택됨" : "이 후보 선택"}</span>
+                <div className="sr-only">
+                  {remark && <><span>과거 이력 · 유사 후보</span><span>{remark}</span></>}
+                  <h4>기본 유약 배합 (합계 100%)</h4>
+                  {Object.entries(candidate.materials).map(([name, pct]) => <span key={name}>{name} {pct}%</span>)}
+                  <span>예상 소성 {lo ?? "?"}–{hi ?? "?"} °C</span>
+                  <h4>발색 산화물 (외배합)</h4>
+                  {Object.keys(colorants).length > 0
+                    ? Object.entries(colorants).map(([name, pct]) => <span key={name}><b>{name}</b> {pct}%</span>)
+                    : <span>추가 발색 산화물 없음</span>}
+                  <span>{candidate.colorant_note}</span>
                 </div>
               </article>
             );
           })}
+        </div>
+      )}
+      {detailCandidate && (
+        <div className="recipe-detail-backdrop" role="presentation" onClick={() => setDetailCandidate(null)}>
+          <section className="recipe-detail-modal" role="dialog" aria-modal="true" aria-labelledby="recipe-detail-title" onClick={(event) => event.stopPropagation()}>
+            <h4 id="recipe-detail-title">{detailCandidate.name}</h4>
+            <div className="recipe-detail-photo">
+              {images[detailCandidate.id]
+                ? <img src={`data:${images[detailCandidate.id].mediaType};base64,${images[detailCandidate.id].base64}`} alt={`${detailCandidate.name} AI 예상 이미지`} />
+                : <span />}
+            </div>
+            <div className="recipe-detail-description">
+              <h5>레시피 배합</h5>
+              <dl>{Object.entries(detailCandidate.materials).map(([name, pct]) => <div key={name}><dt>{name}</dt><dd>{pct}%</dd></div>)}</dl>
+              <h5>설명</h5>
+              <p>{detailCandidate.predicted_firing_note || detailCandidate.colorant_note || "생성된 유약 레시피입니다."}</p>
+            </div>
+            <button type="button" className="recipe-detail-close" onClick={() => setDetailCandidate(null)}>닫기</button>
+          </section>
         </div>
       )}
       {dropped.length > 0 && (

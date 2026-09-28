@@ -417,34 +417,51 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .bottom-nav {
   position: absolute;
   z-index: 30;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--app-bar-height);
+  left: 50%;
+  bottom: 16px;
+  width: 371px;
+  max-width: calc(100% - 12px);
+  height: 63px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  border-top: 1px solid var(--border);
+  grid-template-columns: repeat(4, 1fr);
+  overflow: hidden;
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid rgba(0, 0, 0, .05);
+  border-radius: 32px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
   backdrop-filter: blur(16px);
+  transform: translateX(-50%);
 }
 .bottom-nav button {
+  position: relative;
+  isolation: isolate;
   appearance: none;
   border: 0;
   background: transparent;
-  color: var(--faint);
+  color: #151515;
   font: inherit;
-  font-size: .68rem;
+  font-size: 9px;
+  font-weight: 400;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
   cursor: pointer;
 }
-.bottom-nav button[aria-current="page"] { color: var(--accent); font-weight: 700; }
+.bottom-nav button[aria-current="page"] { color: #000; font-weight: 600; }
+.bottom-nav button[aria-current="page"]::before {
+  position: absolute;
+  z-index: -1;
+  width: 55px;
+  height: 55px;
+  border-radius: 50%;
+  background: #e2e2e2;
+  content: "";
+}
 .bottom-nav svg {
-  width: 21px;
-  height: 21px;
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;

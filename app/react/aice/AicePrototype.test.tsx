@@ -124,6 +124,12 @@ async function skipToWare() {
 }
 
 describe("AICE guided prototype", () => {
+  it("keeps the recipe prompt editable before login", () => {
+    mockFetch();
+    render(<AicePrototype />);
+    expect((screen.getByLabelText("원하는 결과를 설명해 주세요") as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
   it("finishes a sample simulation without numeric input", async () => {
     mockFetch();
     render(<AicePrototype />);

@@ -138,7 +138,7 @@ const THICKNESS_DECISION_TITLE: Record<CoatingPreset, string> = {
   thick: "지금 두께가 목표보다 두꺼워요",
 };
 
-export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void; onBackHome?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(() => ({ ...initialState, runId: crypto.randomUUID() }));
   const [sourceRun, setSourceRun] = useState(restoredRun);
@@ -576,7 +576,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
   ][step] ?? false;
 
   return (
-    <div className="prototype-shell">
+    <div className={`prototype-shell${step === 0 ? " recipe-entry-shell" : ""}`}>
       <header className="prototype-header">
         <div>
           <span className="eyebrow">AICE KILN</span>
@@ -587,6 +587,19 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
       <ProgressHeader current={step + 1} total={screens.length} labels={screens} />
 
       <main className="prototype-main" data-testid={`aice-step-${step + 1}`}>
+        {step === 0 && (
+          <div className="recipe-entry-header" aria-label="유약 작업 진행 단계">
+            <button type="button" className="recipe-back-button" onClick={onBackHome} aria-label="홈으로 돌아가기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+            </button>
+            <ol className="recipe-step-lines" aria-hidden="true">
+              <li className="active" />
+              <li />
+              <li />
+              <li />
+            </ol>
+          </div>
+        )}
         <div className="screen-intro">
           <span className="eyebrow">STEP {String(step + 1).padStart(2, "0")}</span>
           <h2>{screenTitles[step][0]}</h2>
@@ -601,7 +614,6 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
           {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
           <RecipeChatScreen
             token={token}
-            disabled={!token}
             onSelect={(candidate, image) => updateInputs({
               recipe: candidate.id,
               llmCandidate: candidate,
@@ -615,6 +627,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
             onGenerated={() => setIntakeGeneration((current) => current + 1)}
           />
         </section>
+
+        {step === 0 && state.intakeCandidates.length > 0 && (
+          <button type="button" className="recipe-next-button" onClick={next}>다음</button>
+        )}
 
         {step === 1 && (
           <>

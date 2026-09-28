@@ -83,6 +83,17 @@ function findCall(fetchMock: ReturnType<typeof mockFetch>, match: string) {
 }
 
 describe("RecipeChatScreen (화면 1)", () => {
+  it("submits the prompt with Enter from the single-line input", async () => {
+    const fetchMock = mockFetch();
+    render(<RecipeChatScreen token="user-token" />);
+    const input = screen.getByLabelText("원하는 결과를 설명해 주세요");
+    fireEvent.change(input, { target: { value: "엔터로 만드는 유약" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(findCall(fetchMock, "/aice/recipe-candidates")).toBeTruthy());
+    expect(screen.getByText("해안 사틴")).toBeTruthy();
+  });
+
   it("submits the prompt and renders validated candidates with the LLM-not-guaranteed badge", async () => {
     const fetchMock = mockFetch();
     render(<RecipeChatScreen token="user-token" />);
