@@ -202,13 +202,25 @@ describe("Account persistence requests", () => {
     );
     expect(await screen.findByText(/등록된 계정이 있다면/)).toBeTruthy();
   });
-  it("upserts a profile only for the signed-in user", async () => {
+  it("updates a signed-in user's password from account settings", async () => {
+    mocks.getSession.mockResolvedValue({ data: { session }, error: null });
+    render(<AuthProvider><AuthPanel mode="account" /></AuthProvider>);
+
+    fireEvent.change(await screen.findByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    await waitFor(() => expect(mocks.updateUser).toHaveBeenCalledWith({ password: "new-password" }));
+    expect(await screen.findByText("비밀번호를 변경했습니다.")).toBeTruthy();
+  });
+
+  it("upserts kiln information only for the signed-in user", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     mocks.from.mockReturnValue({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({
-            data: { display_name: "Old name" },
+            data: { kiln_sensor_plan: "single" },
             error: null,
           }),
         }),
@@ -218,20 +230,16 @@ describe("Account persistence requests", () => {
     mocks.getSession.mockResolvedValue({ data: { session }, error: null });
     render(
       <AuthProvider>
-        <AuthPanel />
+        <AuthPanel mode="kiln" />
       </AuthProvider>,
     );
-    await screen.findByDisplayValue("Old name");
-    fireEvent.change(screen.getByLabelText("표시 이름"), {
-      target: { value: "  New name  " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "프로필 저장" }));
+    await screen.findByDisplayValue("기본 1개");
+    fireEvent.click(screen.getByRole("button", { name: "가마 정보 저장" }));
     await waitFor(() =>
       expect(upsert).toHaveBeenCalledWith(
         {
           id: "user-1",
-          display_name: "New name",
-          kiln_sensor_plan: "three",
+          kiln_sensor_plan: "single",
           kiln_capacity_l: null,
           kiln_shelf_count: null,
           kiln_power_kw: null,
@@ -239,7 +247,7 @@ describe("Account persistence requests", () => {
         { onConflict: "id" },
       ),
     );
-    expect(await screen.findByText("프로필을 저장했습니다.")).toBeTruthy();
+    expect(await screen.findByText("가마 정보를 저장했습니다.")).toBeTruthy();
   });
 });
 

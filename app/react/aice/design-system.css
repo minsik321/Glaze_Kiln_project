@@ -568,6 +568,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .my-screen {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -576,6 +577,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   color: #111;
   scrollbar-width: none;
 }
+.my-screen.settings-open { overflow: hidden; }
 .my-screen::-webkit-scrollbar { display: none; }
 .my-header {
   display: grid;
@@ -599,6 +601,69 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .my-header button { justify-self: end; width: 36px; }
 .my-header svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.my-settings-layer { position: absolute; z-index: 30; inset: 0; overflow: hidden; background: #fff; }
+.my-settings-panel { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; padding: var(--app-safe-top) 16px max(24px, env(safe-area-inset-bottom)); overflow-y: auto; background: #fff; animation: my-settings-slide-in 300ms cubic-bezier(.22, .8, .24, 1) both; }
+.my-settings-header { display: grid; min-height: 60px; grid-template-columns: 40px minmax(0, 1fr) 40px; align-items: center; padding: 0 4px; border-bottom: 1px solid #edf0f2; }
+.my-settings-header h2 { justify-self: center; margin: 0; color: #111; font-size: 17px; letter-spacing: -.03em; }
+.my-settings-header button { display: grid; width: 40px; height: 40px; min-height: 40px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: #f1f4f5; color: #20282c; cursor: pointer; }
+.my-settings-header svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.my-settings-menu { display: grid; gap: 2px; padding: 12px 0; }
+.my-settings-menu > div { min-width: 0; }
+.my-settings-menu > .my-settings-group-start { margin-top: 10px; padding-top: 12px; border-top: 1px solid #edf0f2; }
+.my-settings-menu button { display: grid; width: 100%; min-height: 60px; grid-template-columns: 40px minmax(0, 1fr) 18px; align-items: center; gap: 13px; padding: 8px; border: 0; border-radius: 14px; background: transparent; color: #222; text-align: left; cursor: pointer; transition: background-color 150ms ease, transform 150ms ease; }
+.my-settings-menu button:hover { background: #f3f8fa; }
+.my-settings-menu button:active { transform: scale(.985); }
+.my-settings-menu button.danger { color: #d34d61; }
+.my-settings-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: #eaf8fe; color: #159fd8; }
+.my-settings-menu button.danger .my-settings-icon { background: #fff0f3; color: #d34d61; }
+.my-settings-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.my-settings-label { min-width: 0; overflow: hidden; font-size: 16px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.my-settings-menu button > svg { width: 16px; height: 16px; fill: none; stroke: #a9b0b4; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.my-settings-version { margin: auto 0 0; padding: 18px 8px 2px; color: #adb4b7; font-size: 9px; text-align: center; }
+.my-settings-detail { display: flex; flex: 1; flex-direction: column; padding: 34px 8px 8px; }
+.my-settings-detail-heading { display: grid; justify-items: center; text-align: center; }
+.my-settings-detail-heading > span { display: grid; width: 54px; height: 54px; margin-bottom: 18px; place-items: center; border-radius: 18px; background: #eaf8fe; color: #159fd8; }
+.my-settings-detail-heading > span.danger { background: #fff0f3; color: #d34d61; }
+.my-settings-detail-heading svg { width: 27px; height: 27px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.my-settings-detail-heading h3 { margin: 0 0 9px; color: #1c2225; font-size: 21px; letter-spacing: -.04em; }
+.my-settings-detail-heading p { max-width: 280px; margin: 0; color: #80898e; font-size: 12px; line-height: 1.55; }
+.my-settings-password { display: grid; gap: 8px; margin-top: 42px; }
+.my-settings-password > span { color: #454d51; font-size: 12px; font-weight: 700; }
+.my-settings-password input { width: 100%; height: 50px; padding: 0 15px; border: 1px solid #dfe4e6; border-radius: 12px; outline: 0; background: #f8fafb; color: #222; font: inherit; font-size: 14px; }
+.my-settings-password input:focus { border-color: #1eadff; box-shadow: 0 0 0 3px rgba(30, 173, 255, .12); }
+.my-settings-danger-action { width: 100%; min-height: 50px; margin-top: auto; border: 0; border-radius: 14px; background: #e55569; color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.my-settings-danger-action:disabled { opacity: .42; cursor: default; }
+.my-settings-error { margin: 14px 8px 0; padding: 10px 12px; border-radius: 10px; background: #fff0f3; color: #c23f54; font-size: 11px; line-height: 1.45; }
+.my-settings-toggle-row { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: 18px; margin-top: 42px; padding: 16px; border: 1px solid #ebeff1; border-radius: 16px; background: #fafcfd; }
+.my-settings-toggle-row > div { display: grid; min-width: 0; gap: 5px; }
+.my-settings-toggle-row strong { color: #242b2f; font-size: 15px; }
+.my-settings-toggle-row small { color: #858f94; font-size: 10px; line-height: 1.4; }
+.my-settings-switch { position: relative; width: 50px; height: 29px; min-height: 29px; flex: 0 0 50px; padding: 0; border: 0; border-radius: 999px; background: #cbd1d4; cursor: pointer; transition: background-color 180ms ease; }
+.my-settings-switch span { position: absolute; top: 3px; left: 3px; width: 23px; height: 23px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0, 0, 0, .18); transition: transform 180ms cubic-bezier(.22, .8, .24, 1); }
+.my-settings-switch[aria-checked="true"] { background: #1eadff; }
+.my-settings-switch[aria-checked="true"] span { transform: translateX(21px); }
+.my-confirm-layer { position: absolute; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(20, 28, 32, .32); backdrop-filter: blur(3px); animation: my-settings-confirm-in 160ms ease-out both; }
+.my-confirm-modal { width: min(100%, 310px); padding: 28px 22px 20px; border-radius: 22px; background: #fff; box-shadow: 0 18px 48px rgba(22, 38, 46, .22); text-align: center; }
+.my-confirm-modal h3 { margin: 0 0 24px; color: #1c2225; font-size: 18px; letter-spacing: -.035em; }
+.my-confirm-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.my-confirm-actions button,
+.my-confirm-done { min-height: 44px; border: 0; border-radius: 12px; background: #edf1f3; color: #30383c; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.my-confirm-actions button.primary,
+.my-confirm-done { background: #1eadff; color: #fff; }
+.my-confirm-actions button.danger { background: #e55569; color: #fff; }
+.my-confirm-done { width: 100%; }
+.my-confirm-actions button:disabled { opacity: .55; }
+@keyframes my-settings-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.my-settings-panel.is-closing { animation: my-settings-slide-out 280ms cubic-bezier(.4, 0, .7, .2) both; }
+@keyframes my-settings-slide-out { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes my-settings-confirm-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .my-settings-panel,
+  .my-confirm-layer { animation-duration: .01ms; }
+  .my-settings-menu button,
+  .my-settings-switch,
+  .my-settings-switch span { transition-duration: .01ms; }
+}
 .my-profile-summary {
   display: grid;
   grid-template-columns: 74px 1fr auto;
@@ -606,7 +671,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   gap: 16px;
   padding: 8px 28px 5px;
 }
-.my-avatar { width: 68px; height: 68px; border-radius: 50%; background: #dedede; }
+.my-avatar { width: 68px; height: 68px; border-radius: 50%; background: #dedede center / cover no-repeat; }
 .my-display-name { font-size: 15px; font-weight: 600; }
 .my-edit-button {
   min-height: 31px;
@@ -675,6 +740,50 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .my-post-copy { display: grid; gap: 5px; }
 .my-post-copy strong { font-size: 14px; }
 .my-post-copy small { color: #767676; font-size: 11px; }
+.my-posts-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  min-height: 190px;
+  padding: 42px 24px;
+  place-content: center;
+  gap: 7px;
+  text-align: center;
+}
+.my-posts-empty strong { color: #4d5258; font-size: 15px; font-weight: 600; }
+.my-posts-empty p { margin: 0; color: #9a9fa5; font-size: 12px; }
+.profile-editor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(14, 20, 25, .42);
+  backdrop-filter: blur(3px);
+}
+.profile-editor-modal {
+  box-sizing: border-box;
+  display: grid;
+  width: min(360px, 100%);
+  padding: 20px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(16, 28, 36, .22);
+  animation: my-settings-confirm-in 180ms ease-out both;
+}
+.profile-editor-modal header { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; margin-bottom: 18px; }
+.profile-editor-modal header h2 { grid-column: 2; margin: 0; font-size: 19px; text-align: center; }
+.profile-editor-modal header button { grid-column: 3; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: #f0f2f4; color: #4b5258; font-size: 25px; line-height: 1; cursor: pointer; }
+.profile-editor-avatar { width: 92px; height: 92px; margin: 0 auto 12px; border-radius: 50%; background-position: center; background-size: cover; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); }
+.profile-photo-picker { justify-self: center; margin-bottom: 20px; padding: 9px 14px; border-radius: 11px; background: #edf8ff; color: #079fe9; font-size: 12px; font-weight: 700; cursor: pointer; }
+.profile-photo-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.profile-nickname-field { display: grid; gap: 7px; color: #454b52; font-size: 13px; font-weight: 700; }
+.profile-nickname-field input { box-sizing: border-box; width: 100%; height: 48px; padding: 0 13px; border: 1px solid #dfe3e7; border-radius: 12px; outline: 0; background: #f8f9fa; font: inherit; }
+.profile-nickname-field input:focus { border-color: #1eadff; background: #fff; box-shadow: 0 0 0 3px rgba(30, 173, 255, .13); }
+.profile-nickname-help { margin: 7px 0 0; color: #92989f; font-size: 11px; }
+.profile-editor-error { margin: 10px 0 0; color: #d23939; font-size: 12px; }
+.profile-editor-save { height: 48px; margin-top: 18px; border: 0; border-radius: 13px; background: #1eadff; color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.profile-editor-save:disabled { opacity: .55; cursor: wait; }
 
 .avatar-tone-1 { background: linear-gradient(135deg, #ddab80, #6c4034) !important; }
 .avatar-tone-2 { background: linear-gradient(135deg, #86b8b3, #2e5c64) !important; }
