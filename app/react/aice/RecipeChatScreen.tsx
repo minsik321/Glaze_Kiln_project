@@ -1,8 +1,15 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
 import type { RecipeCandidate } from "./contract";
 import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer } from "./ui";
+
+const CANDIDATE_NUMBER_SUFFIX = /\s*(?:[-–—:·]\s*)?(?:후보|candidate)\s*#?\s*\d+\s*$/iu;
+
+function normalizeCandidateName(candidate: RecipeCandidate): RecipeCandidate {
+  const cleanedName = candidate.name.replace(CANDIDATE_NUMBER_SUFFIX, "").trim();
+  return { ...candidate, name: cleanedName || "유약 레시피" };
+}
 
 /**
  * 화면 1(LLM 채팅) — LLM 프런트도어 TODO Phase 2, v9 개편.
@@ -26,6 +33,7 @@ export function RecipeChatScreen({
   onSelect,
   onIntake,
   onGenerated,
+  historyRevision = 0,
   disabled = false,
 }: {
   token: string;
@@ -39,6 +47,7 @@ export function RecipeChatScreen({
   //: 이력에 자동 저장한다(이력 복원을 다시 저장해 중복 항목을 만들지 않기
   //: 위해 분리했다).
   onGenerated?: (promptText: string, candidates: RecipeCandidate[]) => void;
+  historyRevision?: number;
   disabled?: boolean;
 }) {
   const [promptText, setPromptText] = useState("");
@@ -54,10 +63,12 @@ export function RecipeChatScreen({
   const [detailCandidate, setDetailCandidate] = useState<RecipeCandidate | null>(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarMounted, setSidebarMounted] = useState(false);
   const [history, setHistory] = useState<AiceRunRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [restoredRunId, setRestoredRunId] = useState<string | null>(null);
+  const [cardAnimationKey, setCardAnimationKey] = useState(0);
 
   async function loadHistory() {
     if (!token) return;
@@ -76,7 +87,13 @@ export function RecipeChatScreen({
   useEffect(() => {
     if (token) void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, historyRevision]);
+
+  useEffect(() => {
+    if (!sidebarMounted || sidebarOpen) return;
+    const closingTimer = window.setTimeout(() => setSidebarMounted(false), 280);
+    return () => window.clearTimeout(closingTimer);
+  }, [sidebarMounted, sidebarOpen]);
 
   function requestImagesFor(list: RecipeCandidate[]) {
     for (const candidate of list) void requestImage(candidate);
@@ -114,21 +131,28 @@ export function RecipeChatScreen({
     event.preventDefault();
     const trimmed = promptText.trim();
     if (!trimmed || status === "loading" || disabled) return;
+    if (!token) {
+      setStatus("error");
+      setError("로그인 후 후보를 만들 수 있습니다.");
+      return;
+    }
     setStatus("loading");
     setError(null);
     setRestoredRunId(null);
     try {
       const response = await recipeCandidatesApi.suggest(token, trimmed);
-      setCandidates(response.candidates);
+      const normalizedCandidates = response.candidates.map(normalizeCandidateName);
+      setCandidates(normalizedCandidates);
       setDropped(response.dropped);
-      setSelectedId(response.candidates[0]?.id ?? null);
+      setSelectedId(null);
       setImages({});
       setImageErrors({});
       setStatus("complete");
-      setHistoryMatches(findSimilarHistory(trimmed, response.candidates, history));
-      requestImagesFor(response.candidates);
-      onIntake?.(trimmed, response.candidates);
-      onGenerated?.(trimmed, response.candidates);
+      setHistoryMatches(findSimilarHistory(trimmed, normalizedCandidates, history));
+      setCardAnimationKey((current) => current + 1);
+      requestImagesFor(normalizedCandidates);
+      onIntake?.(trimmed, normalizedCandidates);
+      onGenerated?.(trimmed, normalizedCandidates);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "후보를 만들지 못했습니다.");
       setStatus("error");
@@ -147,9 +171,10 @@ export function RecipeChatScreen({
       setHistoryError("이 기록에는 후보 대화 내용이 없습니다.");
       return;
     }
+    const normalizedCandidates = intake.candidates.candidates.map(normalizeCandidateName);
     setPromptText(intake.prompt_text);
-    setCandidates(intake.candidates.candidates);
-    setSelectedId(intake.candidates.selected_id ?? intake.candidates.candidates[0]?.id ?? null);
+    setCandidates(normalizedCandidates);
+    setSelectedId(intake.candidates.selected_id ?? normalizedCandidates[0]?.id ?? null);
     setDropped([]);
     setImages({});
     setImageErrors({});
@@ -157,26 +182,38 @@ export function RecipeChatScreen({
     setStatus("complete");
     setError(null);
     setRestoredRunId(record.id);
-    requestImagesFor(intake.candidates.candidates);
-    onIntake?.(intake.prompt_text, intake.candidates.candidates);
+    setCardAnimationKey((current) => current + 1);
+    requestImagesFor(normalizedCandidates);
+    onIntake?.(intake.prompt_text, normalizedCandidates);
+    const restoredSelection = normalizedCandidates.find((candidate) => candidate.id === intake.candidates.selected_id);
+    if (restoredSelection) onSelect?.(restoredSelection);
+    closeSidebar();
+  }
+
+  function openSidebar() {
+    setSidebarMounted(true);
+    setSidebarOpen(true);
+    void loadHistory();
+  }
+
+  function closeSidebar() {
     setSidebarOpen(false);
   }
 
   function toggleSidebar() {
-    const next = !sidebarOpen;
-    setSidebarOpen(next);
-    if (next) void loadHistory();
+    if (sidebarOpen) closeSidebar();
+    else openSidebar();
   }
 
   const cards: Array<{ candidate: RecipeCandidate; remark?: string }> = [
-    ...candidates.map((candidate) => ({ candidate })),
+    ...candidates.map((candidate) => ({ candidate: normalizeCandidateName(candidate) })),
     ...historyMatches
       .filter((match) => !candidates.some((candidate) => candidate.id === match.candidate.id))
-      .map((match) => ({ candidate: match.candidate, remark: match.remark })),
+      .map((match) => ({ candidate: normalizeCandidateName(match.candidate), remark: match.remark })),
   ];
 
   return (
-    <section className={`recipe-chat-screen${cards.length > 0 || status !== "idle" ? " has-response" : ""}`} aria-labelledby="recipe-chat-title">
+    <section className={`recipe-chat-screen${cards.length > 0 || status !== "idle" ? " has-response" : ""}${status === "loading" ? " is-loading" : ""}`} aria-labelledby="recipe-chat-title">
       {/* v9 후속 개편: 채팅창을 여는 첫 표지처럼 아무 설명 없이 입력만
           보이게 한다 — 안내문·배지는 지웠다. 제목은 시각적으로는 숨기되
           스크린리더용으로만 남긴다(sr-only). */}
@@ -192,10 +229,16 @@ export function RecipeChatScreen({
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="1.5" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></svg>
       </button>
 
-      {sidebarOpen && (
+      {sidebarMounted && (
         <>
-          <div className="recipe-history-backdrop" onClick={() => setSidebarOpen(false)} />
-          <aside className="recipe-history-sidebar" aria-label="이전 질문 기록">
+          <div
+            className={`recipe-history-backdrop ${sidebarOpen ? "is-open" : "is-closing"}`}
+            onClick={closeSidebar}
+          />
+          <aside
+            className={`recipe-history-sidebar ${sidebarOpen ? "is-open" : "is-closing"}`}
+            aria-label="이전 질문 기록"
+          >
             <h4>이전 질문</h4>
             {historyLoading && <AsyncState kind="loading" />}
             {historyError && <Alert tone="danger" title="기록을 불러오지 못했어요">{historyError}</Alert>}
@@ -233,7 +276,7 @@ export function RecipeChatScreen({
               }
             }}
           />
-          <button type="submit" disabled={disabled || status === "loading" || !promptText.trim()} aria-label={status === "loading" ? "후보 만드는 중" : "후보 만들기"}>
+          <button type="submit" disabled={disabled || status === "loading" || !token || !promptText.trim()} aria-label={status === "loading" ? "후보 만드는 중" : "후보 만들기"}>
             <span className="sr-only">{status === "loading" ? "후보 만드는 중…" : "후보 만들기"}</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V6M7.5 10.5 12 6l4.5 4.5" /></svg>
           </button>
@@ -255,8 +298,8 @@ export function RecipeChatScreen({
       )}
       {status === "complete" && cards.length === 0 && <AsyncState kind="empty" />}
       {cards.length > 0 && (
-        <div className="evidence-card-grid recipe-result-list">
-          {cards.map(({ candidate, remark }) => {
+        <div key={cardAnimationKey} className="evidence-card-grid recipe-result-list">
+          {cards.map(({ candidate, remark }, cardIndex) => {
             const [lo, hi] = candidate.predicted_firing_range.value ?? [null, null];
             const colorants = candidate.colorants ?? {};
             const compactMaterials = Object.entries(candidate.materials).slice(0, 3);
@@ -264,6 +307,7 @@ export function RecipeChatScreen({
               <article
                 key={candidate.id}
                 className="evidence-card recipe-result-card"
+                style={{ "--recipe-card-index": cardIndex } as CSSProperties}
                 aria-current={selectedId === candidate.id ? "true" : undefined}
                 tabIndex={0}
                 onClick={() => selectCandidate(candidate)}

@@ -39,6 +39,7 @@ type PrototypeState = {
   //: 기록한다 — 다음(가마·소성곡선) 화면이 기준 계획 대신 두께 반영
   //: 수정 계획을 기본으로 보여줄지 결정하는 데 쓰인다.
   riskMitigationApplied: boolean;
+  planDecision?: "apply" | "skip";
   sensorPlan?: SensorPlan;
   sensors: SensorPlacement[];
   //: LLM 프런트도어 TODO Phase 3 — 시유 전/후 무게(§5-a). 문자열로 들고
@@ -98,7 +99,7 @@ const screenTitles = [
   ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
   ["자주 쓰는 기물에서 골라요", "형상과 소지를 고르면 다음 화면의 두께 계산에 함께 쓰입니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
-  ["가마와 소성곡선을 함께 확인해요", "센서 위치·이상 시나리오·제어 계획·가상 소성이 한 화면입니다."],
+  ["소성 시뮬레이션", "시간에 따른 온도 변화와 가마 상태를 확인합니다."],
   ["결과를 남기고 다음 제안을 봐요", "개인 보정과 공통 개선 후보는 분리합니다."],
 ] as const;
 
@@ -132,17 +133,13 @@ function ChoiceCard({
 //: v9 후속(3페이지): 상시 노출 "왜/가정/다음행동" 드로어 대신, 두께 판단
 //: 결과에 따라 사용자가 직접 다음 행동을 고르는 문장+버튼 조합을 쓴다
 //: (아래 step===2 블록). 상태별 안내 제목만 여기 모아 둔다.
-const THICKNESS_DECISION_TITLE: Record<CoatingPreset, string> = {
-  thin: "지금 두께가 목표보다 얇아요",
-  target: "지금 두께가 목표 범위 안이에요",
-  thick: "지금 두께가 목표보다 두꺼워요",
-};
-
 export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void; onBackHome?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(() => ({ ...initialState, runId: crypto.randomUUID() }));
+  const [densitySetupComplete, setDensitySetupComplete] = useState(false);
   const [sourceRun, setSourceRun] = useState(restoredRun);
   const [restoredUnchanged, setRestoredUnchanged] = useState(Boolean(restoredRun));
+  const [planDialog, setPlanDialog] = useState<"apply" | "skip" | null>(null);
 
   // 07절 두께 계산은 이제 백엔드 `/kiln/thickness/profile`(kiln.thickness
   // .profile.compute_profile)을 실제로 돌리므로 비동기다. requestId로
@@ -330,6 +327,20 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     const personalized = curveSeries.find((curve) => curve.role === "next")!;
     return [curveSeries[0], { ...personalized, id: `personalized-${computedCoating}-v1`, role: "adjusted" as const, label: "두께·개인 이력 반영 계획" }];
   }, [computedCoating, state.ware, activeFiringRangeC, recipeRunCount, firingGlossBias]);
+  const planPeakDeltaC = Math.round(
+    Math.max(...executionCurves[1].points.map((point) => point.temperatureC)) -
+    Math.max(...executionCurves[0].points.map((point) => point.temperatureC)),
+  );
+  const planAdjustmentText = computedCoating === "thick"
+    ? `두꺼운 유약이 흘러내리지 않도록 최고 구간 온도를 ${Math.abs(planPeakDeltaC)}°C 낮추고 유지 구간을 조정합니다.`
+    : computedCoating === "thin"
+      ? `얇은 유약의 미용융과 발색 부족을 줄이도록 최고 구간 온도를 ${Math.abs(planPeakDeltaC)}°C 올리고 열일을 보완합니다.`
+      : "측정된 두께가 목표 범위에 있어 기준 소성 플랜을 유지합니다.";
+  const skipRiskText = computedCoating === "thick"
+    ? "두꺼운 유약에 기준 플랜을 그대로 적용하면 흘러내림이나 선반 부착 위험이 커질 수 있습니다. 그래도 건너뛰시겠습니까?"
+    : computedCoating === "thin"
+      ? "얇은 유약에 기준 플랜을 그대로 적용하면 발색 부족이나 건조한 표면이 나타날 수 있습니다. 그래도 건너뛰시겠습니까?"
+      : "두께는 목표 범위지만 측정 오차에 따라 광택과 발색 편차가 생길 수 있습니다. 소성 플랜 검토를 건너뛰시겠습니까?";
 
   const snapshot = useMemo<SimulatorSnapshot>(() => {
     if (sourceRun && restoredUnchanged) return sourceRun;
@@ -447,16 +458,22 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
   // "이력에서 복원"을 구분해, 복원할 때마다 같은 항목이 중복 저장되지
   // 않게 한다(RecipeChatScreen.tsx의 onGenerated/onIntake 분리와 짝).
   const [intakeGeneration, setIntakeGeneration] = useState(0);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const savedIntakeGenerationRef = useRef(0);
   useEffect(() => {
     if (!token || !state.intakePrompt || intakeGeneration === savedIntakeGenerationRef.current) return;
-    savedIntakeGenerationRef.current = intakeGeneration;
     try {
       assertAiceRun(snapshot);
     } catch {
       return;
     }
-    void aiceRunsApi.create(token, { title: state.intakePrompt, run: snapshot, request_id: state.runId, is_public: false }).catch(() => {});
+    savedIntakeGenerationRef.current = intakeGeneration;
+    void aiceRunsApi.create(token, {
+      title: state.intakePrompt.trim(),
+      run: snapshot,
+      request_id: crypto.randomUUID(),
+      is_public: false,
+    }).then(() => setHistoryRevision((current) => current + 1)).catch(() => {});
   }, [intakeGeneration, token, state.intakePrompt, snapshot]);
 
   // 9페이지: "저장" 버튼이 지금까지 만든 AiceRun 전체를 작업기록(AiceRun v2
@@ -522,6 +539,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
       dipSeconds: restoredRun.application.dip_seconds?.toString() ?? "",
       dryingComplete: restoredRun.application.drying_complete ?? false,
       riskMitigationApplied: Boolean(selected),
+      planDecision: selected ? "apply" : undefined,
       sensorPlan: restoredRun.loading.sensor_plan,
       sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원 센서", blindSpot: "저장 기록", limitation: sensor.temperature.note })),
       curveApproved: Boolean(selected),
@@ -542,6 +560,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         resultPhoto: restoredRun.result.photo?.data_url ? { dataUrl: restoredRun.result.photo.data_url, name: restoredRun.result.photo.alt } : null,
       },
     });
+    setDensitySetupComplete(Boolean(restoredRun.application.density.value && restoredRun.application.dip_seconds));
     setStep(restoredRun.status === "evaluated" ? 4 : restoredRun.status === "simulated" ? 3 : 0);
   }, [restoredRun]);
 
@@ -554,10 +573,16 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     thicknessRequestId.current++;
     setThicknessProfile(null);
     setThicknessStatus("idle");
-    setState((current) => ({ ...current, ...patch, riskMitigationApplied: false, curveApproved: false, approvedCurves: null, approvedControlSamples: [], approvedControlParameters: {}, simulationCompleted: false }));
+    setState((current) => ({ ...current, ...patch, riskMitigationApplied: false, planDecision: undefined, curveApproved: false, approvedCurves: null, approvedControlSamples: [], approvedControlParameters: {}, simulationCompleted: false }));
   };
 
-  const next = () => setStep((current) => Math.min(current + 1, screens.length - 1));
+  const next = () => {
+    if (step === 2 && !state.planDecision) {
+      setPlanDialog("skip");
+      return;
+    }
+    setStep((current) => Math.min(current + 1, screens.length - 1));
+  };
   const restart = () => {
     setSourceRun(undefined);
     setRestoredUnchanged(false);
@@ -566,17 +591,19 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     setSaveStatus("idle");
     setSaveError(null);
     setPendingFeedbackId(null);
+    setDensitySetupComplete(false);
+    setPlanDialog(null);
     setStep(0);
   };
   const canContinue = [
     true,
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
-    state.riskMitigationApplied && thicknessStatus === "ready" && weightsReady,
+    thicknessStatus === "ready" && weightsReady,
     state.curveApproved && state.simulationCompleted,
   ][step] ?? false;
 
   return (
-    <div className={`prototype-shell${step === 0 ? " recipe-entry-shell" : ""}`}>
+    <div className={`prototype-shell${step === 0 ? " recipe-entry-shell" : ` guided-step-shell guided-step-${step + 1}${step === 1 ? " ware-entry-shell" : ""}`}`}>
       <header className="prototype-header">
         <div>
           <span className="eyebrow">AICE KILN</span>
@@ -587,17 +614,13 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
       <ProgressHeader current={step + 1} total={screens.length} labels={screens} />
 
       <main className="prototype-main" data-testid={`aice-step-${step + 1}`}>
-        {step === 0 && (
+        {(
           <div className="recipe-entry-header" aria-label="유약 작업 진행 단계">
-            <button type="button" className="recipe-back-button" onClick={onBackHome} aria-label="홈으로 돌아가기">
+            <button type="button" className="recipe-back-button" onClick={step === 0 ? onBackHome : () => setStep(step - 1)} aria-label={step === 0 ? "홈으로 돌아가기" : "이전 단계로 돌아가기"}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
             </button>
             <ol className="recipe-step-lines" aria-hidden="true">
-              <li className="active" />
-              <li />
-              <li />
-              <li />
-              <li />
+              {screens.map((_, index) => <li key={index} className={index <= step ? "active" : undefined} />)}
             </ol>
           </div>
         )}
@@ -615,22 +638,34 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
           {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
           <RecipeChatScreen
             token={token}
-            onSelect={(candidate, image) => updateInputs({
-              recipe: candidate.id,
-              llmCandidate: candidate,
-              llmCandidateImage: image,
-            })}
+            historyRevision={historyRevision}
+            onSelect={(candidate, image) => {
+              setDensitySetupComplete(false);
+              updateInputs({
+                recipe: candidate.id,
+                llmCandidate: candidate,
+                llmCandidateImage: image,
+                specificGravity: "",
+                dipSeconds: "",
+                beforeWeightG: "",
+                afterWeightG: "",
+                dryingComplete: false,
+              });
+            }}
             onIntake={(promptText, candidates) => setState((current) => ({
               ...current,
               intakePrompt: promptText,
               intakeCandidates: candidates,
+              recipe: "",
+              llmCandidate: undefined,
+              llmCandidateImage: undefined,
             }))}
             onGenerated={() => setIntakeGeneration((current) => current + 1)}
           />
         </section>
 
         {step === 0 && state.intakeCandidates.length > 0 && (
-          <button type="button" className="recipe-next-button" onClick={next}>다음</button>
+          <button type="button" className="recipe-next-button" disabled={!state.llmCandidate} onClick={next}>다음</button>
         )}
 
         {step === 1 && (
@@ -656,12 +691,17 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
                 채운다). 그 아래 실측 무게 입력 → 계산된 종단면 순서. */}
             <DensityCheck
               rho={state.specificGravity}
-              onRhoChange={(value) => updateInputs({ specificGravity: value })}
+              onRhoChange={(value) => updateInputs({ specificGravity: value, dipSeconds: "" })}
               defaultTargetMm={recipeTargetThicknessMm}
               defaultTargetRho={recipeTargetRho}
               densityRange={densityRange}
+              onProgressReset={() => setDensitySetupComplete(false)}
+              onDipTimeReady={(seconds) => {
+                updateInputs({ glazingMethod: "담금", dipSeconds: seconds.toFixed(1) });
+                setDensitySetupComplete(true);
+              }}
             />
-            <WeightInputs
+            {densitySetupComplete && <WeightInputs
               beforeG={state.beforeWeightG}
               afterG={state.afterWeightG}
               method={state.glazingMethod}
@@ -673,53 +713,38 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               result={arealDensity}
               dryingComplete={state.dryingComplete}
               onDryingChange={(dryingComplete) => updateInputs({ dryingComplete })}
-            />
-            {thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
-            <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} safeRangeMm={safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM} />
-            {/* v9 후속: 단일 "적용" 버튼 대신 지금 두께가 목표와 어떤
-                관계인지 설명하고, 그에 맞는 행동을 사용자가 고르게 한다. */}
-            <section className="thickness-decision" aria-labelledby="thickness-decision-heading">
-              <h3 id="thickness-decision-heading">두께 판단과 다음 행동</h3>
-              <Alert tone={computedCoating === "target" ? "unavailable" : "warning"} title={THICKNESS_DECISION_TITLE[computedCoating]}>
-                {thicknessViewData.risk}
-              </Alert>
-              {/* v9 후속(2026-09-20): "이대로 진행하고 소성 계획으로 위험
-                  줄이기" 버튼이 실제로 무엇을 하는지 안 보이던 문제를
-                  고치되, curveSummary 전체 문장은 그래프 범례용이라
-                  장황해서(사유 문장 + 캐빗 2개) 여기선 실제 계산된
-                  최고온도 오프셋 한 줄로 줄인다. */}
-              {computedCoating !== "target" && (() => {
-                const peakDeltaC = Math.round(
-                  Math.max(...executionCurves[1].points.map((point) => point.temperatureC)) -
-                  Math.max(...executionCurves[0].points.map((point) => point.temperatureC)),
-                );
-                return (
-                  <Alert tone="unavailable" title="소성 계획이 이렇게 위험을 줄입니다">
-                    최고 구간 온도를 {Math.abs(peakDeltaC)}°C {peakDeltaC < 0 ? "낮춰" : "올려"} 조정합니다.
-                  </Alert>
-                );
-              })()}
-              <div className="thickness-decision-actions">
-                <button
-                  type="button"
-                  className="prototype-confirm"
-                  disabled={thicknessStatus !== "ready" || !weightsReady}
-                  aria-pressed={state.riskMitigationApplied}
-                  onClick={() => setState({ ...state, riskMitigationApplied: true })}
-                >
-                  {computedCoating === "target" ? "이 상태로 소성 계획 확정하기" : "이대로 진행하고 소성 계획으로 위험 줄이기"}
-                </button>
-                {computedCoating !== "target" && (
-                  <button
-                    type="button"
-                    className="act ghost"
-                    onClick={() => updateInputs({ beforeWeightG: "", afterWeightG: "", dipSeconds: "", dryingComplete: false })}
-                  >
-                    다시 시유하기
-                  </button>
-                )}
-              </div>
-            </section>
+            />}
+            {densitySetupComplete && thicknessStatus === "error" && <Alert tone="danger" title="두께 계산 오류">{thicknessError}</Alert>}
+            {weightsReady && <ThicknessSection ware={state.ware ?? "bowl"} profile={thicknessProfile} loading={thicknessStatus === "loading"} safeRangeMm={safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM} />}
+            {weightsReady && <section className="firing-plan-decision progressive-field" aria-labelledby="firing-plan-decision-heading">
+              <h3 id="firing-plan-decision-heading">소성 플랜을 수정해요</h3>
+              <p className="firing-plan-description">{planAdjustmentText}</p>
+              <label className={`firing-plan-check${state.planDecision === "apply" ? " is-applied" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={state.planDecision === "apply"}
+                  disabled={thicknessStatus !== "ready"}
+                  onChange={(event) => setState((current) => ({
+                    ...current,
+                    riskMitigationApplied: event.target.checked,
+                    planDecision: event.target.checked ? "apply" : undefined,
+                    curveApproved: false,
+                    approvedCurves: null,
+                    approvedControlSamples: [],
+                    approvedControlParameters: {},
+                    simulationCompleted: false,
+                  }))}
+                />
+                <span>적용하기</span>
+              </label>
+              <p className={`firing-plan-status${state.planDecision === "apply" ? " applied" : state.planDecision === "skip" ? " skipped" : ""}`} role="status">
+                {state.planDecision === "apply"
+                  ? "수정된 소성 플랜이 적용됩니다."
+                  : state.planDecision === "skip"
+                    ? "수정 없이 기준 소성 플랜으로 진행합니다."
+                    : "아직 수정 플랜을 적용하지 않았어요."}
+              </p>
+            </section>}
           </>
         )}
 
@@ -769,9 +794,67 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         )}
       </main>
 
+      {planDialog === "apply" && (
+        <div className="plan-decision-backdrop" role="presentation">
+          <section className="plan-decision-modal" role="dialog" aria-modal="true" aria-labelledby="apply-plan-dialog-title">
+            <h3 id="apply-plan-dialog-title">소성 플랜을 수정하여 위험을 줄입니다.</h3>
+            <p>{planAdjustmentText}</p>
+            <div className="plan-decision-modal-actions single">
+              <button
+                type="button"
+                className="plan-confirm"
+                onClick={() => {
+                  setState((current) => ({
+                    ...current,
+                    riskMitigationApplied: true,
+                    planDecision: "apply",
+                    curveApproved: false,
+                    approvedCurves: null,
+                    approvedControlSamples: [],
+                    approvedControlParameters: {},
+                    simulationCompleted: false,
+                  }));
+                  setPlanDialog(null);
+                }}
+              >확인</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {planDialog === "skip" && (
+        <div className="plan-decision-backdrop" role="presentation">
+          <section className="plan-decision-modal" role="dialog" aria-modal="true" aria-labelledby="skip-plan-dialog-title">
+            <h3 id="skip-plan-dialog-title">소성 플랜 수정을 건너뛸까요?</h3>
+            <p>{skipRiskText}</p>
+            <div className="plan-decision-modal-actions">
+              <button
+                type="button"
+                className="plan-skip-confirm"
+                onClick={() => {
+                  setState((current) => ({
+                    ...current,
+                    riskMitigationApplied: false,
+                    planDecision: "skip",
+                    curveApproved: false,
+                    approvedCurves: null,
+                    approvedControlSamples: [],
+                    approvedControlParameters: {},
+                    simulationCompleted: false,
+                  }));
+                  setPlanDialog(null);
+                  setStep(3);
+                }}
+              >적용하지 않고 계속</button>
+              <button type="button" className="plan-confirm" onClick={() => setPlanDialog("apply")}>수정 적용하기</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <footer className="prototype-actions">
         {step > 0 && step < 4 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
-        {step < 4 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}<span aria-hidden="true">→</span></button>}
+        {step < 4 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}</button>}
         {step === 4 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
       </footer>
     </div>

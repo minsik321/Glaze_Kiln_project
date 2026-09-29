@@ -21,11 +21,11 @@ python -m venv .venv
 Copy-Item .env.example .env.local
 npm run db:start
 npm run db:reset
-npm run dev:backend
+npm run dev
 ```
 
-다른 터미널에서 `npm run dev`를 실행한다. Supabase 시작 출력의 로컬 URL과
-publishable key를 `.env.local`에 넣고 프런트엔드를 다시 시작한다.
+이 명령이 프런트엔드와 FastAPI 백엔드를 함께 실행한다. Supabase 시작 출력의
+로컬 URL과 publishable key를 `.env.local`에 넣은 뒤 개발 서버를 다시 시작한다.
 
 ## 기존 로컬 DB 마이그레이션
 

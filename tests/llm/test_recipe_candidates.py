@@ -55,6 +55,20 @@ def test_llm_supplied_materials_are_ignored_even_if_present() -> None:
     assert candidate_set.candidates[0].materials == _MATERIALS
 
 
+@pytest.mark.parametrize(
+    ("generated_name", "display_name"),
+    [
+        ("고칼슘 매트 유약 후보 1", "고칼슘 매트 유약"),
+        ("고장석 반매트 - 후보2", "고장석 반매트"),
+        ("Leather Brown Candidate #3", "Leather Brown"),
+    ],
+)
+def test_candidate_name_removes_generated_slot_suffix(generated_name: str, display_name: str) -> None:
+    raw = {"candidates": [_raw_candidate(name=generated_name)]}
+    candidate_set, _ = build_recipe_candidates(raw, _search_candidates(1))
+    assert candidate_set.candidates[0].name == display_name
+
+
 def test_unknown_colorant_is_dropped() -> None:
     raw = {"candidates": [_raw_candidate(colorants={"Unobtainium": 1.0})]}
     with pytest.raises(RecipeCandidateValidationError, match="지원하지 않는 발색 산화물"):

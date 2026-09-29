@@ -816,39 +816,93 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* v9 후속: ☰은 채팅 표지 좌상단에 고정된 메뉴바처럼 보이게 한다. */
 .recipe-history-toggle { position: absolute; top: 0; left: 0; z-index: 5; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--color-border-strong); background: var(--color-surface); }.recipe-history-toggle svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; }
 .recipe-history-backdrop { position: fixed; inset: 0; background: rgba(23, 37, 46, .35); z-index: 20; }
-.recipe-history-sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: min(320px, 86vw); z-index: 21; display: grid; grid-template-rows: auto auto 1fr; gap: var(--space-3); padding: var(--space-4); overflow-y: auto; background: var(--color-surface); box-shadow: var(--shadow-overlay); }.recipe-history-sidebar h4 { margin: 0; }
+.recipe-history-backdrop.is-open { animation: recipe-history-backdrop-in 300ms ease-out both; }
+.recipe-history-backdrop.is-closing { animation: recipe-history-backdrop-out 260ms ease-in both; }
+.recipe-history-sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: min(320px, 86vw); z-index: 21; display: grid; grid-template-rows: auto auto 1fr; gap: var(--space-3); padding: var(--space-4); overflow-y: auto; background: var(--color-surface); box-shadow: var(--shadow-overlay); will-change: transform; }
+.recipe-history-sidebar.is-open { animation: recipe-history-slide-in 320ms cubic-bezier(.22, .8, .24, 1) both; }
+.recipe-history-sidebar.is-closing { animation: recipe-history-slide-out 280ms cubic-bezier(.4, 0, .7, .2) both; }
+.recipe-history-sidebar h4 { margin: 0; }
+@keyframes recipe-history-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes recipe-history-slide-out { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes recipe-history-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes recipe-history-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .recipe-history-backdrop.is-open,
+  .recipe-history-backdrop.is-closing,
+  .recipe-history-sidebar.is-open,
+  .recipe-history-sidebar.is-closing { animation-duration: .01ms; }
+}
 .recipe-history-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }.recipe-history-list button { width: 100%; padding: 10px; border: 1px solid var(--color-border); background: var(--color-surface-subtle); text-align: left; }.recipe-history-list button[aria-current="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .history-match-badge { display: inline-block; margin-top: 6px; padding: 3px 7px; border: 1px dashed var(--color-accent); color: var(--color-accent-strong); font-size: 12px; }.history-match-remark { color: var(--color-text-muted); font-size: 13px; }
 
 /* Figma 107:151 — 유약 레시피 입력 화면 */
 .recipe-entry-shell {
   position: relative;
+  height: 100%;
   min-height: 100%;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 49%, rgba(255, 211, 203, .68) 0%, rgba(255, 234, 230, .46) 17%, rgba(255, 248, 246, .16) 31%, rgba(255, 255, 255, 0) 46%),
-    #fff;
+  background: #fff;
+}
+.recipe-entry-shell::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 23%;
+  left: 50%;
+  width: 128%;
+  height: 54%;
+  pointer-events: none;
+  opacity: 1;
+  background: radial-gradient(ellipse at center, rgba(255, 211, 203, .72) 0%, rgba(255, 232, 227, .5) 38%, rgba(255, 249, 247, .16) 66%, rgba(255, 255, 255, 0) 78%);
+  transform: translateX(-50%);
+  transition: top 480ms cubic-bezier(.22, .8, .24, 1), width 480ms cubic-bezier(.22, .8, .24, 1), height 480ms cubic-bezier(.22, .8, .24, 1), opacity 240ms ease;
+}
+.recipe-entry-shell:has(.recipe-chat-screen.has-response)::before {
+  top: -9%;
+  width: 100%;
+  height: 66%;
+  opacity: 1;
+  background: linear-gradient(to bottom, rgba(255, 210, 204, .86) 0%, rgba(255, 225, 220, .64) 36%, rgba(255, 242, 239, .3) 64%, rgba(255, 242, 239, 0) 100%);
 }
 .recipe-entry-shell > .prototype-header,
 .recipe-entry-shell > .prototype-progress,
 .recipe-entry-shell .screen-intro { display: none; }
 .recipe-entry-shell .prototype-main {
   position: relative;
+  z-index: 1;
   display: block;
+  min-height: 0;
   padding: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: transparent;
 }
 .recipe-entry-header {
-  position: absolute;
+  position: sticky;
   z-index: 8;
   top: calc(var(--app-safe-top) + 8px);
-  left: 50%;
+  isolation: isolate;
   display: flex;
   width: min(100% - 36px, 366px);
   align-items: center;
   gap: 13px;
+  margin: 0 auto -32px;
+}
+.recipe-entry-header::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: calc(0px - var(--app-safe-top) - 8px);
+  right: auto;
+  bottom: -14px;
+  left: 50%;
+  width: 100vw;
+  pointer-events: none;
+  background: transparent;
   transform: translateX(-50%);
+}
+.recipe-entry-shell .prototype-main:has(.recipe-chat-screen.has-response) .recipe-entry-header::before {
+  background: linear-gradient(to bottom, rgba(255, 218, 212, .96) 0%, rgba(255, 229, 225, .92) 76%, rgba(255, 229, 225, 0) 100%);
 }
 .recipe-back-button {
   display: grid;
@@ -868,7 +922,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-step-lines li { height: 3px; border-radius: 999px; background: #e8e8e8; }
 .recipe-step-lines li.active { background: #1eadff; }
 .recipe-entry-shell .prototype-home { min-height: 100%; }
-.recipe-entry-shell .prototype-home > .aice-alert { display: none; }
+.recipe-entry-shell .prototype-home > .aice-alert { margin: 0 18px 12px; }
 .recipe-entry-shell .prototype-actions { display: none; }
 .recipe-entry-shell .recipe-chat-screen {
   position: relative;
@@ -883,7 +937,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   left: 18px;
   right: 18px;
   text-align: center;
-  transition: opacity .2s ease;
+  transition: opacity 260ms ease, transform 420ms cubic-bezier(.22, .8, .24, 1);
 }
 .recipe-chat-intro p { margin: 0; color: #454545; font-size: 16px; font-weight: 400; line-height: 1.55; }
 .recipe-chat-intro strong { font-weight: 400; }
@@ -950,7 +1004,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .recipe-prompt-pill button:disabled { background: #1eadff; opacity: .6; }
 .recipe-prompt-pill button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.recipe-suggestions { display: flex; justify-content: center; gap: 13px; overflow: hidden; color: #8f9699; font-size: 8px; white-space: nowrap; }
+.recipe-suggestions {
+  display: flex;
+  max-height: 18px;
+  justify-content: center;
+  gap: 13px;
+  overflow: hidden;
+  color: #8f9699;
+  font-size: 8px;
+  white-space: nowrap;
+  transition: max-height 260ms ease, opacity 220ms ease, transform 360ms cubic-bezier(.22, .8, .24, 1);
+}
 .recipe-entry-shell .recipe-chat-screen:not(.has-response) .recipe-suggestions {
   opacity: 0;
   animation: recipe-intro-rise 440ms cubic-bezier(.22, .8, .24, 1) 600ms forwards;
@@ -985,8 +1049,30 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .recipe-entry-shell .recipe-history-toggle svg { width: 18px; height: 18px; stroke-width: 1.7; }
 .recipe-entry-shell .recipe-chat-screen.has-response { padding-top: 128px; }
-.recipe-entry-shell .recipe-chat-screen.has-response .recipe-chat-intro { opacity: 0; pointer-events: none; }
-.recipe-entry-shell .recipe-chat-screen.has-response .recipe-prompt-form { position: relative; top: auto; left: auto; right: auto; margin-bottom: 22px; }
+.recipe-entry-shell .recipe-chat-screen.has-response .recipe-chat-intro {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-24px);
+}
+.recipe-entry-shell .recipe-chat-screen.has-response .recipe-prompt-form {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  margin-bottom: 22px;
+  animation: recipe-prompt-to-results 480ms cubic-bezier(.22, .8, .24, 1) both;
+}
+.recipe-entry-shell .recipe-chat-screen.has-response .recipe-suggestions {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-12px);
+  visibility: hidden;
+}
+@keyframes recipe-prompt-to-results {
+  from { transform: translateY(calc(38.5dvh - 64px)); }
+  to { transform: translateY(0); }
+}
 .recipe-entry-shell .recipe-chat-screen.has-response > .async-state,
 .recipe-entry-shell .recipe-chat-screen.has-response > .aice-alert,
 .recipe-entry-shell .recipe-chat-screen.has-response > .evidence-card-grid,
@@ -1055,7 +1141,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-entry-shell .prototype-main {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
   padding: 0;
 }
@@ -1068,9 +1154,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border: 0;
   background: transparent;
 }
-.recipe-entry-shell .recipe-chat-screen { box-sizing: border-box; height: 100%; }
+.recipe-entry-shell .recipe-chat-screen { box-sizing: border-box; height: 100%; min-height: 100%; }
+.recipe-entry-shell .prototype-home:has(.recipe-chat-screen.has-response),
+.recipe-entry-shell .recipe-chat-screen.has-response { height: auto; }
+.recipe-entry-shell .prototype-home:has(.recipe-chat-screen.is-loading),
+.recipe-entry-shell .recipe-chat-screen.is-loading { height: 100%; }
 
-.recipe-entry-shell .recipe-chat-screen.has-response .recipe-suggestions { display: none; }
 .recipe-generation-loader {
   position: absolute;
   top: 43%;
@@ -1106,26 +1195,35 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-entry-shell .recipe-result-card {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 98px;
-  min-height: 84px;
+  grid-template-columns: minmax(0, 1fr) 147px;
+  min-height: 132px;
   align-items: end;
-  gap: 12px;
-  padding: 14px 14px 12px 22px;
+  gap: 16px;
+  padding: 16px 18px 16px 24px;
   overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 2px solid transparent;
+  border-radius: 30px;
   background: rgba(255, 255, 255, .96);
   box-shadow: 0 3px 13px rgba(73, 151, 185, .12);
   cursor: pointer;
+  opacity: 0;
+  animation: recipe-card-rise 440ms cubic-bezier(.22, .8, .24, 1) both;
+  animation-delay: calc(var(--recipe-card-index, 0) * 72ms);
 }
 .recipe-entry-shell .recipe-result-card[aria-current="true"] {
   border-color: #ee9bac;
   box-shadow: 0 3px 13px rgba(234, 147, 164, .16);
 }
-.recipe-card-copy { min-width: 0; }
+.recipe-entry-shell .recipe-result-card .recipe-card-copy {
+  display: grid;
+  grid-template-rows: auto 72px;
+  align-self: stretch;
+  gap: 8px;
+  min-width: 0;
+}
 .recipe-card-name {
   display: block;
-  margin: 0 0 9px;
+  margin: 0;
   overflow: hidden;
   color: #31383c;
   font-size: 13px;
@@ -1134,14 +1232,40 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.recipe-card-ratio { display: grid; gap: 1px; margin: 0; }
-.recipe-card-ratio div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; color: #777f83; font-size: 8px; line-height: 1.25; }
+.recipe-entry-shell .recipe-result-card .recipe-card-ratio { display: grid; width: 100%; height: 72px; grid-template-rows: repeat(3, 1fr); gap: 0; margin: 0; }
+.recipe-entry-shell .recipe-result-card .recipe-card-ratio div { display: grid; width: 100%; min-height: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 0; color: #777f83; font-size: 8px; line-height: 1.25; }
 .recipe-card-ratio dt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recipe-card-ratio dd { margin: 0; }
+@keyframes recipe-card-rise {
+  from { opacity: 0; transform: translateY(34px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@property --recipe-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.recipe-entry-shell .recipe-result-card[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  padding: 2px;
+  pointer-events: none;
+  border-radius: inherit;
+  background: conic-gradient(from var(--recipe-border-angle), transparent 0deg 235deg, rgba(255, 255, 255, .25) 255deg, #fff 278deg, #f58fa6 300deg, transparent 326deg 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: recipe-border-orbit 1.8s linear infinite;
+}
+@keyframes recipe-border-orbit { to { --recipe-border-angle: 360deg; } }
 .recipe-detail-button {
   position: absolute;
-  top: 12px;
-  right: 16px;
+  top: 14px;
+  right: 18px;
   z-index: 2;
   min-height: 22px;
   padding: 2px 9px;
@@ -1155,8 +1279,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .recipe-card-image-wrap {
   display: grid;
-  width: 98px;
-  height: 48px;
+  width: 147px;
+  height: 72px;
   align-self: end;
   place-items: center;
   overflow: hidden;
@@ -1169,7 +1293,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @keyframes recipe-image-shimmer { to { background-position-x: -200%; } }
 
 .recipe-next-button {
-  position: absolute;
+  position: fixed;
   z-index: 12;
   right: max(18px, calc(50% - 183px));
   bottom: 28px;
@@ -1186,6 +1310,556 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 600;
   cursor: pointer;
 }
+.recipe-next-button:disabled { opacity: .42; cursor: default; }
+
+/* 두 번째 단계도 레시피 후보 화면과 같은 모바일 작업 디자인을 사용한다. */
+.ware-entry-shell {
+  position: relative;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #ffd9d3 0%, #fff1ee 30%, #fff 62%);
+}
+.ware-entry-shell > .prototype-header,
+.ware-entry-shell > .prototype-progress { display: none; }
+.ware-entry-shell .prototype-main {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0 0 118px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: transparent;
+}
+.ware-entry-shell .recipe-entry-header::before {
+  background: linear-gradient(to bottom, rgba(255, 217, 211, .98) 0%, rgba(255, 229, 225, .94) 78%, rgba(255, 229, 225, 0) 100%);
+}
+.ware-entry-shell .screen-intro,
+.ware-entry-shell .prototype-main > section {
+  width: min(calc(100% - 36px), 402px);
+  margin-right: auto;
+  margin-left: auto;
+}
+.ware-entry-shell .screen-intro {
+  margin-top: 0;
+  margin-bottom: 22px;
+  padding-top: 128px;
+  text-align: center;
+}
+.ware-entry-shell .screen-intro .eyebrow { display: none; }
+.ware-entry-shell .screen-intro h2 { margin: 0 0 7px; color: #31383c; font-size: 20px; font-weight: 650; }
+.ware-entry-shell .screen-intro p { margin: 0; color: #737b7f; font-size: 12px; }
+.ware-entry-shell .prototype-main > section h3 { margin: 0 0 10px; color: #3a4246; font-size: 14px; }
+.ware-entry-shell .ware-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ware-entry-shell .prototype-choice {
+  min-height: 148px;
+  gap: 7px;
+  padding: 12px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .95);
+  box-shadow: 0 3px 13px rgba(73, 151, 185, .12);
+}
+.ware-entry-shell .prototype-choice[aria-pressed="true"] {
+  padding: 12px;
+  border-color: #ee9bac;
+  background: #fff;
+  box-shadow: 0 4px 15px rgba(234, 147, 164, .2);
+}
+.ware-entry-shell .prototype-visual { height: 86px; border: 0; border-radius: 14px; background-color: #f0f3f4; }
+.ware-entry-shell .prototype-choice strong { color: #31383c; font-size: 13px; }
+.ware-entry-shell .prototype-choice > span:last-child { color: #7b8387; font-size: 10px; }
+.ware-entry-shell .ware-options { margin-top: 24px; }
+.ware-entry-shell .choice-chip-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ware-entry-shell .choice-chip {
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .95);
+  box-shadow: 0 3px 11px rgba(73, 151, 185, .1);
+}
+.ware-entry-shell .choice-chip[aria-pressed="true"] { border-color: #ee9bac; background: #fff; }
+.ware-entry-shell .choice-chip strong { color: #31383c; font-size: 12px; }
+.ware-entry-shell .choice-chip small { color: #7b8387; font-size: 9px; }
+.ware-entry-shell .prototype-actions {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  grid-template-columns: .72fr 1.28fr;
+  padding: 18px max(18px, calc(50% - 183px)) 28px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, .96) 32%);
+}
+.ware-entry-shell .prototype-actions button {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.ware-entry-shell .prototype-actions .next { border-color: #1eadff; background: #1eadff; color: #fff; }
+
+/* 2~5단계 공통 작업 화면: 1단계의 색·간격·카드·진행 표시 체계를 이어간다. */
+.guided-step-shell {
+  position: relative;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #ffd9d3 0%, #fff1ee 28%, #fff 60%);
+}
+.guided-step-shell > .prototype-header,
+.guided-step-shell > .prototype-progress { display: none; }
+.guided-step-shell .prototype-main {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0 0 118px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: transparent;
+}
+.guided-step-shell .recipe-entry-header::before {
+  background: linear-gradient(to bottom, rgba(255, 217, 211, .98) 0%, rgba(255, 229, 225, .94) 78%, rgba(255, 229, 225, 0) 100%);
+}
+.guided-step-shell .screen-intro,
+.guided-step-shell .prototype-main > section,
+.guided-step-shell .prototype-main > .aice-alert,
+.guided-step-shell .prototype-main > .prototype-confirm {
+  box-sizing: border-box;
+  width: min(calc(100% - 36px), 402px);
+  margin-right: auto;
+  margin-left: auto;
+}
+.guided-step-shell .screen-intro {
+  margin-top: 0;
+  margin-bottom: 22px;
+  padding-top: 128px;
+  text-align: center;
+}
+.guided-step-shell .screen-intro .eyebrow { display: none; }
+.guided-step-shell .screen-intro h2 { margin: 0 0 7px; color: #31383c; font-size: 20px; font-weight: 650; }
+.guided-step-shell .screen-intro p { margin: 0; color: #737b7f; font-size: 12px; }
+.guided-step-shell .density-check,
+.guided-step-shell .weight-inputs,
+.guided-step-shell .thickness-section,
+.guided-step-shell .thickness-decision,
+.guided-step-shell .firing-plan-decision,
+.guided-step-shell .kiln-firing-screen,
+.guided-step-shell .result-feedback {
+  margin-top: 0;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 0;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 3px 13px rgba(73, 151, 185, .12);
+}
+.guided-step-shell h3 { color: #31383c; }
+.guided-step-shell input,
+.guided-step-shell select,
+.guided-step-shell textarea {
+  border: 1px solid #d7e0e4;
+  border-radius: 9px;
+  background: #fff;
+}
+.guided-step-shell .aice-alert,
+.guided-step-shell .feedback-chip-group,
+.guided-step-shell .feedback-scope,
+.guided-step-shell .scenario-controls,
+.guided-step-shell .kiln-controls fieldset {
+  border-radius: 14px;
+}
+.guided-step-shell .choice-chip,
+.guided-step-shell .prototype-confirm,
+.guided-step-shell .act {
+  border-radius: 10px;
+}
+.guided-step-shell .choice-chip[aria-pressed="true"],
+.guided-step-shell .prototype-confirm[aria-pressed="true"] {
+  border-color: #ee9bac;
+  background: #fff1f3;
+  color: #6a3c47;
+}
+.guided-step-shell .thickness-section svg,
+.guided-step-shell .curve-comparison-svg,
+.guided-step-shell .kiln-section-svg,
+.guided-step-shell .result-swatch,
+.guided-step-shell .result-photo { border-radius: 14px; }
+.guided-step-shell .prototype-actions {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px max(18px, calc(50% - 183px)) 28px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, .97) 32%);
+}
+.guided-step-shell .prototype-actions button {
+  width: 62px;
+  height: 42px;
+  min-width: 62px;
+  min-height: 42px;
+  flex: 0 0 62px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(79, 145, 177, .2);
+  color: #fff;
+  font-family: "Pretendard", "Malgun Gothic", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+}
+.guided-step-shell .prototype-actions .ghost { background: #aad2e8; color: #fff; }
+.guided-step-shell .prototype-actions .next {
+  display: grid;
+  place-items: center;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  background: #1eadff;
+  color: #fff;
+  text-align: center;
+}
+.guided-step-shell .prototype-actions button:disabled { opacity: .42; cursor: default; }
+.guided-step-shell .prototype-actions button:only-child { width: auto; min-width: 112px; flex-basis: auto; }
+
+/* Figma 71:1382 — 3단계 도포 입력 화면 */
+.guided-step-3,
+.guided-step-4,
+.guided-step-5 { background: #fff; }
+.guided-step-3 .recipe-entry-header::before,
+.guided-step-4 .recipe-entry-header::before,
+.guided-step-5 .recipe-entry-header::before {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, .99) 0%, rgba(255, 255, 255, .96) 78%, rgba(255, 255, 255, 0) 100%);
+}
+.guided-step-3 .screen-intro { display: none; }
+.guided-step-3 .prototype-main > .density-check { padding-top: 128px; }
+.guided-step-3 .density-check,
+.guided-step-3 .weight-inputs,
+.guided-step-3 .thickness-section,
+.guided-step-3 .thickness-decision,
+.guided-step-3 .firing-plan-decision {
+  width: min(calc(100% - 72px), 332px);
+  margin-right: auto;
+  margin-bottom: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.guided-step-3 .density-check h3,
+.guided-step-3 .weight-inputs h3,
+.guided-step-3 .thickness-section h3,
+.guided-step-3 .thickness-decision h3,
+.guided-step-3 .firing-plan-decision h3 {
+  margin: 0 0 18px;
+  color: #1eadff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.guided-step-3 .density-check-hint { margin: -11px 0 14px; color: #a2a8ab; font-size: 9px; }
+.guided-step-3 .density-check-fields,
+.guided-step-3 .weight-inputs-fields {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 0;
+}
+.guided-step-3 .density-check-fields label,
+.guided-step-3 .weight-inputs-fields label {
+  display: flex;
+  width: 133px;
+  flex-direction: column;
+  gap: 6px;
+  color: #969da0;
+  font-size: 9px;
+}
+.guided-step-3 .density-check-fields input,
+.guided-step-3 .weight-inputs-fields input,
+.guided-step-3 .weight-inputs-fields select {
+  box-sizing: border-box;
+  width: 133px;
+  height: 32px;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid #9ca4a8;
+  border-radius: 4px;
+  background: #fff;
+  color: #31383c;
+  font-size: 11px;
+}
+.guided-step-3 .density-check-fields input:focus,
+.guided-step-3 .weight-inputs-fields input:focus,
+.guided-step-3 .weight-inputs-fields select:focus { border-color: #1eadff; outline: 0; box-shadow: 0 0 0 2px rgba(30, 173, 255, .12); }
+.guided-step-3 .density-check-fields .act {
+  width: auto;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: #596164;
+  color: #fff;
+  font-size: 10px;
+}
+.guided-step-3 .density-target-step { margin-top: 30px; }
+.guided-step-3 .density-target-step .density-check-fields { flex-direction: row; align-items: flex-end; gap: 12px; }
+.guided-step-3 .density-check > .aice-alert,
+.guided-step-3 .density-check-note,
+.guided-step-3 .weight-inputs-hint { max-width: 280px; margin: 10px 0 0; font-size: 9px; line-height: 1.5; }
+.guided-step-3 .density-check > .aice-alert {
+  box-sizing: border-box;
+  display: grid;
+  width: min(100%, 280px);
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.guided-step-3 .density-check > .aice-alert strong,
+.guided-step-3 .density-check > .aice-alert span { min-width: 0; white-space: normal; }
+.guided-step-3 .weight-inputs-result { margin-top: 12px; color: #596164; font-size: 10px; }
+.guided-step-3 .thickness-section svg {
+  min-height: 0;
+  margin: 0 0 12px;
+  border: 1px solid #e4ecef;
+  background: #f9fcfd;
+}
+.thickness-judgment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: #eef8fd;
+  color: #3e484d;
+  font-size: 11px;
+}
+.thickness-judgment strong { color: #718087; font-size: 10px; }
+.thickness-judgment span { font-weight: 700; }
+.thickness-judgment.thick { background: #fff0f1; color: #b45260; }
+.thickness-judgment.thin { background: #eef7ff; color: #397da7; }
+.thickness-judgment.target { background: #edf9f4; color: #378269; }
+.thickness-judgment.unavailable { background: #f2f4f5; color: #747d81; }
+.thickness-measurement { margin: 8px 2px 0; color: #99a2a6; font-size: 9px; text-align: right; }
+.guided-step-3 .firing-plan-description {
+  margin: -8px 0 16px;
+  color: #697378;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.plan-decision-modal-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.plan-confirm { background: #1eadff; color: #fff; }
+.plan-skip-confirm { background: #e8f2f7; color: #57717d; }
+.firing-plan-check {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid #d8e3e8;
+  border-radius: 9px;
+  background: #fff;
+  color: #59666c;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+.firing-plan-check.is-applied { border-color: #1eadff; background: #eef9ff; color: #167caf; }
+.firing-plan-check input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: #1eadff;
+}
+.firing-plan-check:has(input:disabled) { opacity: .42; cursor: default; }
+.guided-step-3 .firing-plan-status {
+  margin: 8px 2px 0;
+  color: #929ca1;
+  font-size: 9px;
+  line-height: 1.5;
+}
+.guided-step-3 .firing-plan-status.applied { color: #1685b9; font-weight: 700; }
+.guided-step-3 .firing-plan-status.skipped { color: #9a6b45; font-weight: 700; }
+.guided-step-3 .drying-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  color: #6e777b;
+  font-size: 10px;
+}
+.guided-step-3 .drying-confirm input { width: 16px; height: 16px; min-height: 16px; }
+.progressive-field { animation: progressive-field-rise 360ms cubic-bezier(.22, .8, .24, 1) both; }
+.guided-step-3 .density-check > h3,
+.guided-step-3 .density-check > .density-check-hint,
+.guided-step-3 .density-check > .density-check-fields > *,
+.guided-step-3 .density-target-step > h3,
+.guided-step-3 .density-target-step .density-check-fields > *,
+.guided-step-3 .weight-inputs > h3,
+.guided-step-3 .weight-inputs-fields > *,
+.guided-step-3 .weight-inputs > .drying-confirm,
+.guided-step-3 .weight-inputs > .weight-inputs-result {
+  animation: progressive-field-rise 360ms cubic-bezier(.22, .8, .24, 1) both;
+}
+.guided-step-3 .density-check > .density-check-fields > :nth-child(2),
+.guided-step-3 .density-target-step .density-check-fields > :nth-child(2),
+.guided-step-3 .weight-inputs-fields > :nth-child(2) { animation-delay: 70ms; }
+.guided-step-3 .density-check > .density-check-fields > :nth-child(3),
+.guided-step-3 .weight-inputs-fields > :nth-child(3) { animation-delay: 140ms; }
+.guided-step-3 .weight-inputs-fields > :nth-child(4),
+.guided-step-3 .weight-inputs > .drying-confirm { animation-delay: 210ms; }
+@keyframes progressive-field-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 4단계 소성 시뮬레이션 — 카드 없이 한 장의 흰 캔버스로 구성한다. */
+.guided-step-4 .screen-intro { display: none; }
+.guided-step-4 .prototype-main > .kiln-firing-screen {
+  box-sizing: border-box;
+  width: min(calc(100% - 36px), 402px);
+  margin: 0 auto;
+  padding: 128px 0 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.guided-step-4 .kiln-section-summary { margin: 0 0 20px; }
+.guided-step-4 .kiln-section-summary > div { min-width: 0; }
+.guided-step-4 .kiln-section-summary h3 { margin: 0 0 6px; color: #31383c; font-size: 20px; font-weight: 700; }
+.guided-step-4 .kiln-section-summary p { margin: 0; color: #8a9499; font-size: 10px; }
+.kiln-play-toggle {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #1eadff;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(30, 173, 255, .24);
+  cursor: pointer;
+}
+.kiln-play-toggle svg { width: 19px; height: 19px; overflow: visible; fill: currentColor; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.kiln-play-toggle:disabled { opacity: .4; cursor: default; }
+.guided-step-4 .kiln-readouts-top {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 0 22px;
+  overflow: hidden;
+  border: 1px solid #dde6ea;
+  border-radius: 9px;
+}
+.guided-step-4 .kiln-readouts-top span {
+  min-width: 0;
+  padding: 10px 4px;
+  border: 0;
+  border-right: 1px solid #e5ecef;
+  color: #3f484c;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.guided-step-4 .kiln-readouts-top span:last-child { border-right: 0; }
+.guided-step-4 .kiln-readouts-top b { margin-bottom: 5px; color: #899398; font-size: 8px; font-weight: 600; white-space: nowrap; }
+.guided-step-4 .kiln-readouts-top small { margin-left: 1px; color: #9ca5a9; font-size: 8px; }
+.simulation-clock { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: #59656a; }
+.simulation-clock span { font-size: 15px; }
+.simulation-clock strong { font-size: 11px; }
+.simulation-clock small { margin-left: auto; color: #9aa3a7; font-size: 9px; }
+.guided-step-4 .curve-toggle-row { gap: 6px; margin: 0 0 8px; }
+.guided-step-4 .curve-toggle-row label { min-height: 28px; padding: 3px 7px; border-radius: 6px; font-size: 8px; }
+.guided-step-4 .curve-toggle-row input { width: 14px; height: 14px; min-height: 14px; }
+.guided-step-4 .curve-toggle-row i { width: 12px; height: 3px; }
+.guided-step-4 .curve-comparison-svg {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+.kiln-fire-cursor {
+  pointer-events: none;
+  transition: transform 300ms linear;
+}
+.kiln-fire-cursor text { font-size: 18px; dominant-baseline: central; text-anchor: middle; }
+.guided-step-4 .curve-natural-summary { margin: 8px 0 12px; color: #8c969a; font-size: 9px; line-height: 1.5; }
+.kiln-time-control { margin: 0 0 28px; }
+.kiln-time-control label { display: block; margin-bottom: 5px; color: #929b9f; font-size: 8px; }
+.kiln-time-control input { width: 100%; accent-color: #1eadff; }
+.guided-step-4 .kiln-layout { display: block; margin: 0 0 28px; }
+.guided-step-4 .kiln-section-svg { max-height: none; border: 0; border-radius: 0; background: #fff; }
+.guided-step-4 .kiln-legend { justify-content: center; gap: 8px; color: #8b9599; font-size: 8px; }
+.guided-step-4 .kiln-legend i { width: 12px; height: 5px; }
+.guided-step-4 .scenario-controls {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.guided-step-4 .scenario-controls legend { margin-bottom: 10px; padding: 0; color: #1eadff; font-size: 15px; }
+.guided-step-4 .scenario-controls .choice-chip-row { gap: 6px; }
+.guided-step-4 .scenario-controls .choice-chip { min-height: 34px; padding: 6px 9px; border-radius: 7px; font-size: 9px; }
+.guided-step-4 .kiln-warning-timeline { margin-bottom: 12px; }
+.guided-step-4 .kiln-warning-timeline .aice-alert { border-radius: 9px; font-size: 9px; }
+.kiln-plan-note { margin: 10px 2px 0; color: #1685b9; font-size: 9px; font-weight: 700; }
+
+.plan-decision-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(34, 50, 57, .48);
+  backdrop-filter: blur(2px);
+}
+.plan-decision-modal {
+  box-sizing: border-box;
+  width: min(100%, 340px);
+  padding: 25px 20px 20px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 20px 52px rgba(30, 59, 72, .24);
+  animation: progressive-field-rise 240ms cubic-bezier(.22, .8, .24, 1) both;
+}
+.plan-decision-modal h3 { margin: 0 0 10px; color: #31383c; font-size: 16px; line-height: 1.45; }
+.plan-decision-modal p { margin: 0; color: #6d777c; font-size: 11px; line-height: 1.65; }
+.plan-decision-modal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
+.plan-decision-modal-actions.single { grid-template-columns: 1fr; }
 
 .recipe-detail-backdrop {
   position: fixed;

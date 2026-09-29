@@ -63,13 +63,22 @@ async function request<T>(
 //: 로그인이 필요 없는 순수 계산 경계(예: /kiln/firing/simulate)용 —
 //: 사용자 데이터를 다루지 않으므로 Authorization 헤더를 붙이지 않는다.
 async function requestPublic<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}/api/v1${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1${path}`, {
+      ...init,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch (error) {
+    throw new ApiError(
+      "후보 생성 서버에 연결할 수 없습니다. 개발 서버를 다시 실행해 주세요.",
+      0,
+      "backend_unreachable",
+    );
+  }
   if (response.status === 204) return undefined as T;
   const body = await response.json().catch(() => null);
   if (!response.ok) {

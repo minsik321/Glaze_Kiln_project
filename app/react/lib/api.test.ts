@@ -88,6 +88,16 @@ describe("AiceRun API client", () => {
 
 
 describe("recipe candidates API client", () => {
+  it("explains when the local backend is not running", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(recipeCandidatesApi.suggest("token", "유약")).rejects.toMatchObject({
+      status: 0,
+      code: "backend_unreachable",
+      message: "후보 생성 서버에 연결할 수 없습니다. 개발 서버를 다시 실행해 주세요.",
+    });
+  });
+
   it("posts the prompt and candidate count, returns validated candidates", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

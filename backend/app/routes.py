@@ -87,7 +87,9 @@ VectorStore = Annotated["AiceVectorStore | None", Depends(get_vectorstore)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
 RECORD_COLUMNS = "id,title,payload,schema_version,is_public,created_at,updated_at"
-AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,ware_preset,is_public,created_at,updated_at,request_id,feedback_status"
+AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,ware_preset,is_public,created_at,updated_at"
+AICE_FEEDBACK_COLUMNS = f"{AICE_COLUMNS},request_id,feedback_status"
+_LEGACY_AICE_RPC_CODES = {"PGRST202", "42883"}
 
 
 def _raise_supabase(exc: SupabaseError) -> None:
@@ -170,7 +172,17 @@ async def create_aice_run(
             "p_values": values,
         })
     except SupabaseError as exc:
-        _raise_supabase(exc)
+        # Some deployed projects predate the atomic outbox migration. Their
+        # aice_runs table is otherwise fully usable, but PostgREST returns
+        # PGRST202/42883 because save_aice_run does not exist. Keep candidate
+        # history working through the table's authenticated RLS insert until
+        # the migration is applied; modern projects still use the RPC path.
+        if exc.code not in _LEGACY_AICE_RPC_CODES:
+            _raise_supabase(exc)
+        try:
+            rows = await gateway.insert("aice_runs", token, values)
+        except SupabaseError as fallback_exc:
+            _raise_supabase(fallback_exc)
     result = _one(
         rows,
         AiceRunResponse,
@@ -672,7 +684,14 @@ async def _apply_run_feedback(
 
 @router.post("/aice-runs/{run_id}/feedback/retry", response_model=AiceRunResponse)
 async def retry_run_feedback(run_id: UUID, token: Token, user: User, gateway: Gateway, vectorstore: VectorStore) -> AiceRunResponse:
-    result = await get_aice_run(run_id, token, user, gateway)
+    try:
+        rows = await gateway.select("aice_runs", token, {
+            "select": AICE_FEEDBACK_COLUMNS,
+            "id": f"eq.{run_id}", "user_id": f"eq.{user.id}", "limit": 1,
+        })
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    result = _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
     _index_personal_recipe_best_effort(vectorstore, user, result)
     return await _apply_run_feedback(gateway, token, user, result)
 
@@ -681,7 +700,7 @@ async def _retry_pending_feedback(gateway: SupabaseGateway, token: str, user: Au
     # Bounded recovery on the next use of a recipe, independent of browser state.
     try:
         rows = await gateway.select("aice_runs", token, {
-            "select": AICE_COLUMNS, "user_id": f"eq.{user.id}",
+            "select": AICE_FEEDBACK_COLUMNS, "user_id": f"eq.{user.id}",
             "recipe_id": f"eq.{recipe_id}", "feedback_status": "eq.pending",
             "order": "created_at.asc", "limit": 100,
         })
@@ -796,18 +815,30 @@ async def suggest_recipe_candidates(
     search_candidates = propose(search_state, prior, n=body.candidate_count)
 
     messages = build_messages(body.prompt_text, search_candidates, retrieved_context=retrieved_context)
-    try:
-        raw = await llm.chat_json(messages)
-    except AimlapiError as exc:
-        raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
-    try:
-        candidate_set, dropped = build_recipe_candidates(
-            raw, search_candidates, target=target
-        )
-    except RecipeCandidateValidationError as exc:
+    candidate_error: RecipeCandidateValidationError | None = None
+    for attempt in range(2):
+        try:
+            raw = await llm.chat_json(messages)
+        except AimlapiError as exc:
+            raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
+        try:
+            candidate_set, dropped = build_recipe_candidates(
+                raw, search_candidates, target=target
+            )
+            break
+        except RecipeCandidateValidationError as exc:
+            candidate_error = exc
+            if attempt == 0:
+                logger.warning("LLM returned invalid recipe candidates; retrying once: %s", exc)
+                continue
+            raise HTTPException(
+                502, detail=error_detail("invalid_recipe_candidates", str(exc))
+            ) from exc
+    else:  # pragma: no cover - the loop either succeeds or raises on attempt two
         raise HTTPException(
-            502, detail=error_detail("invalid_recipe_candidates", str(exc))
-        ) from exc
+            502,
+            detail=error_detail("invalid_recipe_candidates", str(candidate_error)),
+        )
     return RecipeSuggestResponse(
         prompt_text=body.prompt_text,
         candidates=[asdict(candidate) for candidate in candidate_set.candidates],

@@ -69,6 +69,7 @@ function mockFetch({
     const url = String(input);
     if (url.includes("/kiln/firing/simulate")) return kilnSimulateResponse();
     if (url.includes("/kiln/thickness/profile")) return thicknessProfileResponse();
+    if (url.includes("/kiln/batch/dip-time")) return jsonResponse({ seconds: 5, predicted_mean_mm: 1, feasible: true, reason: "" });
     if (url.includes("/recipe-candidates/image")) return imageResponse();
     if (url.includes("/aice/recipe-candidates")) return suggest;
     if (url.includes("/aice-runs")) {
@@ -103,11 +104,24 @@ function mockFetch({
 //: 없어졌고(weightsReady가 state.dryingComplete를 요구, AicePrototype.tsx),
 //: 입력 변경 시 이전 계산이 무효화되는 게 항목 6의 요구사항이므로 여기서도
 //: 실제 사용자 흐름과 같은 순서로 체크박스를 눌러야 한다.
-function fillWeightInputs() {
+async function fillWeightInputs() {
+  fireEvent.change(screen.getByLabelText("교반 후"), { target: { value: "1.45" } });
+  fireEvent.change(screen.getByLabelText("교반 후 경과(분)"), { target: { value: "5" } });
+  fireEvent.click(screen.getByRole("button", { name: "비중 확인" }));
+  fireEvent.click(screen.getByRole("button", { name: "담금시간 계산" }));
+  await waitFor(() => expect(screen.getByLabelText(/시유 전\(g\)/)).toBeTruthy());
   fireEvent.change(screen.getByLabelText(/시유 전\(g\)/), { target: { value: "100" } });
   fireEvent.change(screen.getByLabelText(/시유 후\(g\)/), { target: { value: "120" } });
   fireEvent.change(screen.getByLabelText(/담금시간\(초\)/), { target: { value: "5" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /완전히 건조된 상태/ }));
+}
+
+async function applySuggestedFiringPlan() {
+  const applyCheck = screen.getByRole("checkbox", { name: "적용하기" });
+  await waitFor(() => expect((applyCheck as HTMLInputElement).disabled).toBe(false));
+  fireEvent.click(applyCheck);
+  expect((applyCheck as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText("수정된 소성 플랜이 적용됩니다.")).toBeTruthy();
 }
 
 afterEach(() => {
@@ -144,14 +158,14 @@ describe("AICE guided prototype", () => {
     await skipToWare();
     fireEvent.click(screen.getByRole("button", { name: /^사발/ }));
     fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    fillWeightInputs();
-    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
-    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(riskButton);
+    const nextButton = screen.getByRole("button", { name: /^다음/ });
+    await waitFor(() => expect((nextButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(nextButton);
+    await fillWeightInputs();
+    await applySuggestedFiringPlan();
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     // v9 후속: 가마 화면에서 재생 버튼 하나가 승인과 재생을 함께 한다.
-    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    const playButton = screen.getByRole("button", { name: "소성 시뮬레이션 재생" });
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
@@ -160,6 +174,47 @@ describe("AICE guided prototype", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
     // v9: 로그인 없는 데모 흐름에서는 저장 버튼이 비활성 상태로 나타난다.
     expect(screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ })).toBeTruthy();
+  });
+
+  it("warns before continuing without the firing-plan adjustment", async () => {
+    mockFetch();
+    render(<AicePrototype />);
+    await skipToWare();
+    fireEvent.click(screen.getByRole("button", { name: /^사발/ }));
+    fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    await fillWeightInputs();
+
+    const nextButton = screen.getByRole("button", { name: /^다음/ });
+    await waitFor(() => expect((nextButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(nextButton);
+
+    const dialog = screen.getByRole("dialog", { name: "소성 플랜 수정을 건너뛸까요?" });
+    expect(within(dialog).getByText(/광택과 발색 편차/)).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "수정 적용하기" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "적용하지 않고 계속" }));
+    expect(screen.getByTestId("aice-step-4")).toBeTruthy();
+  });
+
+  it("checks the apply option after choosing adjustment from the skip warning", async () => {
+    mockFetch();
+    render(<AicePrototype />);
+    await skipToWare();
+    fireEvent.click(screen.getByRole("button", { name: /^사발/ }));
+    fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    await fillWeightInputs();
+
+    const nextButton = screen.getByRole("button", { name: /^다음/ });
+    await waitFor(() => expect((nextButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(nextButton);
+    fireEvent.click(screen.getByRole("button", { name: "수정 적용하기" }));
+    expect(screen.getByRole("dialog", { name: "소성 플랜을 수정하여 위험을 줄입니다." })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+
+    expect((screen.getByRole("checkbox", { name: "적용하기" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("수정된 소성 플랜이 적용됩니다.")).toBeTruthy();
+    expect(screen.getByTestId("aice-step-3")).toBeTruthy();
   });
 
   it("exports a versioned AiceRun with provenance and private consent", async () => {
@@ -182,14 +237,12 @@ describe("AICE guided prototype", () => {
     for (const name of [/^사발/, /백색 석기 소지/, /^다음/]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
-    fillWeightInputs();
-    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
-    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(riskButton);
+    await fillWeightInputs();
+    await applySuggestedFiringPlan();
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
     let getter = onSnapshotReady.mock.calls.at(-1)?.[0];
     await expect(getter()).resolves.toMatchObject({ curves: { selected_id: null }, pid: { parameters: {}, samples: [] } });
-    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    const playButton = screen.getByRole("button", { name: "소성 시뮬레이션 재생" });
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
     getter = onSnapshotReady.mock.calls.at(-1)?.[0];
@@ -224,7 +277,7 @@ describe("AICE guided prototype", () => {
       photo: { ...base.photo, id: "cand-b-photo" },
       predicted_firing_range: { value: [1200, 1260], unit: "°C", source_type: "inferred", confidence: 0.4, note: "" },
     };
-    mockFetch({ suggest: jsonResponse({ prompt_text: "유약", candidates: [candidateA, candidateB], dropped: [] }) });
+    const fetchMock = mockFetch({ suggest: jsonResponse({ prompt_text: "유약", candidates: [candidateA, candidateB], dropped: [] }) });
     const onSnapshotReady = vi.fn();
     render(<AicePrototype onSnapshotReady={onSnapshotReady} token="test-token" />);
 
@@ -232,11 +285,20 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByText("후보 만들기"));
     await waitFor(() => expect(screen.getByText("해안 사틴 A")).toBeTruthy());
 
-    // 첫 후보는 도착 즉시 카드 내부적으로 "선택됨"으로 보이지만(로컬
-    // selectedId 기본값), 그것만으로는 부모(state.llmCandidate)에 아직
-    // 반영되지 않는다 — 버튼을 실제로 눌러야 onSelect가 불린다.
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST")).toBe(true));
+    const saveCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST");
+    const savedBody = JSON.parse(String(saveCall?.[1]?.body));
+    expect(savedBody.title).toBe("유약");
+    expect(savedBody.run.intake).toMatchObject({ prompt_text: "유약", candidates: { candidates: [{ id: "cand-a" }, { id: "cand-b" }] } });
+    expect(savedBody.request_id).not.toBe(savedBody.run.run_id);
+    const recipeNextButton = screen.getByRole("button", { name: "다음" });
+    expect((recipeNextButton as HTMLButtonElement).disabled).toBe(true);
+
+    // 새 후보는 아무것도 선택되지 않은 채 도착한다. 상세보기 버튼을 눌러
+    // 실제 후보를 고른 뒤에만 부모(state.llmCandidate)에 반영된다.
     const cardA = screen.getByText("해안 사틴 A").closest("article")!;
     fireEvent.click(within(cardA).getByRole("button"));
+    expect((recipeNextButton as HTMLButtonElement).disabled).toBe(false);
     // toFiringCurve(curvePlan.ts)는 아직 승인되지 않은 개인화 후보(내부
     // role "adjusted")를 노출 role "candidate"로 매핑한다 — 승인되면
     // "selected"로 바뀐다("records only an approved curve" 테스트가
@@ -265,12 +327,10 @@ describe("AICE guided prototype", () => {
     for (const name of [/^사발/, /백색 석기 소지/, /^다음/]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
-    fillWeightInputs();
-    const riskButton = screen.getByRole("button", { name: /소성 계획/ });
-    await waitFor(() => expect((riskButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(riskButton);
+    await fillWeightInputs();
+    await applySuggestedFiringPlan();
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    const playButton = screen.getByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    const playButton = screen.getByRole("button", { name: "소성 시뮬레이션 재생" });
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));

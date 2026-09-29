@@ -21,7 +21,8 @@ npm run dev
 ```
 
 DB 설정 없이도 시뮬레이션은 실행할 수 있습니다. 로그인과 작업 기록에는 Supabase와 FastAPI가 필요합니다.
-다른 터미널에서 백엔드를 실행하세요.
+`npm run dev`와 `npm run dev:frontend`는 후보 생성에 필요한 Vite와 FastAPI를 함께 실행합니다.
+백엔드만 따로 실행해야 할 때는 아래 명령을 사용하세요.
 
 ```powershell
 .\\.venv\\Scripts\\python.exe -m pip install -e ".[backend-dev]"

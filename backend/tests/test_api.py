@@ -227,6 +227,39 @@ async def test_aice_run_round_trip_preserves_provenance_and_versions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_aice_run_falls_back_to_rls_insert_when_atomic_rpc_is_not_migrated() -> None:
+    payload = sample_aice_run().to_dict()
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/rest/v1/rpc/save_aice_run":
+            return httpx.Response(404, json={
+                "code": "PGRST202",
+                "message": "Could not find the function public.save_aice_run",
+            })
+        assert request.url.path == "/rest/v1/aice_runs"
+        values = json.loads(request.content)
+        assert values["user_id"] == str(USER_ID)
+        return httpx.Response(201, json=[{
+            "id": str(RECORD_ID), **values, "created_at": NOW, "updated_at": NOW,
+        }])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/aice-runs",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"title": "이전 질문 저장", "run": payload},
+        )
+
+    assert created.status_code == 201
+    assert created.json()["title"] == "이전 질문 저장"
+    assert calls == ["/rest/v1/rpc/save_aice_run", "/rest/v1/aice_runs"]
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
 async def test_aice_run_rejects_unknown_source_and_public_without_consent() -> None:
     app, upstream = client_for(lambda _: httpx.Response(500))
     headers = {"Authorization": "Bearer valid-token"}

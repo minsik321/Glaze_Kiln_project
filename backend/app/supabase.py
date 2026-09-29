@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
 from .config import Settings
 from .models import AuthUser
+
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseError(Exception):
@@ -116,10 +120,18 @@ class SupabaseGateway:
         try:
             response = await self.client.request(method, url, **kwargs)
         except httpx.TimeoutException as exc:
+            logger.warning("Supabase request timed out: %s %s (%s)", method, httpx.URL(url).path, type(exc).__name__)
             raise SupabaseError(
                 504, "supabase_timeout", "Supabase 응답 시간이 초과되었습니다."
             ) from exc
         except httpx.HTTPError as exc:
+            logger.warning(
+                "Supabase request failed: %s %s (%s: %s)",
+                method,
+                httpx.URL(url).path,
+                type(exc).__name__,
+                exc,
+            )
             raise SupabaseError(
                 502, "supabase_unavailable", "Supabase에 연결할 수 없습니다."
             ) from exc

@@ -83,6 +83,13 @@ function findCall(fetchMock: ReturnType<typeof mockFetch>, match: string) {
 }
 
 describe("RecipeChatScreen (화면 1)", () => {
+  it("does not offer candidate generation without a login token", () => {
+    render(<RecipeChatScreen token="" />);
+    fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), { target: { value: "유약" } });
+
+    expect((screen.getByLabelText("후보 만들기") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("submits the prompt with Enter from the single-line input", async () => {
     const fetchMock = mockFetch();
     render(<RecipeChatScreen token="user-token" />);
@@ -157,9 +164,10 @@ describe("RecipeChatScreen (화면 1)", () => {
     render(<RecipeChatScreen token="user-token" onSelect={onSelect} />);
     fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), { target: { value: "유약" } });
     fireEvent.click(screen.getByText("후보 만들기"));
-    await waitFor(() => expect(screen.getByText("선택됨")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("이 후보 선택")).toBeTruthy());
 
-    fireEvent.click(screen.getByText("선택됨"));
+    fireEvent.click(screen.getByText("이 후보 선택"));
+    expect(screen.getByText("선택됨")).toBeTruthy();
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0][0]).toEqual(expect.objectContaining({ id: "cand-1" }));
   });
@@ -172,7 +180,7 @@ describe("RecipeChatScreen (화면 1)", () => {
     fireEvent.click(screen.getByText("후보 만들기"));
     await waitFor(() => expect(screen.getByAltText(/AI 예상 이미지/)).toBeTruthy());
 
-    fireEvent.click(screen.getByText("선택됨"));
+    fireEvent.click(screen.getByText("이 후보 선택"));
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ id: "cand-1" }),
       { base64: "Zm9v", mediaType: "image/png" },
@@ -207,6 +215,22 @@ describe("RecipeChatScreen (화면 1)", () => {
     expect(onIntake).toHaveBeenCalledWith("지난주 청록 유약", expect.arrayContaining([expect.objectContaining({ id: "cand-1" })]));
   });
 
+  it("slides the history sidebar in and keeps it mounted until the closing slide finishes", async () => {
+    mockFetch();
+    render(<RecipeChatScreen token="user-token" />);
+
+    const toggle = screen.getByLabelText("이전 질문 기록 열기");
+    fireEvent.click(toggle);
+    const sidebar = screen.getByRole("complementary", { name: "이전 질문 기록" });
+    expect(sidebar.classList.contains("is-open")).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(sidebar.classList.contains("is-closing")).toBe(true);
+    expect(screen.getByRole("complementary", { name: "이전 질문 기록" })).toBe(sidebar);
+
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "이전 질문 기록" })).toBeNull());
+  });
+
   it("surfaces a similar past candidate from history with a remark when a new prompt overlaps it", async () => {
     const pastCandidate = { ...CANDIDATE, id: "hist-cand-1", name: "지난 청록 사틴" };
     const record = historyRecord({
@@ -222,6 +246,7 @@ describe("RecipeChatScreen (화면 1)", () => {
     fireEvent.click(screen.getByLabelText("이전 질문 기록 열기"));
     await waitFor(() => expect(screen.getByText("사발 청록 사틴 유약")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("이전 질문 기록 열기"));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "이전 질문 기록" })).toBeNull());
 
     fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), {
       target: { value: "사발에 어울리는 청록 사틴 유약을 또 찾고 있어요" },

@@ -16,6 +16,7 @@ LLM 원문에서는 이름·착색 산화물·소성 메모 같은 서술 필드
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from kiln.aice.contract import PhotoAsset, RecipeCandidate, RecipeCandidateSet, SourcedValue
@@ -32,6 +33,19 @@ __all__ = ["RecipeCandidateValidationError", "parse_target", "build_recipe_candi
 
 class RecipeCandidateValidationError(Exception):
     """LLM이 낸 후보들이 전부 화학적으로 성립하지 않을 때, 또는 목표 분류를 해석할 수 없을 때."""
+
+
+_CANDIDATE_NUMBER_SUFFIX = re.compile(
+    r"\s*(?:[-–—:·]\s*)?(?:후보|candidate)\s*#?\s*\d+\s*$",
+    re.IGNORECASE,
+)
+
+
+def _display_name(value: object, fallback: str) -> str:
+    """Remove LLM slot labels such as '후보 1' from the user-facing name."""
+    name = str(value or "").strip()
+    cleaned = _CANDIDATE_NUMBER_SUFFIX.sub("", name).strip()
+    return cleaned or fallback
 
 
 def parse_target(raw: dict[str, Any]) -> TargetCoordinate:
@@ -111,7 +125,7 @@ def build_recipe_candidates(
                 raise ValueError(f"지원하지 않는 발색 산화물: {', '.join(unknown_colorants)}")
             if any(amount < 0 for amount in colorants.values()):
                 raise ValueError("발색 산화물 외배합은 음수일 수 없습니다")
-            name = str(item.get("name") or cid)
+            name = _display_name(item.get("name"), "유약 레시피")
             GlazeRecipe(recipe_id=cid, name=name, materials=materials)
             recipe_id = canonical_recipe_id(materials, colorants)
             umf = unity_formula_from_materials(materials)

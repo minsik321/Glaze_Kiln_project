@@ -55,12 +55,12 @@ afterEach(() => {
 });
 
 describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
-  it("auto-loads a default three-sensor layout without an account and allows height fine-tuning", async () => {
+  it("auto-loads a default three-sensor layout without exposing sensor adjustment controls", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => kilnSimulateResponse());
-    render(<Harness />);
-    await waitFor(() => expect(screen.getAllByText(/불확실성 ±/)).toHaveLength(3));
-    fireEvent.click(screen.getByRole("button", { name: "sensor-1 위로" }));
-    expect(screen.getByText(/높이 90%/)).toBeTruthy();
+    const { container } = render(<Harness />);
+    await waitFor(() => expect(container.querySelectorAll(".kiln-sensor-node")).toHaveLength(3));
+    expect(screen.queryByText("센서 위치 조정")).toBeNull();
+    expect(screen.queryByRole("button", { name: /sensor-1 위로/ })).toBeNull();
   });
 
   it("loads the sensor layout from the account's kiln profile instead of a preset picker", async () => {
@@ -68,18 +68,22 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
       select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { kiln_sensor_plan: "multi" }, error: null }) }) }),
     });
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => kilnSimulateResponse());
-    render(<Harness userId="user-1" />);
-    await waitFor(() => expect(screen.getAllByText(/불확실성 ±/)).toHaveLength(5));
+    const { container } = render(<Harness userId="user-1" />);
+    await waitFor(() => expect(container.querySelectorAll(".kiln-sensor-node")).toHaveLength(5));
     expect(mocks.from).toHaveBeenCalledWith("profiles");
   });
 
-  it("has no sensor preset picker or sensor detail drawer", async () => {
+  it("shows the plain simulation layout with four readouts and a moving fire cursor", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => kilnSimulateResponse());
-    render(<Harness />);
-    await waitFor(() => expect(screen.getAllByText(/불확실성 ±/)).toHaveLength(3));
-    expect(screen.queryByText("센서 프리셋")).toBeNull();
-    expect(screen.queryByText("센서 상세보기와 모델 상세 보기")).toBeNull();
-    expect(screen.queryByText("센서 대표성과 모델 상세 보기")).toBeNull();
+    const { container } = render(<Harness />);
+    expect(screen.getByRole("heading", { name: "소성 시뮬레이션" })).toBeTruthy();
+    expect(container.querySelectorAll(".kiln-readouts-top > span")).toHaveLength(4);
+    expect(screen.queryByText(/가상 제어 · 실제 제어 아님/)).toBeNull();
+    expect(screen.queryByText(/센서 위치는 공기 온도만/)).toBeNull();
+    const fire = container.querySelector(".kiln-fire-cursor") as SVGGElement;
+    const before = fire.style.transform;
+    fireEvent.change(screen.getByLabelText("가상 시간 이동"), { target: { value: "380" } });
+    expect(fire.style.transform).not.toBe(before);
   });
 
   it("keeps the baseline plan fixed and recalculates the reactive plan when an anomaly scenario is chosen", async () => {
@@ -96,7 +100,7 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
     const body = JSON.parse(String(lastCall[1]?.body));
     expect(body.disturbance.thermocouple_lag_s).toBeGreaterThan(0);
     expect(screen.getByText(/sensor-1 신호가 끊겨/)).toBeTruthy();
-    expect(screen.getByText(/신호 없음/)).toBeTruthy();
+    expect(screen.getByText("가상 경고")).toBeTruthy();
   });
 
   it("starting the firing playback is itself the approval — no separate proceed button", async () => {
@@ -105,10 +109,10 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
     render(<Harness onApprove={onApprove} />);
 
     expect(screen.queryByRole("button", { name: /이대로 진행/ })).toBeNull();
-    const startButton = await screen.findByRole("button", { name: "이 계획대로 가마에 적용해서 시작" });
+    const startButton = await screen.findByRole("button", { name: "소성 시뮬레이션 재생" });
     await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(startButton);
     expect(onApprove).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "일시정지" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "소성 시뮬레이션 일시정지" })).toBeTruthy();
   });
 });

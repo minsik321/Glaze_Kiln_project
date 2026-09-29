@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const children = ["dev:frontend", "dev:backend"].map((script) =>
+// The recipe workflow cannot create candidates without FastAPI. Keep both
+// `npm run dev` and the familiar `npm run dev:frontend` as full-app entrypoints;
+// this private UI-only command prevents the launcher from recursing.
+const children = ["dev:ui", "dev:backend"].map((script) =>
   spawn(npm, ["run", script], { stdio: "inherit", shell: process.platform === "win32" }),
 );
 
