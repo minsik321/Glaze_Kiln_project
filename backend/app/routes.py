@@ -18,6 +18,7 @@ from kiln.domain.models import SearchState, TargetCoordinate
 from kiln.firing.simulator import Disturbance
 from kiln.llm import (
     RecipeCandidateValidationError,
+    build_fallback_recipe_candidates,
     build_messages,
     build_recipe_candidates,
     build_target_messages,
@@ -830,10 +831,23 @@ async def suggest_recipe_candidates(
             candidate_error = exc
             if attempt == 0:
                 logger.warning("LLM returned invalid recipe candidates; retrying once: %s", exc)
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": "이전 응답은 candidates 배열이 없거나 유효하지 않았습니다. 시스템 메시지의 JSON 구조와 후보 개수를 정확히 지켜 다시 응답하세요.",
+                    },
+                ]
                 continue
-            raise HTTPException(
-                502, detail=error_detail("invalid_recipe_candidates", str(exc))
-            ) from exc
+            logger.error("LLM candidate schema failed twice; using rule-search fallback: %s", exc)
+            candidate_set, fallback_dropped = build_fallback_recipe_candidates(
+                search_candidates, target=target
+            )
+            dropped = (
+                "AI 서술 응답 형식이 올바르지 않아 규칙 기반 배합만 표시했습니다.",
+                *fallback_dropped,
+            )
+            break
     else:  # pragma: no cover - the loop either succeeds or raises on attempt two
         raise HTTPException(
             502,

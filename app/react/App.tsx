@@ -14,7 +14,8 @@ import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
-type AppView = "work" | "search" | "records" | "account" | "kiln" | "my" | "profile";
+type AppView = "work" | "search" | "records" | "my" | "profile";
+type SettingsDetail = "account" | "kiln";
 type EntryPhase = "splash" | "onboarding" | "login" | "signup" | "app";
 const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
 
@@ -37,7 +38,9 @@ export function App() {
   const [getSnapshot, setGetSnapshot] = useState<SnapshotGetter>();
   const [view, setView] = useState<AppView>("work");
   const [mySettingsOpen, setMySettingsOpen] = useState(false);
-  const [settingsOpenRequest, setSettingsOpenRequest] = useState(0);
+  const [settingsDetail, setSettingsDetail] = useState<SettingsDetail | null>(null);
+  const [settingsDetailClosing, setSettingsDetailClosing] = useState(false);
+  const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
   const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
@@ -66,6 +69,8 @@ export function App() {
       });
     return () => { active = false; };
   }, [session?.user.id]);
+
+  useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
   if (entryPhase === "splash") {
     return (
@@ -114,7 +119,7 @@ export function App() {
     { id: "my", label: "마이", icon: <NavIcon><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></NavIcon> },
   ] as const;
 
-  const navigationView = view === "search" ? "search" : view === "records" ? "history" : view === "my" || view === "account" || view === "kiln" ? "my" : "home";
+  const navigationView = view === "search" ? "search" : view === "records" ? "history" : view === "my" ? "my" : "home";
   const username = session?.user.user_metadata.username
     ?? session?.user.user_metadata.full_name
     ?? session?.user.email?.split("@")[0]
@@ -136,9 +141,23 @@ export function App() {
     else setView("work");
   }
 
+  function openSettingsDetail(detail: SettingsDetail) {
+    window.clearTimeout(settingsDetailCloseTimer.current);
+    setSettingsDetailClosing(false);
+    setSettingsDetail(detail);
+  }
+
+  function finishClosingSettingsDetail() {
+    window.clearTimeout(settingsDetailCloseTimer.current);
+    setSettingsDetail(null);
+    setSettingsDetailClosing(false);
+  }
+
   function returnToMySettings() {
-    setView("my");
-    setSettingsOpenRequest((request) => request + 1);
+    if (settingsDetailClosing) return;
+    setSettingsDetailClosing(true);
+    const reduceMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    settingsDetailCloseTimer.current = window.setTimeout(finishClosingSettingsDetail, reduceMotion ? 0 : 280);
   }
 
   function openWorkflow() {
@@ -181,7 +200,7 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={showWorkflow || view === "profile" || view === "account" || view === "kiln" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={showWorkflow || view === "profile" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen onStartWork={openWorkflow} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} />
           {showWorkflow && (
@@ -216,34 +235,16 @@ export function App() {
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">
             <span className="eyebrow">AICE KILN</span>
-            <h1>작업 기록</h1>
-            <p>지난 실험과 소성 결과를 모아봅니다.</p>
+            <h1>생성 기록</h1>
+            <p>이전에 만든 유약 후보를 다시 확인해보세요.</p>
           </div>
-          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel getSnapshot={getSnapshot} onRestore={(run) => { setRestoredRun(run); setView("work"); }} /></Suspense>}
-        </section>
-        <section className="app-view account-settings-view" hidden={view !== "account"}>
-          <header className="account-settings-header">
-            <button type="button" aria-label="설정으로 돌아가기" onClick={returnToMySettings}>
-              <NavIcon><path d="m15 5-7 7 7 7" /></NavIcon>
-            </button>
-            <h1>계정 설정</h1>
-            <span aria-hidden="true" />
-          </header>
-          <div className="account-settings-content">
-            <AuthPanel mode="account" />
-          </div>
-        </section>
-        <section className="app-view account-settings-view" hidden={view !== "kiln"}>
-          <header className="account-settings-header">
-            <button type="button" aria-label="설정으로 돌아가기" onClick={returnToMySettings}>
-              <NavIcon><path d="m15 5-7 7 7 7" /></NavIcon>
-            </button>
-            <h1>가마 설정</h1>
-            <span aria-hidden="true" />
-          </header>
-          <div className="account-settings-content">
-            <AuthPanel mode="kiln" />
-          </div>
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onRestore={(run) => {
+            setRestoredRun(run);
+            setView("work");
+            setWorkflowClosing(false);
+            setWorkflowDragX(0);
+            setShowWorkflow(true);
+          }} /></Suspense>}
         </section>
         <section className="app-view" hidden={view !== "my"}>
           <MyScreen
@@ -252,9 +253,8 @@ export function App() {
             avatarUrl={avatarUrl}
             posts={myPosts}
             stats={{ records: myPosts.length, followers: 545, following: 256 }}
-            onOpenAccountSettings={() => setView("account")}
-            onOpenKilnSettings={() => setView("kiln")}
-            settingsOpenRequest={settingsOpenRequest}
+            onOpenAccountSettings={() => openSettingsDetail("account")}
+            onOpenKilnSettings={() => openSettingsDetail("kiln")}
             onSaveProfile={async ({ nickname, avatarUrl: nextAvatarUrl }) => {
               if (!session) throw new Error("로그인 정보를 확인할 수 없습니다.");
               const client = requireSupabase();
@@ -302,6 +302,28 @@ export function App() {
         <section className="app-view" hidden={view !== "profile"}>
           <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={postsForUser(selectedProfile.id)} onBack={() => setView("work")} />
         </section>
+        {settingsDetail && (
+          <section
+            className={`settings-detail-slide account-settings-view${settingsDetailClosing ? " is-closing" : ""}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-detail-title"
+            onAnimationEnd={(event) => {
+              if (event.currentTarget === event.target && settingsDetailClosing) finishClosingSettingsDetail();
+            }}
+          >
+            <header className="account-settings-header">
+              <button type="button" aria-label="설정으로 돌아가기" onClick={returnToMySettings}>
+                <NavIcon><path d="m15 5-7 7 7 7" /></NavIcon>
+              </button>
+              <h1 id="settings-detail-title">{settingsDetail === "account" ? "계정 설정" : "가마 설정"}</h1>
+              <span aria-hidden="true" />
+            </header>
+            <div className="account-settings-content">
+              <AuthPanel mode={settingsDetail} />
+            </div>
+          </section>
+        )}
     </AppShell>
   );
 }

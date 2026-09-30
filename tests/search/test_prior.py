@@ -222,6 +222,12 @@ def test_propose_candidates_sum_to_100() -> None:
         assert sum(candidate.materials.values()) == pytest.approx(100.0, abs=1e-6)
 
 
+def test_displayed_proposals_do_not_use_zero_percent_role_materials() -> None:
+    candidates = propose(SearchState(target=SATIN), Prior(), n=10)
+    for candidate in candidates:
+        assert all(candidate.materials[name] > 0 for name in DEFAULT_COMPONENTS)
+
+
 def test_propose_carries_the_5_1_fixed_components() -> None:
     """5-1절: 벤토나이트 고정 · 카올린 고정 배경 비율(10~15%) 위의 3원료 삼각."""
     kaolin = constants.get("kaolin_background")

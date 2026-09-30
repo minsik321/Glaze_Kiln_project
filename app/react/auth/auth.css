@@ -6,6 +6,34 @@
   font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
 }
 
+.settings-detail-slide {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: settings-detail-slide-in 300ms cubic-bezier(.22, .8, .24, 1) both;
+}
+
+.settings-detail-slide.is-closing {
+  animation: settings-detail-slide-out 280ms cubic-bezier(.4, 0, .7, .2) both;
+}
+
+@keyframes settings-detail-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes settings-detail-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-detail-slide,
+  .settings-detail-slide.is-closing { animation-duration: .01ms; }
+}
+
 .account-settings-header {
   box-sizing: border-box;
   display: grid;

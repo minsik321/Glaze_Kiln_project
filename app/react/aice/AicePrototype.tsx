@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulatorProps, SimulatorSnapshot } from "./snapshot";
 import { Alert, ProgressHeader, StatusBadge } from "./ui";
-import { assertAiceRun, sampleAiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
+import { assertAiceRun, sampleAiceRun, type AiceRun, type RecipeCandidate, type SourcedValue } from "./contract";
 import { CLAY_BODIES, RECIPE_CANDIDATES, WARE_CATALOG, type RecipeId, type WarePreset } from "./catalog";
 import { ThicknessSection } from "./ThicknessSection";
 import { DensityCheck } from "./DensityCheck";
@@ -97,7 +97,7 @@ const screens = [
 
 const screenTitles = [
   ["원하는 유약을 설명해 주세요", "AI 제안을 화학 규칙으로 검증한 뒤 후보를 보여줍니다."],
-  ["자주 쓰는 기물에서 골라요", "형상과 소지를 고르면 다음 화면의 두께 계산에 함께 쓰입니다."],
+  ["기물의 형태를 알려주세요", "형상과 소지를 고르면 다음 화면의 두께 계산에 함께 쓰입니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
   ["소성 시뮬레이션", "시간에 따른 온도 변화와 가마 상태를 확인합니다."],
   ["결과를 남기고 다음 제안을 봐요", "개인 보정과 공통 개선 후보는 분리합니다."],
@@ -153,7 +153,12 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
 
   const beforeWeight = Number(state.beforeWeightG);
   const afterWeight = Number(state.afterWeightG);
-  const dipSeconds = state.glazingMethod === "담금" ? Number(state.dipSeconds) : null;
+  // 후보만 만든 단계에서는 아직 담금시간을 측정하지 않았다. 빈 문자열을
+  // Number("")로 바꾸면 0이 되어 AiceRun 계약(관측값은 양수)에 어긋나므로,
+  // 미입력 상태는 명시적으로 null로 보존한다.
+  const dipSeconds = state.glazingMethod === "담금" && state.dipSeconds.trim() !== ""
+    ? Number(state.dipSeconds)
+    : null;
   //: 비중 실측이 없으면 null로 보내 백엔드가 정규화 기준값(ρ=1.45)으로
   //: 안전하게 대체하게 한다(profile.py의 _RHO_FALLBACK, provenance_notes에
   //: 그 사실이 남는다) — 입력 안 된 상태를 억지로 1.45로 지어내 보내지 않는다.
@@ -453,28 +458,60 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     };
   }, [sourceRun, restoredUnchanged, state, step, thicknessViewData, thicknessProfile, arealDensity, recipeRunCount, firingGlossBias, activeFiringRangeC, executionCurves, dipSeconds]);
 
-  // v9 개편: 화면 1에서 새 질문을 보낼 때마다(이력 복원 제외) 이력
-  // 사이드바에 제목=질문으로 자동 저장한다 — 세대 카운터로 "진짜 새 생성"과
-  // "이력에서 복원"을 구분해, 복원할 때마다 같은 항목이 중복 저장되지
-  // 않게 한다(RecipeChatScreen.tsx의 onGenerated/onIntake 분리와 짝).
-  const [intakeGeneration, setIntakeGeneration] = useState(0);
   const [historyRevision, setHistoryRevision] = useState(0);
-  const savedIntakeGenerationRef = useRef(0);
-  useEffect(() => {
-    if (!token || !state.intakePrompt || intakeGeneration === savedIntakeGenerationRef.current) return;
+  const [historySaveStatus, setHistorySaveStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [historySaveError, setHistorySaveError] = useState<string | null>(null);
+  const pendingHistorySave = useRef<{ promptText: string; candidates: RecipeCandidate[] } | null>(null);
+
+  async function saveGeneratedCandidates(promptText: string, candidates: RecipeCandidate[]) {
+    if (!token || candidates.length === 0) return;
+    pendingHistorySave.current = { promptText, candidates };
+    setHistorySaveStatus("saving");
+    setHistorySaveError(null);
+    const first = candidates[0];
+    const runId = crypto.randomUUID();
+    const baseRun = snapshot as AiceRun;
+    const historyRun: AiceRun = {
+      ...baseRun,
+      run_id: runId,
+      title: promptText,
+      status: "draft",
+      revision: 1,
+      goal: {
+        ...baseRun.goal,
+        gloss: (first.target_gloss?.toLowerCase() || baseRun.goal.gloss) as AiceRun["goal"]["gloss"],
+        transparency: (first.target_transparency?.toLowerCase() || baseRun.goal.transparency) as AiceRun["goal"]["transparency"],
+      },
+      recipe: {
+        ...baseRun.recipe,
+        id: first.id,
+        name: first.name,
+        photo: first.photo,
+        firing_range: first.predicted_firing_range.value?.[0] != null && first.predicted_firing_range.value[1] != null
+          ? { ...first.predicted_firing_range, value: [first.predicted_firing_range.value[0], first.predicted_firing_range.value[1]] }
+          : baseRun.recipe.firing_range,
+        source_ids: first.source_ids,
+        materials: { ...first.materials },
+        colorants: { ...first.colorants },
+        colorant_note: first.colorant_note,
+      },
+      intake: {
+        prompt_text: promptText,
+        prompt_photos: [],
+        candidates: { candidates, selected_id: null },
+      },
+    };
     try {
-      assertAiceRun(snapshot);
-    } catch {
-      return;
+      assertAiceRun(historyRun);
+      await aiceRunsApi.create(token, { title: promptText, run: historyRun, request_id: runId, is_public: false });
+      pendingHistorySave.current = null;
+      setHistorySaveStatus("idle");
+      setHistoryRevision((current) => current + 1);
+    } catch (error) {
+      setHistorySaveStatus("error");
+      setHistorySaveError(error instanceof Error ? error.message : "생성 기록을 저장하지 못했습니다.");
     }
-    savedIntakeGenerationRef.current = intakeGeneration;
-    void aiceRunsApi.create(token, {
-      title: state.intakePrompt.trim(),
-      run: snapshot,
-      request_id: crypto.randomUUID(),
-      is_public: false,
-    }).then(() => setHistoryRevision((current) => current + 1)).catch(() => {});
-  }, [intakeGeneration, token, state.intakePrompt, snapshot]);
+  }
 
   // 9페이지: "저장" 버튼이 지금까지 만든 AiceRun 전체를 작업기록(AiceRun v2
   // 목록)에 저장하고, 성공하면 작업기록 화면으로 넘어간다(onSaved).
@@ -520,7 +557,8 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     if (!restoredRun) return;
     setSourceRun(restoredRun);
     setRestoredUnchanged(true);
-    const candidate = restoredRun.intake?.candidates.candidates.find((item) => item.id === restoredRun.recipe.id);
+    const restoredCandidateId = restoredRun.intake?.candidates.selected_id;
+    const candidate = restoredRun.intake?.candidates.candidates.find((item) => item.id === restoredCandidateId);
     const selected = restoredRun.curves.candidates.find((curve) => curve.id === restoredRun.curves.selected_id);
     const toSeries = (curve: typeof restoredRun.curves.baseline, role: "baseline" | "adjusted"): CurveSeries => ({ id: curve.id, role, label: role === "baseline" ? "기준 계획" : "저장된 실행 계획", sourceType: curve.source_type, reason: curve.reason, points: curve.points.map((point) => ({ minute: point.minute, temperatureC: point.temperature_c })) });
     setState({
@@ -639,6 +677,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
           <RecipeChatScreen
             token={token}
             historyRevision={historyRevision}
+            initialIntake={restoredRun?.intake ?? undefined}
             onSelect={(candidate, image) => {
               setDensitySetupComplete(false);
               updateInputs({
@@ -660,8 +699,18 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               llmCandidate: undefined,
               llmCandidateImage: undefined,
             }))}
-            onGenerated={() => setIntakeGeneration((current) => current + 1)}
+            onGenerated={(promptText, candidates) => void saveGeneratedCandidates(promptText, candidates)}
           />
+          {historySaveStatus === "saving" && <p className="recipe-history-save-status" role="status">생성 기록을 저장하는 중…</p>}
+          {historySaveStatus === "error" && (
+            <Alert tone="danger" title="생성 기록을 저장하지 못했어요">
+              <p>{historySaveError}</p>
+              <button type="button" onClick={() => {
+                const pending = pendingHistorySave.current;
+                if (pending) void saveGeneratedCandidates(pending.promptText, pending.candidates);
+              }}>다시 저장</button>
+            </Alert>
+          )}
         </section>
 
         {step === 0 && state.intakeCandidates.length > 0 && (
@@ -853,7 +902,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
       )}
 
       <footer className="prototype-actions">
-        {step > 0 && step < 4 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
+        {step > 0 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
         {step < 4 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}</button>}
         {step === 4 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
       </footer>

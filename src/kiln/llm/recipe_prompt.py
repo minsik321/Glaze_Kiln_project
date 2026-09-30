@@ -32,6 +32,13 @@ __all__ = ["build_target_messages", "build_messages"]
 
 _COLORANT_NAMES = tuple(sorted(COLORANTS))
 
+
+def _colorant_guide() -> str:
+    return ", ".join(
+        f"{symbol}({item.name_ko}) {item.typical_pct[0]:g}~{item.typical_pct[1]:g}%"
+        for symbol, item in sorted(COLORANTS.items())
+    )
+
 _TARGET_SCHEMA = """
 정확히 이 JSON 구조로만 응답한다 (설명 문장, 마크다운, 코드펜스 없이 JSON 객체 하나):
 
@@ -120,9 +127,13 @@ def build_messages(
         "각 후보에 대해 짧은 이름과 근거만 제안한다. name에는 '후보', "
         "'candidate', 후보 번호를 붙이지 말고 고유한 유약 이름만 쓴다. 발색 산화물은 기본 원료 "
         "합계에 넣지 말고 건조 기본 유약 100g 대비 외배합 wt%로 colorants에 "
-        f"따로 쓴다. 허용 산화물은 {', '.join(_COLORANT_NAMES)}뿐이다. 무색 후보는 "
-        "colorants를 빈 객체로 쓴다. 목표색에 맞는 참고 출발값을 제안하되, "
-        "colorant_note에 예상 발색과 선택 이유를 짧게 설명한다. 기저 조성·두께·"
+        f"따로 쓴다. 허용 화합물과 문헌 통상 외배합 범위는 {_colorant_guide()}뿐이며 "
+        "각 수치는 반드시 이 범위 안이어야 한다. 무색·백색 등 발색제가 필요 없는 "
+        "후보만 colorants를 빈 객체로 쓴다. 사용자가 청색·녹색·갈색처럼 뚜렷한 "
+        "색을 요청했다면 목표색에 필요한 화합물 1~2종과 실제 계량 가능한 수치를 "
+        "반드시 제안한다. colorant_note는 예상 발색과 선택 이유를 두 문장 이내로 "
+        "간결하게 설명한다. rationale도 배합의 특징과 목표 적합성을 두 문장 이내로 "
+        "쓴다. predicted_firing_note는 분위기·권장 온도·유지 조건만 한 문장으로 쓴다. 기저 조성·두께·"
         "분위기·냉각에 따라 발색이 크게 달라져 정확한 색을 보장하지 않는다는 "
         "주의를 반드시 포함한다. 실제 소성 결과를 보장한다고 말하지 않는다 — "
         "문헌·일반 지식에 근거한 출발점 제안임을 전제로 한다. "

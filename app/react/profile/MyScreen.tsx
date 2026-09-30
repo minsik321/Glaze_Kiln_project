@@ -120,6 +120,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("menu");
+  const [settingsPageClosing, setSettingsPageClosing] = useState(false);
   const [settingsDialog, setSettingsDialog] = useState<SettingsDialog>(null);
   const [password, setPassword] = useState("");
   const [accountPublic, setAccountPublic] = useState(true);
@@ -132,11 +133,13 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   const [profileError, setProfileError] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
   const settingsCloseTimer = useRef<number | undefined>(undefined);
+  const settingsPageCloseTimer = useRef<number | undefined>(undefined);
   const handledSettingsRequest = useRef(settingsOpenRequest);
   const isMine = variant === "mine";
 
   function openSettings() {
     setSettingsClosing(false);
+    setSettingsPageClosing(false);
     setSettingsPage("menu");
     setSettingsDialog(null);
     setSettingsError("");
@@ -168,12 +171,16 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [settingsOpen]);
 
-  useEffect(() => () => window.clearTimeout(settingsCloseTimer.current), []);
+  useEffect(() => () => {
+    window.clearTimeout(settingsCloseTimer.current);
+    window.clearTimeout(settingsPageCloseTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!isMine || settingsOpenRequest === handledSettingsRequest.current) return;
     handledSettingsRequest.current = settingsOpenRequest;
     setSettingsClosing(false);
+    setSettingsPageClosing(false);
     setSettingsPage("menu");
     setSettingsDialog(null);
     setSettingsError("");
@@ -183,20 +190,23 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
 
   function selectSetting(id: (typeof settingsItems)[number]["id"]) {
     if (id === "account") {
-      setSettingsOpen(false);
-      onSettingsOpenChange?.(false);
       onOpenAccountSettings?.();
     }
     if (id === "kiln") {
-      setSettingsOpen(false);
-      onSettingsOpenChange?.(false);
       onOpenKilnSettings?.();
     }
-    if (id === "notifications") setSettingsPage("notifications");
-    if (id === "privacy") setSettingsPage("privacy");
+    if (id === "notifications") {
+      setSettingsPageClosing(false);
+      setSettingsPage("notifications");
+    }
+    if (id === "privacy") {
+      setSettingsPageClosing(false);
+      setSettingsPage("privacy");
+    }
     if (id === "withdraw") {
       setPassword("");
       setSettingsError("");
+      setSettingsPageClosing(false);
       setSettingsPage("withdraw");
     }
     if (id === "logout") {
@@ -258,9 +268,19 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   function settingsBack() {
     if (settingsPage === "menu") closeSettings();
     else {
-      setSettingsPage("menu");
-      setSettingsError("");
+      if (settingsPageClosing) return;
+      setSettingsPageClosing(true);
+      window.clearTimeout(settingsPageCloseTimer.current);
+      const reduceMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      settingsPageCloseTimer.current = window.setTimeout(finishClosingSettingsPage, reduceMotion ? 0 : 280);
     }
+  }
+
+  function finishClosingSettingsPage() {
+    window.clearTimeout(settingsPageCloseTimer.current);
+    setSettingsPage("menu");
+    setSettingsPageClosing(false);
+    setSettingsError("");
   }
 
   async function confirmLogout() {
@@ -313,27 +333,36 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             }}
           >
             <header className="my-settings-header">
-              <button type="button" aria-label={settingsPage === "menu" ? "마이 화면으로 돌아가기" : "설정으로 돌아가기"} onClick={settingsBack}><BackIcon /></button>
-              <h2 id="my-settings-title">{settingsPage === "menu" ? "설정" : settingsPage === "withdraw" ? "회원탈퇴" : settingsPage === "privacy" ? "계정 공개 범위" : "알림 설정"}</h2>
+              <button type="button" aria-label="마이 화면으로 돌아가기" onClick={settingsBack}><BackIcon /></button>
+              <h2 id="my-settings-title">설정</h2>
               <span aria-hidden="true" />
             </header>
-            {settingsPage === "menu" && (
-              <>
-                {settingsError && <p className="my-settings-error" role="alert">{settingsError}</p>}
-                <nav className="my-settings-menu" aria-label="마이 설정">
-                  {settingsItems.map((item, index) => (
-                    <div className={index === 6 ? "my-settings-group-start" : undefined} key={item.id}>
-                      <button className={"danger" in item && item.danger ? "danger" : undefined} type="button" onClick={() => selectSetting(item.id)}>
-                        <span className="my-settings-icon"><SettingsItemIcon name={item.icon} /></span>
-                        <strong className="my-settings-label">{item.label}</strong>
-                        <ChevronIcon />
-                      </button>
-                    </div>
-                  ))}
-                </nav>
-                <p className="my-settings-version">AICE Kiln · v0.8.0</p>
-              </>
-            )}
+            {settingsError && settingsPage === "menu" && <p className="my-settings-error" role="alert">{settingsError}</p>}
+            <nav className="my-settings-menu" aria-label="마이 설정">
+              {settingsItems.map((item, index) => (
+                <div className={index === 6 ? "my-settings-group-start" : undefined} key={item.id}>
+                  <button className={"danger" in item && item.danger ? "danger" : undefined} type="button" onClick={() => selectSetting(item.id)}>
+                    <span className="my-settings-icon"><SettingsItemIcon name={item.icon} /></span>
+                    <strong className="my-settings-label">{item.label}</strong>
+                    <ChevronIcon />
+                  </button>
+                </div>
+              ))}
+            </nav>
+            <p className="my-settings-version">AICE Kiln · v0.8.0</p>
+
+            {settingsPage !== "menu" && (
+              <div
+                className={`my-settings-subpage${settingsPageClosing ? " is-closing" : ""}`}
+                onAnimationEnd={(event) => {
+                  if (event.currentTarget === event.target && settingsPageClosing) finishClosingSettingsPage();
+                }}
+              >
+                <header className="my-settings-header">
+                  <button type="button" aria-label="설정으로 돌아가기" onClick={settingsBack}><BackIcon /></button>
+                  <h2>{settingsPage === "withdraw" ? "회원탈퇴" : settingsPage === "privacy" ? "계정 공개 범위" : "알림 설정"}</h2>
+                  <span aria-hidden="true" />
+                </header>
 
             {settingsPage === "withdraw" && (
               <form className="my-settings-detail" onSubmit={(event) => { event.preventDefault(); if (password) setSettingsDialog("withdraw-confirm"); }}>
@@ -356,6 +385,8 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
                 <div className="my-settings-detail-heading"><span><SettingsItemIcon name="bell" /></span><h3>알림 설정</h3><p>AICE Kiln에서 보내는 앱 알림을 관리해요.</p></div>
                 <div className="my-settings-toggle-row"><div><strong>앱 알림</strong><small>{appNotifications ? "새 소식과 활동 알림을 받아요." : "앱 알림을 받지 않아요."}</small></div><button className="my-settings-switch" type="button" role="switch" aria-label="앱 알림" aria-checked={appNotifications} onClick={() => setAppNotifications((value) => !value)}><span /></button></div>
               </section>
+            )}
+              </div>
             )}
 
             {settingsDialog && (

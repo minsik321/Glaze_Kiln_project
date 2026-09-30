@@ -5,7 +5,7 @@ import pytest
 from kiln.domain.enums import Gloss, Transparency
 from kiln.domain.models import TargetCoordinate
 from kiln.aice.identity import canonical_recipe_id
-from kiln.llm.recipe_candidates import RecipeCandidateValidationError, build_recipe_candidates, parse_target
+from kiln.llm.recipe_candidates import RecipeCandidateValidationError, build_fallback_recipe_candidates, build_recipe_candidates, parse_target
 from kiln.search.objective import Candidate
 
 _MATERIALS = {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0}
@@ -26,6 +26,7 @@ def _raw_candidate(cid: str = "cand-1", **overrides) -> dict:
         "colorant_note": "청록색 참고 출발값이며 실제 발색은 달라질 수 있음",
         "predicted_firing_range_c": [1180, 1230],
         "predicted_firing_note": "환원 소성, cone 6~8 가정",
+        "rationale": "청록 사틴 목표에 맞춘 기본 배합입니다.",
     }
     base.update(overrides)
     return base
@@ -46,6 +47,13 @@ def test_build_recipe_candidates_uses_search_materials_not_llm_json() -> None:
     assert first.colorants == {"CuO": 2.0, "CoO": 0.2}
     assert "청록색" in first.colorant_note
     assert "검색 후보 1" in first.composition_note
+    assert first.rationale == "청록 사틴 목표에 맞춘 기본 배합입니다."
+
+
+def test_colorant_amount_outside_literature_range_is_rejected() -> None:
+    raw = {"candidates": [_raw_candidate("cand-1", colorants={"CoO": 9.0})]}
+    with pytest.raises(RecipeCandidateValidationError, match="문헌 통상 범위"):
+        build_recipe_candidates(raw, _search_candidates(1))
 
 
 def test_llm_supplied_materials_are_ignored_even_if_present() -> None:
@@ -102,6 +110,16 @@ def test_all_candidates_invalid_raises() -> None:
 def test_empty_candidates_raises() -> None:
     with pytest.raises(RecipeCandidateValidationError):
         build_recipe_candidates({"candidates": []}, _search_candidates(1))
+
+
+def test_fallback_candidates_keep_search_compositions_without_inventing_llm_fields() -> None:
+    search = _search_candidates(2)
+    candidate_set, errors = build_fallback_recipe_candidates(search)
+    assert len(candidate_set.candidates) == 2
+    assert candidate_set.candidates[0].materials == search[0].materials
+    assert candidate_set.candidates[0].colorants == {}
+    assert candidate_set.candidates[0].predicted_firing_range.value == (None, None)
+    assert errors == ()
 
 
 def test_empty_search_candidates_raises() -> None:

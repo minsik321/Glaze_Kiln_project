@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
@@ -15,6 +16,8 @@ from .models import HealthResponse, ReadinessResponse
 from .routes import router
 from .supabase import SupabaseGateway
 from .vectorstore import AiceVectorStore, VectorStoreUnavailable
+
+logger = logging.getLogger(__name__)
 
 
 def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
@@ -82,8 +85,22 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(
-        _request: Request, _exc: RequestValidationError
+        request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        validation_errors = [
+            {
+                "type": error.get("type"),
+                "loc": error.get("loc"),
+                "msg": error.get("msg"),
+            }
+            for error in exc.errors()
+        ]
+        logger.warning(
+            "Request validation failed for %s %s: %s",
+            request.method,
+            request.url.path,
+            validation_errors,
+        )
         return JSONResponse(
             status_code=422,
             content={

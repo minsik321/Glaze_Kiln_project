@@ -1,10 +1,38 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
-import type { RecipeCandidate } from "./contract";
+import type { ChatIntake, RecipeCandidate } from "./contract";
 import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer } from "./ui";
 
 const CANDIDATE_NUMBER_SUFFIX = /\s*(?:[-–—:·]\s*)?(?:후보|candidate)\s*#?\s*\d+\s*$/iu;
+
+const COLORANT_LABELS: Record<string, string> = {
+  Fe2O3: "산화철",
+  CuO: "산화동",
+  Cr2O3: "산화크롬",
+  CoO: "산화코발트",
+  NiO: "산화니켈",
+  MnO2: "이산화망간",
+};
+
+const TARGET_LABELS: Record<string, string> = {
+  MATTE: "무광",
+  SATIN: "반광",
+  GLOSS: "유광",
+  OPAQUE: "불투명",
+  SEMI_OPAQUE: "반불투명",
+  TRANSLUCENT: "반투명",
+  TRANSPARENT: "투명",
+};
+
+function formatRecipeAmount(value: number): string {
+  return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+}
+
+function compactFiringNote(note: string): string {
+  const concise = note.split(/\s*\(Stull 참조:/u)[0]?.trim();
+  return concise || "소성 분위기와 유지 시간은 소량 테스트 후 조정해 주세요.";
+}
 
 function normalizeCandidateName(candidate: RecipeCandidate): RecipeCandidate {
   const cleanedName = candidate.name.replace(CANDIDATE_NUMBER_SUFFIX, "").trim();
@@ -33,6 +61,7 @@ export function RecipeChatScreen({
   onSelect,
   onIntake,
   onGenerated,
+  initialIntake,
   historyRevision = 0,
   disabled = false,
 }: {
@@ -47,6 +76,7 @@ export function RecipeChatScreen({
   //: 이력에 자동 저장한다(이력 복원을 다시 저장해 중복 항목을 만들지 않기
   //: 위해 분리했다).
   onGenerated?: (promptText: string, candidates: RecipeCandidate[]) => void;
+  initialIntake?: ChatIntake;
   historyRevision?: number;
   disabled?: boolean;
 }) {
@@ -69,6 +99,25 @@ export function RecipeChatScreen({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [restoredRunId, setRestoredRunId] = useState<string | null>(null);
   const [cardAnimationKey, setCardAnimationKey] = useState(0);
+
+  useEffect(() => {
+    if (!initialIntake) return;
+    const restoredCandidates = initialIntake.candidates.candidates.map(normalizeCandidateName);
+    setPromptText(initialIntake.prompt_text);
+    setCandidates(restoredCandidates);
+    setSelectedId(initialIntake.candidates.selected_id);
+    setDropped([]);
+    setImages({});
+    setImageErrors({});
+    setHistoryMatches([]);
+    setStatus("complete");
+    setError(null);
+    setCardAnimationKey((current) => current + 1);
+    requestImagesFor(restoredCandidates);
+    // A restored run changes as one complete object; re-running for local image
+    // state changes would duplicate paid image requests.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialIntake]);
 
   async function loadHistory() {
     if (!token) return;
@@ -221,7 +270,7 @@ export function RecipeChatScreen({
       <button
         type="button"
         className="recipe-history-toggle"
-        aria-label="이전 질문 기록 열기"
+        aria-label="생성 기록 열기"
         aria-expanded={sidebarOpen}
         onClick={toggleSidebar}
         disabled={!token}
@@ -237,17 +286,27 @@ export function RecipeChatScreen({
           />
           <aside
             className={`recipe-history-sidebar ${sidebarOpen ? "is-open" : "is-closing"}`}
-            aria-label="이전 질문 기록"
+            aria-label="생성 기록"
           >
-            <h4>이전 질문</h4>
-            {historyLoading && <AsyncState kind="loading" />}
+            <header className="recipe-history-header">
+              <h4>생성 기록</h4>
+              <button type="button" className="recipe-history-close" aria-label="생성 기록 닫기" onClick={closeSidebar}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+            {historyLoading && (
+              <div className="recipe-history-skeleton" role="status" aria-label="생성 기록 불러오는 중">
+                <span /><span /><span />
+              </div>
+            )}
             {historyError && <Alert tone="danger" title="기록을 불러오지 못했어요">{historyError}</Alert>}
-            {!historyLoading && history.length === 0 && <p>아직 저장된 질문이 없습니다.</p>}
+            {!historyLoading && history.length === 0 && <p className="recipe-history-empty">아직 생성 기록이 없습니다.</p>}
             <ul className="recipe-history-list">
               {history.map((record) => (
                 <li key={record.id}>
                   <button type="button" aria-current={restoredRunId === record.id ? "true" : undefined} onClick={() => void restoreFromHistory(record)}>
-                    {record.title}
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z" /></svg>
+                    <span>{record.title}</span>
                   </button>
                 </li>
               ))}
@@ -364,19 +423,86 @@ export function RecipeChatScreen({
       {detailCandidate && (
         <div className="recipe-detail-backdrop" role="presentation" onClick={() => setDetailCandidate(null)}>
           <section className="recipe-detail-modal" role="dialog" aria-modal="true" aria-labelledby="recipe-detail-title" onClick={(event) => event.stopPropagation()}>
-            <h4 id="recipe-detail-title">{detailCandidate.name}</h4>
-            <div className="recipe-detail-photo">
-              {images[detailCandidate.id]
-                ? <img src={`data:${images[detailCandidate.id].mediaType};base64,${images[detailCandidate.id].base64}`} alt={`${detailCandidate.name} AI 예상 이미지`} />
-                : <span />}
-            </div>
-            <div className="recipe-detail-description">
-              <h5>레시피 배합</h5>
-              <dl>{Object.entries(detailCandidate.materials).map(([name, pct]) => <div key={name}><dt>{name}</dt><dd>{pct}%</dd></div>)}</dl>
-              <h5>설명</h5>
-              <p>{detailCandidate.predicted_firing_note || detailCandidate.colorant_note || "생성된 유약 레시피입니다."}</p>
-            </div>
-            <button type="button" className="recipe-detail-close" onClick={() => setDetailCandidate(null)}>닫기</button>
+            {(() => {
+              const materials = Object.entries(detailCandidate.materials);
+              const colorants = Object.entries(detailCandidate.colorants ?? {});
+              const baseTotal = materials.reduce((sum, [, amount]) => sum + amount, 0);
+              const colorantTotal = colorants.reduce((sum, [, amount]) => sum + amount, 0);
+              const [lowC, highC] = detailCandidate.predicted_firing_range.value ?? [null, null];
+              const targetLabels = [detailCandidate.target_gloss, detailCandidate.target_transparency]
+                .filter((value): value is string => Boolean(value))
+                .map((value) => TARGET_LABELS[value] ?? value);
+              return (
+                <>
+                  <button type="button" className="recipe-detail-icon-close" aria-label="상세보기 닫기" onClick={() => setDetailCandidate(null)}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                  </button>
+                  <header className="recipe-detail-header">
+                    <span>GLAZE RECIPE</span>
+                    <h4 id="recipe-detail-title">{detailCandidate.name}</h4>
+                    <div className="recipe-detail-badges">
+                      {lowC != null && highC != null && <em>{formatRecipeAmount(lowC)}–{formatRecipeAmount(highC)}°C</em>}
+                      {targetLabels.map((label) => <em key={label}>{label}</em>)}
+                    </div>
+                  </header>
+                  <div className="recipe-detail-photo">
+                    {images[detailCandidate.id]
+                      ? <img src={`data:${images[detailCandidate.id].mediaType};base64,${images[detailCandidate.id].base64}`} alt={`${detailCandidate.name} AI 예상 이미지 — 실물 사진 아님`} />
+                      : <span>예상 이미지 준비 중</span>}
+                    <small>AI 예상 이미지 · 실제 발색과 다를 수 있음</small>
+                  </div>
+                  <div className="recipe-detail-content">
+                    {detailCandidate.rationale && <p className="recipe-detail-summary">{detailCandidate.rationale}</p>}
+                    <section className="recipe-detail-section" aria-labelledby="base-recipe-title">
+                      <div className="recipe-detail-section-heading">
+                        <div><span>STEP 1</span><h5 id="base-recipe-title">기본 유약 배합</h5></div>
+                        <b>건식 100g 기준</b>
+                      </div>
+                      <div className="recipe-detail-table" role="table" aria-label="기본 유약 100g 배합">
+                        <div className="recipe-detail-table-head" role="row"><span>원료</span><span>배합률</span><span>계량</span></div>
+                        {materials.map(([name, pct]) => (
+                          <div key={name} role="row"><strong>{name}</strong><span>{formatRecipeAmount(pct)}%</span><b>{formatRecipeAmount(pct)}g</b></div>
+                        ))}
+                        <div className="recipe-detail-total" role="row"><strong>기본 배합 합계</strong><span>{formatRecipeAmount(baseTotal)}%</span><b>{formatRecipeAmount(baseTotal)}g</b></div>
+                      </div>
+                    </section>
+
+                    <section className="recipe-detail-section recipe-detail-colorants" aria-labelledby="colorant-recipe-title">
+                      <div className="recipe-detail-section-heading">
+                        <div><span>STEP 2</span><h5 id="colorant-recipe-title">발색 화합물</h5></div>
+                        <b>기본 배합에 외첨</b>
+                      </div>
+                      {colorants.length > 0 ? (
+                        <div className="recipe-detail-table" role="table" aria-label="발색 화합물 외배합">
+                          <div className="recipe-detail-table-head" role="row"><span>화합물</span><span>외배합</span><span>계량</span></div>
+                          {colorants.map(([formula, pct]) => (
+                            <div key={formula} role="row">
+                              <strong><code>{formula}</code><small>{COLORANT_LABELS[formula] ?? "발색 화합물"}</small></strong>
+                              <span>{formatRecipeAmount(pct)}%</span>
+                              <b>{formatRecipeAmount(pct)}g</b>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="recipe-detail-empty-colorant">추가 발색 화합물 없이 기본 배합만 사용합니다.</p>}
+                      {detailCandidate.colorant_note && <p className="recipe-detail-note">{detailCandidate.colorant_note}</p>}
+                    </section>
+
+                    <section className="recipe-detail-firing" aria-labelledby="firing-guide-title">
+                      <div><span>STEP 3</span><h5 id="firing-guide-title">소성 가이드</h5></div>
+                      <p>{compactFiringNote(detailCandidate.predicted_firing_note)}</p>
+                    </section>
+
+                    <div className="recipe-detail-batch-summary">
+                      <span>최종 건식 계량량</span>
+                      <strong>{formatRecipeAmount(100 + colorantTotal)}g</strong>
+                      <small>기본 유약 100g + 발색 화합물 {formatRecipeAmount(colorantTotal)}g · 물과 첨가제는 제외</small>
+                    </div>
+                    <p className="recipe-detail-caution">먼저 소량 테스트 타일로 확인하세요. 원료 분진용 보호구를 착용하고, 실제 발색은 소지·두께·가마 분위기·냉각에 따라 달라질 수 있습니다.</p>
+                  </div>
+                  <button type="button" className="recipe-detail-close" onClick={() => setDetailCandidate(null)}>확인</button>
+                </>
+              );
+            })()}
           </section>
         </div>
       )}

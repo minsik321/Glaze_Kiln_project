@@ -63,6 +63,8 @@ export type RecipeCandidate = {
   //: "매트 레시피인데 유광 이미지" 같은 불일치가 나지 않는다.
   target_gloss?: string;
   target_transparency?: string;
+  /** 후보를 고른 이유를 사용자용 1~2문장으로 요약한 설명 */
+  rationale?: string;
 };
 
 export type RecipeCandidateSet = {
@@ -111,7 +113,7 @@ export type AiceRun = {
     colorant_note?: string;
   };
   ware: {
-    preset: "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "tile" | "other";
+    preset: "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "jar" | "tile" | "other";
     clay_body: string;
     size_category: "small" | "medium" | "large";
     glazing: "inside" | "outside" | "both";

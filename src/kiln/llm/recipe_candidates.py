@@ -17,6 +17,7 @@ LLM 원문에서는 이름·착색 산화물·소성 메모 같은 서술 필드
 from __future__ import annotations
 
 import re
+import math
 from typing import Any
 
 from kiln.aice.contract import PhotoAsset, RecipeCandidate, RecipeCandidateSet, SourcedValue
@@ -28,7 +29,7 @@ from kiln.domain.enums import Gloss, Transparency
 from kiln.domain.models import GlazeRecipe, TargetCoordinate
 from kiln.search.objective import Candidate
 
-__all__ = ["RecipeCandidateValidationError", "parse_target", "build_recipe_candidates"]
+__all__ = ["RecipeCandidateValidationError", "parse_target", "build_recipe_candidates", "build_fallback_recipe_candidates"]
 
 
 class RecipeCandidateValidationError(Exception):
@@ -123,8 +124,14 @@ def build_recipe_candidates(
             unknown_colorants = sorted(set(colorants) - set(COLORANTS))
             if unknown_colorants:
                 raise ValueError(f"지원하지 않는 발색 산화물: {', '.join(unknown_colorants)}")
-            if any(amount < 0 for amount in colorants.values()):
-                raise ValueError("발색 산화물 외배합은 음수일 수 없습니다")
+            for symbol, amount in colorants.items():
+                if not math.isfinite(amount) or amount <= 0:
+                    raise ValueError(f"{symbol} 외배합은 유한한 양수여야 합니다")
+                lo, hi = COLORANTS[symbol].typical_pct
+                if not lo <= amount <= hi:
+                    raise ValueError(
+                        f"{symbol} {amount:g}%는 문헌 통상 범위 {lo:g}~{hi:g}% 밖입니다"
+                    )
             name = _display_name(item.get("name"), "유약 레시피")
             GlazeRecipe(recipe_id=cid, name=name, materials=materials)
             recipe_id = canonical_recipe_id(materials, colorants)
@@ -140,6 +147,7 @@ def build_recipe_candidates(
             )
             note = str(item.get("predicted_firing_note") or "").strip()
             colorant_note = str(item.get("colorant_note") or "").strip()
+            rationale = str(item.get("rationale") or "").strip()
             stull_note = f"Stull 참조: {reading.zone.value} — {reading.provenance_note}"
             full_note = f"{note} ({stull_note})" if note else stull_note
 
@@ -157,6 +165,7 @@ def build_recipe_candidates(
                 composition_note=search_candidate.umf_note,
                 target_gloss=target.gloss.name if target is not None else "",
                 target_transparency=target.transparency.name if target is not None else "",
+                rationale=rationale,
             )
         except (KeyError, ValueError, TypeError) as exc:
             errors.append(f"{cid}: {exc}")
@@ -172,3 +181,31 @@ def build_recipe_candidates(
         )
 
     return RecipeCandidateSet(tuple(built)), tuple(errors)
+
+
+def build_fallback_recipe_candidates(
+    candidates: list[Candidate],
+    *,
+    source_ids: tuple[str, ...] = (),
+    target: TargetCoordinate | None = None,
+) -> tuple[RecipeCandidateSet, tuple[str, ...]]:
+    """Build safe candidate cards when the descriptive LLM breaks its schema.
+
+    Composition remains the deterministic search engine's output.  The fallback
+    deliberately adds no colorants or firing-range claims because those are the
+    only fields delegated to the LLM and cannot be reconstructed safely.
+    """
+    raw = {
+        "candidates": [
+            {
+                "id": f"cand-{index + 1}",
+                "name": f"규칙 배합 {chr(65 + index)}",
+                "colorants": {},
+                "colorant_note": "발색 산화물 제안은 생성하지 못해 포함하지 않았습니다.",
+                "predicted_firing_range_c": [None, None],
+                "predicted_firing_note": "소성 범위는 별도 확인이 필요합니다.",
+            }
+            for index, _candidate in enumerate(candidates)
+        ]
+    }
+    return build_recipe_candidates(raw, candidates, source_ids=source_ids, target=target)

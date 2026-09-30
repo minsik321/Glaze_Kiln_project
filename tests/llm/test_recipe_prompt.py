@@ -36,6 +36,10 @@ def test_build_messages_pins_search_materials_and_forbids_inventing_them() -> No
     assert "2개 후보" in system
     for symbol in COLORANTS:
         assert symbol in system
+        lo, hi = COLORANTS[symbol].typical_pct
+        assert f"{lo:g}~{hi:g}%" in system
+    assert "실제 계량 가능한 수치" in system
+    assert "두 문장 이내" in system
 
 
 def test_build_messages_without_retrieved_context_is_unchanged() -> None:

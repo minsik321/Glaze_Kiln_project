@@ -67,7 +67,7 @@ __all__ = [
     "apply_density_calibration_update",
 ]
 
-#: 7개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
+#: 8개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
 #: `src/kiln/webapp/bridge.py::PRESET_SHAPES`(cylinder/bowl/vase/tile)를
 #: 그대로 재사용하고, AICE 카탈로그(`app/react/aice/catalog.ts`)에만 있는
 #: plate/mug/bottle/other는 같은 정신(문헌·대표값 근사, 정밀 치수 아님)으로
@@ -80,6 +80,7 @@ WARE_PROFILES: dict[str, tuple[tuple[float, float], ...]] = {
     "mug": ((0.0, 30.0), (90.0, 30.0)),
     "cylinder_vase": ((0.0, 30.0), (40.0, 55.0), (120.0, 60.0), (170.0, 25.0)),
     "bottle": ((0.0, 28.0), (40.0, 55.0), (110.0, 55.0), (140.0, 20.0)),
+    "jar": ((0.0, 38.0), (25.0, 68.0), (75.0, 72.0), (115.0, 48.0), (130.0, 30.0)),
     "tile": ((0.0, 40.0), (3.0, 40.0)),
     # 형상 미상 — 카탈로그 중앙값에 해당하는 사발 근사를 그대로 쓴다
     # (`arealDensity.ts`의 `other: 0.045`와 같은 taktik: 미상일 때 중간값).

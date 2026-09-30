@@ -141,6 +141,9 @@ class RecipeCandidate:
     #: 빈 문자열이면 목표 분류가 없었다는 뜻(레거시 변환 등).
     target_gloss: str = ""
     target_transparency: str = ""
+    #: 사용자에게 보여줄 후보 선정 이유. 긴 화학 근거(composition_note)와
+    #: 분리해 상세 모달에서는 1~2문장만 읽히게 한다.
+    rationale: str = ""
 
     def __post_init__(self) -> None:
         _source(self.source_type)

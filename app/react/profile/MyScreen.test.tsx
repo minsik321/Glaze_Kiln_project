@@ -71,11 +71,14 @@ describe("MyScreen", () => {
   it("connects account and kiln settings separately", () => {
     const onOpenAccountSettings = vi.fn();
     const onOpenKilnSettings = vi.fn();
-    const view = render(<MyScreen onOpenAccountSettings={onOpenAccountSettings} onOpenKilnSettings={onOpenKilnSettings} />);
+    const onSettingsOpenChange = vi.fn();
+    const view = render(<MyScreen onOpenAccountSettings={onOpenAccountSettings} onOpenKilnSettings={onOpenKilnSettings} onSettingsOpenChange={onSettingsOpenChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "마이 메뉴" }));
     fireEvent.click(screen.getByRole("button", { name: /계정 설정/ }));
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog", { name: "설정" })).toBeTruthy();
+    expect(onSettingsOpenChange).not.toHaveBeenCalledWith(false);
 
     view.unmount();
     render(<MyScreen onOpenAccountSettings={onOpenAccountSettings} onOpenKilnSettings={onOpenKilnSettings} />);
@@ -158,20 +161,26 @@ describe("MyScreen", () => {
   });
 
   it("toggles account privacy and app notifications", () => {
+    vi.useFakeTimers();
     render(<MyScreen />);
 
     fireEvent.click(screen.getByRole("button", { name: "마이 메뉴" }));
     fireEvent.click(screen.getByRole("button", { name: "계정 공개 범위" }));
+    const privacyPage = screen.getByLabelText("계정 공개 범위 설정").closest(".my-settings-subpage");
+    expect(privacyPage?.classList.contains("is-closing")).toBe(false);
     const privacy = screen.getByRole("switch", { name: "계정 공개" });
     expect(privacy.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(privacy);
     expect(privacy.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
+    expect(privacyPage?.classList.contains("is-closing")).toBe(true);
+    act(() => vi.advanceTimersByTime(280));
     fireEvent.click(screen.getByRole("button", { name: "알림 설정" }));
     const notifications = screen.getByRole("switch", { name: "앱 알림" });
     expect(notifications.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(notifications);
     expect(notifications.getAttribute("aria-checked")).toBe("false");
+    vi.useRealTimers();
   });
 });

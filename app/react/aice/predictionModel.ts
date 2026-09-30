@@ -21,6 +21,7 @@ export const WARE_SIZE_CATEGORY: Record<WarePreset, "small" | "medium" | "large"
   mug: "small",
   cylinder_vase: "large",
   bottle: "medium",
+  jar: "large",
   tile: "small",
   other: "medium",
 };

@@ -303,7 +303,7 @@ class ThicknessComputeRequest(ApiModel):
     `compute_profile`(profile.py)이 안전한 가정으로 채우고 그 사실을
     `provenance_notes`에 남긴다."""
 
-    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "tile", "other"]
+    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "jar", "tile", "other"]
     weight_before_g: float = Field(ge=0)
     weight_after_g: float = Field(ge=0)
     #: `kiln.domain.enums.GlazingMethod`의 한국어 라벨 그대로("담금"·"부기"·"분무"·"붓칠").
@@ -398,7 +398,7 @@ class CoefficientTableOut(ApiModel):
 
 
 class CalibrationRunRequest(ApiModel):
-    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "tile", "other"]
+    ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "jar", "tile", "other"]
     bisque_temperature_c: float
     weight_before_g: float = Field(ge=0)
     weight_after_g: float = Field(ge=0)

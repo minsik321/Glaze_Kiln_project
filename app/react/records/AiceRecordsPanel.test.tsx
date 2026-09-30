@@ -1,39 +1,73 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
 import { AiceRecordsPanel } from "./AiceRecordsPanel";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
-function record(isPublic = false) {
+function record(id: string, title: string, generated = true) {
   const run = sampleAiceRun();
-  return { id: "run-1", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: isPublic, created_at: run.created_at, updated_at: run.updated_at };
+  run.title = title;
+  run.intake = generated
+    ? {
+        prompt_text: title,
+        prompt_photos: [],
+        candidates: { candidates: [], selected_id: null },
+      }
+    : null;
+
+  return {
+    id,
+    title,
+    run,
+    schema_version: 3,
+    status: run.status,
+    goal_gloss: run.goal.gloss,
+    goal_transparency: run.goal.transparency,
+    recipe_id: run.recipe.id,
+    ware_preset: run.ware.preset,
+    is_public: false,
+    created_at: run.created_at,
+    updated_at: run.updated_at,
+  };
 }
 
-describe("AiceRun records", () => {
-  it("lists details, paginates, and restores a validated run", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [record()], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+describe("후보 생성 기록", () => {
+  it("후보를 생성한 기록의 제목만 나열하고 클릭하면 복원한다", async () => {
+    const generated = record("run-1", "청록 사틴 유약");
+    const firingLog = record("run-2", "소성 테스트 기록", false);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ items: [generated, firingLog], limit: 20, offset: 0 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
     const onRestore = vi.fn();
+
     render(<AiceRecordsPanel token="token" onRestore={onRestore} />);
-    fireEvent.click(await screen.findByRole("button", { name: /사틴 청색 사발 샘플/ }));
-    expect(screen.getByText(/aice-sample-1/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "이 실행 복원" }));
-    expect(onRestore).toHaveBeenCalledWith(expect.objectContaining({ schema_version: 3 }));
-    expect(screen.getByRole("button", { name: "다음 20개" }).hasAttribute("disabled")).toBe(true);
+
+    const title = await screen.findByRole("button", { name: "청록 사틴 유약" });
+    expect(screen.queryByText("소성 테스트 기록")).toBeNull();
+    expect(screen.queryByText(/공개|비공개|후보 ·|레시피|소성 결과/)).toBeNull();
+
+    fireEvent.click(title);
+    expect(onRestore).toHaveBeenCalledWith(generated.run);
   });
 
-  it("keeps publish disabled until every consent is checked", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (String(input).endsWith("/publish")) return new Response(JSON.stringify(record(true)), { status: 200, headers: { "Content-Type": "application/json" } });
-      return new Response(JSON.stringify({ items: [record()], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
-    });
+  it("생성 기록이 없으면 빈 목록 안내만 보여준다", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ items: [], limit: 20, offset: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
     render(<AiceRecordsPanel token="token" />);
-    fireEvent.click(await screen.findByRole("button", { name: /사틴 청색 사발 샘플/ }));
-    const publish = screen.getByRole("button", { name: "동의 확인 후 공개" });
-    expect(publish.hasAttribute("disabled")).toBe(true);
-    for (const label of [/사진 권리를/, /개인정보를/, /위치정보를/, /철회 시/]) fireEvent.click(screen.getByLabelText(label));
-    expect(publish.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(publish);
-    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/publish") && call[1]?.method === "POST")).toBe(true));
+
+    expect(await screen.findByText("아직 생성한 유약 후보가 없습니다.")).toBeTruthy();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 });

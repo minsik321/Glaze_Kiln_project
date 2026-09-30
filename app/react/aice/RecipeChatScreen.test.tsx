@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RecipeChatScreen } from "./RecipeChatScreen";
 import { sampleAiceRun, type ChatIntake, type RecipeCandidate } from "./contract";
@@ -158,6 +158,23 @@ describe("RecipeChatScreen (화면 1)", () => {
     await waitFor(() => expect(screen.getByAltText(/AI 예상 이미지/)).toBeTruthy());
   });
 
+  it("shows a production-ready 100g recipe with colorant weights in the detail modal", async () => {
+    mockFetch();
+    render(<RecipeChatScreen token="user-token" />);
+    fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), { target: { value: "청록색 사틴 유약" } });
+    fireEvent.click(screen.getByText("후보 만들기"));
+    await waitFor(() => expect(screen.getByText("해안 사틴")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "상세보기" }));
+    const dialog = screen.getByRole("dialog", { name: "해안 사틴" });
+    expect(within(dialog).getByText("건식 100g 기준")).toBeTruthy();
+    expect(within(dialog).getByText("산화동")).toBeTruthy();
+    expect(within(dialog).getByText("산화코발트")).toBeTruthy();
+    expect(within(dialog).getByText("102.2g")).toBeTruthy();
+    expect(within(dialog).getByText("환원 소성")).toBeTruthy();
+    expect(within(dialog).queryByText(/Stull 참조/)).toBeNull();
+  });
+
   it("lets the user select a candidate and notifies the parent", async () => {
     const onSelect = vi.fn();
     mockFetch();
@@ -206,8 +223,10 @@ describe("RecipeChatScreen (화면 1)", () => {
     const onIntake = vi.fn();
     render(<RecipeChatScreen token="user-token" onIntake={onIntake} />);
 
-    fireEvent.click(screen.getByLabelText("이전 질문 기록 열기"));
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
     await waitFor(() => expect(screen.getByText("지난주 청록 유약")).toBeTruthy());
+    expect(screen.getByRole("heading", { name: "생성 기록" })).toBeTruthy();
+    expect(screen.queryByText("계산 엔진을 준비하고 있어요")).toBeNull();
 
     fireEvent.click(screen.getByText("지난주 청록 유약"));
     await waitFor(() => expect(screen.getByDisplayValue("지난주 청록 유약")).toBeTruthy());
@@ -219,16 +238,16 @@ describe("RecipeChatScreen (화면 1)", () => {
     mockFetch();
     render(<RecipeChatScreen token="user-token" />);
 
-    const toggle = screen.getByLabelText("이전 질문 기록 열기");
+    const toggle = screen.getByLabelText("생성 기록 열기");
     fireEvent.click(toggle);
-    const sidebar = screen.getByRole("complementary", { name: "이전 질문 기록" });
+    const sidebar = screen.getByRole("complementary", { name: "생성 기록" });
     expect(sidebar.classList.contains("is-open")).toBe(true);
 
     fireEvent.click(toggle);
     expect(sidebar.classList.contains("is-closing")).toBe(true);
-    expect(screen.getByRole("complementary", { name: "이전 질문 기록" })).toBe(sidebar);
+    expect(screen.getByRole("complementary", { name: "생성 기록" })).toBe(sidebar);
 
-    await waitFor(() => expect(screen.queryByRole("complementary", { name: "이전 질문 기록" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "생성 기록" })).toBeNull());
   });
 
   it("surfaces a similar past candidate from history with a remark when a new prompt overlaps it", async () => {
@@ -243,10 +262,10 @@ describe("RecipeChatScreen (화면 1)", () => {
 
     // 이력이 실제로 로드된 뒤 제출해야 한다 — 마운트 시점 listMine 호출이
     // 비동기라, 로드 전에 곧장 제출하면 매칭 대상이 비어 있다.
-    fireEvent.click(screen.getByLabelText("이전 질문 기록 열기"));
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
     await waitFor(() => expect(screen.getByText("사발 청록 사틴 유약")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText("이전 질문 기록 열기"));
-    await waitFor(() => expect(screen.queryByRole("complementary", { name: "이전 질문 기록" })).toBeNull());
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "생성 기록" })).toBeNull());
 
     fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), {
       target: { value: "사발에 어울리는 청록 사틴 유약을 또 찾고 있어요" },

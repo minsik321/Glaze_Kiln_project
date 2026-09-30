@@ -177,6 +177,30 @@ async def test_suggest_recipe_candidates_returns_validated_candidates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_suggest_recipe_candidates_falls_back_when_llm_returns_empty_candidates_twice() -> None:
+    app, auth_upstream, llm_upstream = _app_with_llm(
+        _two_stage_handler({"candidates": []})
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/aice/recipe-candidates",
+            json={"prompt_text": "청록색 사틴 유약", "candidate_count": 3},
+            headers={"Authorization": "Bearer valid-token"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["candidates"]) == 3
+    assert all(candidate["materials"] for candidate in body["candidates"])
+    assert all(candidate["colorants"] == {} for candidate in body["candidates"])
+    assert any("규칙 기반 배합" in reason for reason in body["dropped"])
+    await auth_upstream.aclose()
+    await llm_upstream.aclose()
+
+
+@pytest.mark.asyncio
 async def test_suggest_recipe_candidates_requires_auth() -> None:
     app, auth_upstream, llm_upstream = _app_with_llm(lambda _: httpx.Response(500))
     async with httpx.AsyncClient(

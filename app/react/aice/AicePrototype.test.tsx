@@ -174,6 +174,8 @@ describe("AICE guided prototype", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
     // v9: 로그인 없는 데모 흐름에서는 저장 버튼이 비활성 상태로 나타난다.
     expect(screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "이전" }));
+    expect(screen.getByTestId("aice-step-4")).toBeTruthy();
   });
 
   it("warns before continuing without the firing-plan adjustment", async () => {
@@ -286,11 +288,13 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect(screen.getByText("해안 사틴 A")).toBeTruthy());
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST")).toBe(true));
+    expect(screen.queryByText("생성 기록에 저장했습니다.")).toBeNull();
     const saveCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST");
     const savedBody = JSON.parse(String(saveCall?.[1]?.body));
     expect(savedBody.title).toBe("유약");
     expect(savedBody.run.intake).toMatchObject({ prompt_text: "유약", candidates: { candidates: [{ id: "cand-a" }, { id: "cand-b" }] } });
-    expect(savedBody.request_id).not.toBe(savedBody.run.run_id);
+    expect(savedBody.run.application.dip_seconds).toBeNull();
+    expect(savedBody.request_id).toBe(savedBody.run.run_id);
     const recipeNextButton = screen.getByRole("button", { name: "다음" });
     expect((recipeNextButton as HTMLButtonElement).disabled).toBe(true);
 

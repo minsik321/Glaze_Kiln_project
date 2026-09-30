@@ -2,7 +2,7 @@ import type { SourceType } from "./contract";
 import type { GlossLevel, TransparencyLevel } from "./targetCoordinate";
 
 export type RecipeId = "coastal-satin" | "warm-clear" | "soft-matte";
-export type WarePreset = "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "tile" | "other";
+export type WarePreset = "bowl" | "plate" | "mug" | "cylinder_vase" | "bottle" | "jar" | "tile" | "other";
 
 export const SOURCE_LABELS: Record<SourceType, string> = {
   observed: "자체 관측",
@@ -47,6 +47,7 @@ export const WARE_CATALOG: ReadonlyArray<{
   { id: "mug", label: "컵/머그", visual: "ware-mug", size: "중간", glazing: "안/밖" },
   { id: "cylinder_vase", label: "원통 화병", visual: "ware-cylinder", size: "큰 세로형", glazing: "밖" },
   { id: "bottle", label: "병", visual: "ware-bottle", size: "중간 세로형", glazing: "밖" },
+  { id: "jar", label: "항아리", visual: "ware-jar", size: "넓은 둥근형", glazing: "안/밖" },
   { id: "tile", label: "타일/평판", visual: "ware-tile", size: "작은 평면", glazing: "윗면" },
   { id: "other", label: "기타", visual: "ware-other", size: "설명으로 기록", glazing: "선택" },
 ] as const;
