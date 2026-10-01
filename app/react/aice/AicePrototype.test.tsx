@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AicePrototype } from "./AicePrototype";
-import type { RecipeCandidate } from "./contract";
+import { sampleAiceRun, type RecipeCandidate } from "./contract";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -127,6 +127,7 @@ async function applySuggestedFiringPlan() {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 //: 화면 1(AI 제안)은 로그인 없이도 "샘플 실험 시작"으로 후보를 고르지
@@ -138,6 +139,70 @@ async function skipToWare() {
 }
 
 describe("AICE guided prototype", () => {
+  it("leaves immediately from step one without showing an exit dialog", () => {
+    const onBackHome = vi.fn();
+    render(<AicePrototype token="" onBackHome={onBackHome} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "홈으로 돌아가기" }));
+    expect(onBackHome).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("uses the top back button as home exit and offers progress saving from step two", async () => {
+    const onBackHome = vi.fn();
+    render(<AicePrototype token="" onBackHome={onBackHome} />);
+    await skipToWare();
+
+    fireEvent.click(screen.getByRole("button", { name: "홈으로 돌아가기" }));
+    const exitDialog = screen.getByRole("alertdialog", { name: "작업을 종료하고 나가시겠습니까?" });
+    fireEvent.click(within(exitDialog).getByRole("button", { name: "아니오" }));
+    expect(onBackHome).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "기물 모양" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "홈으로 돌아가기" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "작업을 종료하고 나가시겠습니까?" })).getByRole("button", { name: "예" }));
+    const saveDialog = screen.getByRole("alertdialog", { name: "진행사항을 저장하시겠습니까?" });
+    fireEvent.click(within(saveDialog).getByRole("button", { name: "예" }));
+
+    expect(onBackHome).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(localStorage.getItem("aice-kiln:work-progress:v1"))).step).toBe(1);
+  });
+
+  it("clears the saved draft when leaving without saving", async () => {
+    const onBackHome = vi.fn();
+    localStorage.setItem("aice-kiln:work-progress:v1", "old-progress");
+    render(<AicePrototype token="" onBackHome={onBackHome} />);
+    await skipToWare();
+
+    fireEvent.click(screen.getByRole("button", { name: "홈으로 돌아가기" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "작업을 종료하고 나가시겠습니까?" })).getByRole("button", { name: "예" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "진행사항을 저장하시겠습니까?" })).getByRole("button", { name: "아니오" }));
+
+    expect(onBackHome).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("aice-kiln:work-progress:v1")).toBeNull();
+  });
+
+  it("resumes a saved draft at the saved step", () => {
+    const run = sampleAiceRun();
+    run.status = "draft";
+    render(<AicePrototype token="" restoredRun={run} resumeStep={2} />);
+
+    expect(screen.getByTestId("aice-step-3")).toBeTruthy();
+  });
+
+  it("opens a work record with its recipe and firing log before continuing to step two", () => {
+    const run = sampleAiceRun();
+    run.status = "evaluated";
+    render(<AicePrototype token="" restoredRun={run} recordEntryOrigin="mine" />);
+
+    expect(screen.getByText("내 완료 기록")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "유약 레시피" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "소성 방법" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "이전 작업 기록" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "이 기록으로 작업 시작" }));
+    expect(screen.getByRole("heading", { name: "기물 모양" })).toBeTruthy();
+  });
+
   it("shows the five-stage progress rail from the updated work screen", () => {
     render(<AicePrototype token="" />);
 
@@ -172,8 +237,8 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
     expect(screen.getByTestId("aice-step-5")).toBeTruthy();
     expect(screen.queryByRole("spinbutton")).toBeNull();
-    // v9: 로그인 없는 데모 흐름에서는 저장 버튼이 비활성 상태로 나타난다.
-    expect(screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ })).toBeTruthy();
+    // 로그인 없는 데모 흐름에서는 하단 완료 버튼이 비활성 상태로 나타난다.
+    expect((screen.getByRole("button", { name: "완료" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "이전" }));
     expect(screen.getByTestId("aice-step-4")).toBeTruthy();
   });
@@ -346,7 +411,7 @@ describe("AICE guided prototype", () => {
     fireEvent.click(screen.getByRole("button", { name: "불투명" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /결함을 확인했습니다/ }));
 
-    const saveButton = screen.getByRole("button", { name: /저장하고 작업기록으로 이동/ });
+    const saveButton = screen.getByRole("button", { name: "완료" });
     expect((saveButton as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(saveButton);
 

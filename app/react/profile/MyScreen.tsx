@@ -9,6 +9,7 @@ type MyScreenProps = {
   stats?: { records: number; followers: number; following: number };
   posts?: readonly { id: string; image: string; label: string; crop?: number }[];
   onBack?: () => void;
+  onOpenPost?: (postId: string) => void;
   onOpenAccountSettings?: () => void;
   onOpenKilnSettings?: () => void;
   onSaveProfile?: (profile: { nickname: string; avatarUrl: string }) => void | Promise<void>;
@@ -114,7 +115,7 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   return <svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>;
 }
 
-export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 545, following: 256 }, posts: suppliedPosts = [], onBack, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
+export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 545, following: 256 }, posts: suppliedPosts = [], onBack, onOpenPost, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [following, setFollowing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -428,10 +429,12 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
       <div className={`my-posts ${layout}`} aria-label="내 게시물">
         {suppliedPosts.map((post, index) => (
           <article className="my-post" key={post.id}>
-            {post.image
-              ? <img className={`my-post-placeholder crop-${post.crop ?? index + 1}`} src={post.image} alt={post.label} />
-              : <div className={`my-post-placeholder tone-${index + 1}`} role="img" aria-label={post.label} />}
-            {layout === "list" && <div className="my-post-copy"><strong>{post.label}</strong><small>{username}</small></div>}
+            <button className="my-post-open" type="button" aria-label={`${post.label} 게시물 보기`} onClick={() => onOpenPost?.(post.id)}>
+              {post.image
+                ? <img className={`my-post-placeholder crop-${post.crop ?? index + 1}`} src={post.image} alt={post.label} />
+                : <div className={`my-post-placeholder tone-${index + 1}`} role="img" aria-label={post.label} />}
+              {layout === "list" && <div className="my-post-copy"><strong>{post.label}</strong><small>{username}</small></div>}
+            </button>
           </article>
         ))}
         {suppliedPosts.length === 0 && (

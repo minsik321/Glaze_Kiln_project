@@ -23,26 +23,25 @@
 }
 
 .generation-record-list {
+  display: grid;
+  gap: 10px;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.generation-record-list li + li {
-  border-top: 1px solid var(--border);
-}
-
 .generation-record-link {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  grid-template-columns: 42px minmax(0, 1fr) 18px;
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 58px;
-  padding: 10px 8px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
+  min-height: 86px;
+  padding: 13px 14px;
+  border: 1px solid #e7eef1;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(73, 128, 151, .07);
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -50,7 +49,8 @@
 }
 
 .generation-record-link:hover {
-  background: var(--surface-2);
+  border-color: #b9e4f5;
+  background: #fafdff;
 }
 
 .generation-record-link:active {
@@ -73,16 +73,27 @@
   color: var(--muted);
 }
 
-.generation-record-link > span {
+.work-record-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: #edf9fe; color: #1eadff; }
+.work-record-icon svg { color: inherit; }
+.work-record-copy {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
   min-width: 0;
+}
+.work-record-copy strong {
+  max-width: 100%;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.96rem;
-  font-weight: 600;
+  font-size: .93rem;
+  font-weight: 700;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.work-record-copy small { color: var(--muted); font-size: .72rem; }
+.work-record-origin { padding: 3px 7px; border-radius: 999px; background: #e8f7fd; color: #1685b9; font-size: .62rem; font-weight: 800; }
+.work-record-origin.imported { background: #fff1e7; color: #b66a30; }
 
 .generation-record-link .generation-record-chevron {
   width: 18px;

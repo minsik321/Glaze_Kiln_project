@@ -17,6 +17,13 @@ export type FeedPost = {
   firing: string;
   cone: string;
   finish: string;
+  clayBody: string;
+  application: string;
+  recipe: readonly { name: string; amount: number }[];
+  colorants: readonly { name: string; amount: number }[];
+  curve: readonly { minute: number; temperatureC: number }[];
+  memo: string;
+  publishedAt: string;
 };
 
 const FEED_POST_COUNT = 3;
@@ -55,11 +62,35 @@ const textures = [
   { image: "/glaze-textures/moss-ash.png", glazeName: "이끼빛 재유", firing: "장작가마 소성", cone: "Cone 11", finish: "반광 · 자연재" },
 ] as const;
 
+const postDetails = [
+  { clayBody: "백색 석기토", application: "담금 2회 · 1.1 mm", recipe: [["장석", 45], ["규석", 25], ["석회석", 20], ["카올린", 10]], colorants: [["산화구리", 2.5], ["산화티타늄", 3]], peak: 1220, hold: 18, memo: "결정이 가장자리에서 크게 자랐어요. 다음 작업에서는 최고온도 유지 시간을 5분 줄여 흐름을 확인해보려 합니다." },
+  { clayBody: "철분 석기토", application: "담금 1회 · 0.9 mm", recipe: [["장석", 40], ["카올린", 30], ["규석", 20], ["백운석", 10]], colorants: [["적철석", 4]], peak: 1285, hold: 25, memo: "얇게 시유한 입술 부분은 따뜻한 아이보리, 몸통은 철점이 선명하게 나왔습니다. 환원 시작 시점이 잘 맞았어요." },
+  { clayBody: "갈색 석기토", application: "분무 3회 · 1.3 mm", recipe: [["장석", 50], ["규석", 25], ["석회석", 15], ["카올린", 10]], colorants: [["산화철", 10], ["산화망간", 2]], peak: 1260, hold: 30, memo: "두꺼운 부분에서 오일스팟이 잘 열렸습니다. 바닥에서 12 mm는 닦아내야 선반 부착을 피할 수 있어요." },
+  { clayBody: "청자토", application: "담금 1회 · 0.8 mm", recipe: [["장석", 48], ["규석", 27], ["석회석", 15], ["카올린", 10]], colorants: [["산화철", 1.2]], peak: 1250, hold: 15, memo: "맑은 연청색과 고른 빙렬이 나왔습니다. 700℃까지 천천히 냉각한 구간이 표면 안정에 도움이 된 것 같아요." },
+  { clayBody: "백자토", application: "붓칠 3회 · 1.0 mm", recipe: [["장석", 45], ["규석", 30], ["석회석", 15], ["카올린", 10]], colorants: [["탄산동", 1.5], ["주석", 0.5]], peak: 1290, hold: 20, memo: "강환원 구간에서 붉은 색이 안정적으로 올라왔습니다. 기물 안쪽보다 바깥쪽 발색이 조금 더 선명합니다." },
+  { clayBody: "백색 석기토", application: "담금 1회 · 1.0 mm", recipe: [["프릿", 38], ["장석", 27], ["규석", 20], ["카올린", 15]], colorants: [["탄산코발트", 0.4], ["산화주석", 4]], peak: 1220, hold: 12, memo: "겹쳐 바른 부분에서 보라색 흐름이 깊어졌어요. 얇은 부분은 푸른 기가 강해서 다음에는 도포 두께를 조금 높일 예정입니다." },
+  { clayBody: "적색 조형토", application: "붓칠 2회 · 1.5 mm", recipe: [["네펠린 섬장석", 40], ["탄산마그네슘", 25], ["카올린", 20], ["규석", 15]], colorants: [], peak: 1205, hold: 10, memo: "수축 차이가 커서 크롤링 간격이 넓게 형성됐습니다. 가장자리 박리를 줄이려면 초벌 표면의 먼지를 더 꼼꼼히 제거해야 해요." },
+  { clayBody: "내화 점토", application: "국자 시유 · 1.2 mm", recipe: [["참나무재", 45], ["장석", 25], ["규석", 20], ["점토", 10]], colorants: [["산화철", 3]], peak: 1300, hold: 35, memo: "불길이 직접 닿은 면은 짙은 이끼색, 반대편은 올리브색으로 나왔습니다. 자연재가 흐른 자국을 다음 형태에도 활용하고 싶어요." },
+] as const;
+
+function firingCurve(peak: number, hold: number) {
+  return [
+    { minute: 0, temperatureC: 20 },
+    { minute: 90, temperatureC: 600 },
+    { minute: 210, temperatureC: Math.round(peak * .82) },
+    { minute: 330, temperatureC: peak },
+    { minute: 330 + hold, temperatureC: peak },
+    { minute: 510 + hold, temperatureC: 650 },
+    { minute: 690 + hold, temperatureC: 120 },
+  ] as const;
+}
+
 const sizes = ["medium", "tall", "short"] as const;
 
 export const FEED_POSTS: readonly FeedPost[] = FEED_USERS.flatMap((user, userIndex) =>
   Array.from({ length: FEED_POST_COUNT }, (_, postIndex) => {
     const textureIndex = (userIndex * 3 + postIndex) % textures.length;
+    const detail = postDetails[textureIndex];
     return {
       id: `${user.id}-${postIndex + 1}`,
       userId: user.id,
@@ -71,14 +102,22 @@ export const FEED_POSTS: readonly FeedPost[] = FEED_USERS.flatMap((user, userInd
       firing: textures[textureIndex].firing,
       cone: textures[textureIndex].cone,
       finish: textures[textureIndex].finish,
+      clayBody: detail.clayBody,
+      application: detail.application,
+      recipe: detail.recipe.map(([name, amount]) => ({ name, amount })),
+      colorants: detail.colorants.map(([name, amount]) => ({ name, amount })),
+      curve: firingCurve(detail.peak, detail.hold),
+      memo: detail.memo,
+      publishedAt: `${3 + postIndex}일 전`,
     };
   }),
 );
 
-export const YEJIN_DEMO_POSTS = textures.slice(0, 7).map((texture, index) => ({
+export const YEJIN_DEMO_POSTS: readonly FeedPost[] = FEED_POSTS.slice(0, 7).map((post, index) => ({
+  ...post,
   id: `yejin-demo-${index + 1}`,
-  image: texture.image,
-  label: `${texture.glazeName} 작업 기록`,
+  userId: "self",
+  label: `${post.glazeName} 작업 기록`,
   crop: (index % 6) + 1,
 }));
 
@@ -88,6 +127,12 @@ export function postsForAccount(email?: string | null) {
 
 export function findFeedUser(userId: string) {
   return FEED_USERS.find((user) => user.id === userId) ?? FEED_USERS[0];
+}
+
+export function findFeedPost(postId: string) {
+  return FEED_POSTS.find((post) => post.id === postId)
+    ?? YEJIN_DEMO_POSTS.find((post) => post.id === postId)
+    ?? FEED_POSTS[0];
 }
 
 export function postsForUser(userId: string) {

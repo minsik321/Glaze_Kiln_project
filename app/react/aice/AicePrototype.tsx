@@ -17,6 +17,8 @@ import { AI_RULE_VERSION } from "./aiMvp";
 import { ResultFeedback } from "./ResultFeedback";
 import { evaluationComplete, type ResultEvaluation } from "./feedback";
 import { RecipeChatScreen } from "./RecipeChatScreen";
+import { importedWorkMemo, type WorkRecordOrigin } from "../records/workRecords";
+import { clearWorkProgress, saveWorkProgress } from "./workProgress";
 
 type PrototypeState = {
   runId: string;
@@ -100,7 +102,6 @@ const screenTitles = [
   ["기물의 형태를 알려주세요", "형상과 소지를 고르면 다음 화면의 두께 계산에 함께 쓰입니다."],
   ["도포 상태를 단면으로 확인해요", "위치별 모습은 형상 기반 가상 분포입니다."],
   ["소성 시뮬레이션", "시간에 따른 온도 변화와 가마 상태를 확인합니다."],
-  ["결과를 남기고 다음 제안을 봐요", "개인 보정과 공통 개선 후보는 분리합니다."],
 ] as const;
 
 function ChoiceCard({
@@ -130,16 +131,73 @@ function ChoiceCard({
   );
 }
 
+function WorkRecordEntry({ run, origin }: { run: AiceRun; origin: WorkRecordOrigin }) {
+  const peak = Math.max(...run.curves.baseline.points.map((point) => point.temperature_c));
+  const totalMinutes = Math.max(...run.curves.baseline.points.map((point) => point.minute));
+  const method = ({ dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" } as const)[run.application.method];
+  const source = run.sources.find((item) => item.reference === "aice-feed-post-import");
+  const memo = importedWorkMemo(run);
+  const resultNotes = [run.result.color, run.result.gloss, run.result.texture, run.result.transparency].filter(Boolean);
+  const photo = run.recipe.photo.data_url ?? source?.conversion;
+
+  return (
+    <section className="work-record-entry" aria-labelledby="work-record-entry-title">
+      <div className={`work-record-entry-hero${photo ? "" : " without-photo"}`}>
+        {photo && <img src={photo} alt={run.recipe.photo.alt} />}
+        <div>
+          <span className={`work-record-entry-origin ${origin}`}>{origin === "imported" ? "다른 사람의 작업에서 가져옴" : "내 완료 기록"}</span>
+          <h3 id="work-record-entry-title">{run.recipe.name}</h3>
+          <p>{run.title}</p>
+        </div>
+      </div>
+
+      <section className="work-record-entry-card" aria-labelledby="record-recipe-title">
+        <div className="work-record-entry-heading"><span>RECIPE</span><h4 id="record-recipe-title">유약 레시피</h4></div>
+        <div className="work-record-materials">
+          {Object.entries(run.recipe.materials).map(([name, amount]) => <div key={name}><span>{name}</span><i><b style={{ width: `${amount}%` }} /></i><strong>{amount}%</strong></div>)}
+        </div>
+        {run.recipe.colorants && Object.keys(run.recipe.colorants).length > 0 && <div className="work-record-colorants"><strong>발색 첨가물</strong>{Object.entries(run.recipe.colorants).map(([name, amount]) => <span key={name}>{name} {amount}%</span>)}</div>}
+      </section>
+
+      <section className="work-record-entry-card" aria-labelledby="record-firing-title">
+        <div className="work-record-entry-heading"><span>FIRING</span><h4 id="record-firing-title">소성 방법</h4></div>
+        <div className="work-record-firing-summary">
+          <div><small>방식</small><strong>{source?.original_condition?.split(" · ")[0] ?? "저장된 소성 계획"}</strong></div>
+          <div><small>최고온도</small><strong>{peak}℃</strong></div>
+          <div><small>총 시간</small><strong>{Math.floor(totalMinutes / 60)}시간 {totalMinutes % 60}분</strong></div>
+          <div><small>권장 범위</small><strong>{run.recipe.firing_range.value?.join("–") ?? "기록 없음"}℃</strong></div>
+        </div>
+      </section>
+
+      <section className="work-record-entry-card" aria-labelledby="record-observation-title">
+        <div className="work-record-entry-heading"><span>PREVIOUS LOG</span><h4 id="record-observation-title">이전 작업 기록</h4></div>
+        <dl className="work-record-facts">
+          <div><dt>기물</dt><dd>{run.ware.preset}</dd></div>
+          <div><dt>소지</dt><dd>{run.ware.clay_body}</dd></div>
+          <div><dt>시유</dt><dd>{method}{source?.original_condition ? ` · ${source.original_condition.split(" · ").slice(2).join(" · ")}` : ""}</dd></div>
+          <div><dt>기록 상태</dt><dd>{origin === "imported" ? "가져온 참고 기록" : "평가 완료"}</dd></div>
+        </dl>
+        {resultNotes.length > 0 && <div className="work-record-observation-tags">{resultNotes.map((note) => <span key={note}>{note}</span>)}</div>}
+        {memo && <blockquote>{memo}</blockquote>}
+      </section>
+
+      <p className="work-record-entry-guide">이 기록의 레시피와 소성 계획을 기준으로 새 작업을 시작합니다. 다음 단계에서 기물과 실제 작업 조건을 확인해 주세요.</p>
+    </section>
+  );
+}
+
 //: v9 후속(3페이지): 상시 노출 "왜/가정/다음행동" 드로어 대신, 두께 판단
 //: 결과에 따라 사용자가 직접 다음 행동을 고르는 문장+버튼 조합을 쓴다
 //: (아래 step===2 블록). 상태별 안내 제목만 여기 모아 둔다.
-export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId, onSaved, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; token?: string; userId?: string; onSaved?: () => void; onBackHome?: () => void }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin, resumeStep, token = "", userId, onSaved, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; recordEntryOrigin?: WorkRecordOrigin; resumeStep?: number; token?: string; userId?: string; onSaved?: () => void; onBackHome?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(() => ({ ...initialState, runId: crypto.randomUUID() }));
   const [densitySetupComplete, setDensitySetupComplete] = useState(false);
   const [sourceRun, setSourceRun] = useState(restoredRun);
   const [restoredUnchanged, setRestoredUnchanged] = useState(Boolean(restoredRun));
   const [planDialog, setPlanDialog] = useState<"apply" | "skip" | null>(null);
+  const [exitDialog, setExitDialog] = useState<"confirm" | "save" | null>(null);
+  const [exitSaveError, setExitSaveError] = useState("");
 
   // 07절 두께 계산은 이제 백엔드 `/kiln/thickness/profile`(kiln.thickness
   // .profile.compute_profile)을 실제로 돌리므로 비동기다. requestId로
@@ -555,38 +613,39 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
 
   useEffect(() => {
     if (!restoredRun) return;
+    const fromWorkRecords = Boolean(recordEntryOrigin);
     setSourceRun(restoredRun);
-    setRestoredUnchanged(true);
+    setRestoredUnchanged(!fromWorkRecords);
     const restoredCandidateId = restoredRun.intake?.candidates.selected_id;
     const candidate = restoredRun.intake?.candidates.candidates.find((item) => item.id === restoredCandidateId);
     const selected = restoredRun.curves.candidates.find((curve) => curve.id === restoredRun.curves.selected_id);
     const toSeries = (curve: typeof restoredRun.curves.baseline, role: "baseline" | "adjusted"): CurveSeries => ({ id: curve.id, role, label: role === "baseline" ? "기준 계획" : "저장된 실행 계획", sourceType: curve.source_type, reason: curve.reason, points: curve.points.map((point) => ({ minute: point.minute, temperatureC: point.temperature_c })) });
     setState({
       ...initialState,
-      runId: restoredRun.run_id,
+      runId: fromWorkRecords ? crypto.randomUUID() : restoredRun.run_id,
       recipe: restoredRun.recipe.id,
       llmCandidate: candidate,
       intakePrompt: restoredRun.intake?.prompt_text,
       intakeCandidates: restoredRun.intake?.candidates.candidates ?? [],
       ware: restoredRun.ware.preset,
       clayBody: restoredRun.ware.clay_body as PrototypeState["clayBody"],
-      beforeWeightG: restoredRun.application.before_weight.value?.toString() ?? "",
-      afterWeightG: restoredRun.application.after_weight.value?.toString() ?? "",
-      specificGravity: restoredRun.application.density.value?.toString() ?? "",
+      beforeWeightG: fromWorkRecords ? "" : restoredRun.application.before_weight.value?.toString() ?? "",
+      afterWeightG: fromWorkRecords ? "" : restoredRun.application.after_weight.value?.toString() ?? "",
+      specificGravity: fromWorkRecords ? "" : restoredRun.application.density.value?.toString() ?? "",
       glazingMethod: ({ dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" })[restoredRun.application.method],
-      dipSeconds: restoredRun.application.dip_seconds?.toString() ?? "",
-      dryingComplete: restoredRun.application.drying_complete ?? false,
-      riskMitigationApplied: Boolean(selected),
-      planDecision: selected ? "apply" : undefined,
+      dipSeconds: fromWorkRecords ? "" : restoredRun.application.dip_seconds?.toString() ?? "",
+      dryingComplete: fromWorkRecords ? false : restoredRun.application.drying_complete ?? false,
+      riskMitigationApplied: fromWorkRecords ? false : Boolean(selected),
+      planDecision: fromWorkRecords ? undefined : selected ? "apply" : undefined,
       sensorPlan: restoredRun.loading.sensor_plan,
       sensors: restoredRun.loading.sensors.map((sensor) => ({ id: sensor.id, heightRatio: sensor.height_ratio, target: "복원 센서", blindSpot: "저장 기록", limitation: sensor.temperature.note })),
-      curveApproved: Boolean(selected),
-      approvedCurves: selected ? [toSeries(restoredRun.curves.baseline, "baseline"), toSeries(selected, "adjusted")] : null,
-      approvedControlSamples: restoredRun.pid.samples.map((sample) => ({ minute: sample.minute, plannedC: sample.planned_c, sensorC: sample.sensor_c, estimatedWareC: sample.estimated_ware_c, heaterPercent: sample.heater_percent, errorC: sample.planned_c - sample.sensor_c, alarm: null })),
-      approvedControlParameters: restoredRun.pid.parameters,
-      simulationCompleted: restoredRun.status !== "draft",
-      result: restoredRun.result.match ?? undefined,
-      evaluation: {
+      curveApproved: fromWorkRecords ? false : Boolean(selected),
+      approvedCurves: fromWorkRecords ? null : selected ? [toSeries(restoredRun.curves.baseline, "baseline"), toSeries(selected, "adjusted")] : null,
+      approvedControlSamples: fromWorkRecords ? [] : restoredRun.pid.samples.map((sample) => ({ minute: sample.minute, plannedC: sample.planned_c, sensorC: sample.sensor_c, estimatedWareC: sample.estimated_ware_c, heaterPercent: sample.heater_percent, errorC: sample.planned_c - sample.sensor_c, alarm: null })),
+      approvedControlParameters: fromWorkRecords ? {} : restoredRun.pid.parameters,
+      simulationCompleted: fromWorkRecords ? false : restoredRun.status !== "draft",
+      result: fromWorkRecords ? undefined : restoredRun.result.match ?? undefined,
+      evaluation: fromWorkRecords ? { ...initialState.evaluation } : {
         match: restoredRun.result.match ?? null,
         color: restoredRun.result.color as ResultEvaluation["color"],
         gloss: restoredRun.result.gloss as ResultEvaluation["gloss"],
@@ -598,9 +657,9 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         resultPhoto: restoredRun.result.photo?.data_url ? { dataUrl: restoredRun.result.photo.data_url, name: restoredRun.result.photo.alt } : null,
       },
     });
-    setDensitySetupComplete(Boolean(restoredRun.application.density.value && restoredRun.application.dip_seconds));
-    setStep(restoredRun.status === "evaluated" ? 4 : restoredRun.status === "simulated" ? 3 : 0);
-  }, [restoredRun]);
+    setDensitySetupComplete(fromWorkRecords ? false : Boolean(restoredRun.application.density.value && restoredRun.application.dip_seconds));
+    setStep(fromWorkRecords ? 0 : resumeStep ?? (restoredRun.status === "evaluated" ? 4 : restoredRun.status === "simulated" ? 3 : 0));
+  }, [recordEntryOrigin, restoredRun, resumeStep]);
 
   useEffect(() => {
     onSnapshotReady?.(async () => snapshot);
@@ -633,6 +692,20 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
     setPlanDialog(null);
     setStep(0);
   };
+  const leaveWorkflow = (save: boolean) => {
+    try {
+      if (save) {
+        assertAiceRun(snapshot);
+        saveWorkProgress(snapshot, step);
+      }
+      else clearWorkProgress();
+      setExitSaveError("");
+      setExitDialog(null);
+      onBackHome?.();
+    } catch {
+      setExitSaveError("진행사항을 저장하지 못했습니다. 다시 시도해 주세요.");
+    }
+  };
   const canContinue = [
     true,
     Boolean(state.ware && state.clayBody && (state.ware !== "other" || state.customWareNote.trim())),
@@ -654,7 +727,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
       <main className="prototype-main" data-testid={`aice-step-${step + 1}`}>
         {(
           <div className="recipe-entry-header" aria-label="유약 작업 진행 단계">
-            <button type="button" className="recipe-back-button" onClick={step === 0 ? onBackHome : () => setStep(step - 1)} aria-label={step === 0 ? "홈으로 돌아가기" : "이전 단계로 돌아가기"}>
+            <button type="button" className="recipe-back-button" onClick={step === 0 ? onBackHome : () => setExitDialog("confirm")} aria-label="홈으로 돌아가기">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
             </button>
             <ol className="recipe-step-lines" aria-hidden="true">
@@ -662,17 +735,18 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
             </ol>
           </div>
         )}
-        <div className="screen-intro">
+        {step !== 4 && <div className="screen-intro">
           <span className="eyebrow">STEP {String(step + 1).padStart(2, "0")}</span>
-          <h2>{screenTitles[step][0]}</h2>
-          <p>{screenTitles[step][1]}</p>
-        </div>
+          <h2>{step === 0 && recordEntryOrigin ? "저장된 작업을 확인해요" : screenTitles[step][0]}</h2>
+          <p>{step === 0 && recordEntryOrigin ? "레시피와 이전 소성 기록을 확인한 뒤 같은 흐름으로 새 작업을 시작합니다." : screenTitles[step][1]}</p>
+        </div>}
 
         {/* v9 개편: step 0이 아닐 때도 언마운트하지 않는다(hidden만 토글) —
             예전에는 {step === 0 && (...)} 조건부 렌더링이라 다른 화면으로
             넘어갔다 돌아오면 RecipeChatScreen의 로컬 상태(후보·이미지·
             선택)가 통째로 날아갔다. */}
         <section className="prototype-home" hidden={step !== 0}>
+          {recordEntryOrigin && restoredRun ? <WorkRecordEntry run={restoredRun} origin={recordEntryOrigin} /> : <>
           {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
           <RecipeChatScreen
             token={token}
@@ -711,10 +785,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               }}>다시 저장</button>
             </Alert>
           )}
+          </>}
         </section>
 
-        {step === 0 && state.intakeCandidates.length > 0 && (
-          <button type="button" className="recipe-next-button" disabled={!state.llmCandidate} onClick={next}>다음</button>
+        {step === 0 && (recordEntryOrigin || state.intakeCandidates.length > 0) && (
+          <button type="button" className={`recipe-next-button${recordEntryOrigin ? " record-start" : ""}`} disabled={!recordEntryOrigin && !state.llmCandidate} onClick={next}>{recordEntryOrigin ? "이 기록으로 작업 시작" : "다음"}</button>
         )}
 
         {step === 1 && (
@@ -828,15 +903,12 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
               targetPhoto={state.llmCandidateImage}
             />
             {!evaluationComplete(state.evaluation) && <Alert tone="unavailable" title="평가 입력이 남아 있어요">전체 인상·광택·투명도를 선택하고 결함 확인을 완료해 주세요.</Alert>}
-            {sourceRun?.status === "evaluated" && !restoredUnchanged && <Alert tone="warning" title="완료된 회차는 수정할 수 없어요">새 회차를 시작해 새 관측을 남겨 주세요. 기존 관측은 중복 학습하지 않습니다.</Alert>}
+            {sourceRun?.status === "evaluated" && !restoredUnchanged && !recordEntryOrigin && <Alert tone="warning" title="완료된 회차는 수정할 수 없어요">새 회차를 시작해 새 관측을 남겨 주세요. 기존 관측은 중복 학습하지 않습니다.</Alert>}
             {pendingFeedbackId && <Alert tone="warning" title="기록은 저장됐고 보정은 처리 대기 중이에요"><button type="button" disabled={saveStatus === "saving"} onClick={() => void retryFeedback()}>보정 다시 처리</button><button type="button" onClick={onSaved}>작업기록으로 이동</button></Alert>}
             {state.result && (
               <>
                 {saveStatus === "error" && <Alert tone="danger" title="저장하지 못했어요">{saveError}</Alert>}
                 {!token && <Alert tone="unavailable" title="로그인이 필요해요">로그인하면 작업기록에 저장할 수 있습니다.</Alert>}
-                <button type="button" className="prototype-confirm" disabled={!token || saveStatus === "saving" || Boolean(pendingFeedbackId) || !evaluationComplete(state.evaluation) || (sourceRun?.status === "evaluated" && !restoredUnchanged)} onClick={() => void saveResultToRecords()}>
-                  {saveStatus === "saving" ? "저장 중…" : "저장하고 작업기록으로 이동"}
-                </button>
               </>
             )}
           </>
@@ -901,10 +973,40 @@ export function AicePrototype({ onSnapshotReady, restoredRun, token = "", userId
         </div>
       )}
 
+      {exitDialog && (
+        <div className="work-exit-dialog-layer">
+          <section className="work-exit-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-exit-dialog-title">
+            {exitDialog === "confirm" ? <>
+              <h2 id="work-exit-dialog-title">작업을 종료하고 나가시겠습니까?</h2>
+              <div className="work-exit-dialog-actions">
+                <button type="button" onClick={() => setExitDialog(null)}>아니오</button>
+                <button className="primary" type="button" onClick={() => setExitDialog("save")}>예</button>
+              </div>
+            </> : <>
+              <h2 id="work-exit-dialog-title">진행사항을 저장하시겠습니까?</h2>
+              <p>저장하면 다음에 작업하기를 눌러 현재 단계부터 이어갈 수 있습니다.</p>
+              {exitSaveError && <p className="work-exit-dialog-error" role="alert">{exitSaveError}</p>}
+              <div className="work-exit-dialog-actions">
+                <button type="button" onClick={() => leaveWorkflow(false)}>아니오</button>
+                <button className="primary" type="button" onClick={() => leaveWorkflow(true)}>예</button>
+              </div>
+            </>}
+          </section>
+        </div>
+      )}
+
       <footer className="prototype-actions">
         {step > 0 && <button type="button" className="act ghost" onClick={() => setStep(step - 1)}>이전</button>}
         {step < 4 && <button type="button" className="act next" disabled={!canContinue} onClick={next}>{step === 0 ? (state.llmCandidate ? "선택한 후보로 계속" : "샘플 실험 시작") : "다음"}</button>}
-        {step === 4 && <button type="button" className="act next" disabled={!state.result} onClick={restart}>새 샘플 시작<span aria-hidden="true">↻</span></button>}
+        {step === 4 && <div className="completion-actions">
+          <button type="button" className="act ghost" disabled={!state.result} onClick={restart}>새 작업</button>
+          <button
+            type="button"
+            className="act next"
+            disabled={!token || saveStatus === "saving" || Boolean(pendingFeedbackId) || !evaluationComplete(state.evaluation) || (sourceRun?.status === "evaluated" && !restoredUnchanged && !recordEntryOrigin)}
+            onClick={() => void saveResultToRecords()}
+          >{saveStatus === "saving" ? "저장 중…" : "완료"}</button>
+        </div>}
       </footer>
     </div>
   );

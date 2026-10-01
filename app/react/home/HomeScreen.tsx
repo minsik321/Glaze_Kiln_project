@@ -4,6 +4,8 @@ import { FEED_POSTS, findFeedUser } from "./feedData";
 type HomeScreenProps = {
   onStartWork: () => void;
   onOpenProfile: (userId: string) => void;
+  onOpenPost: (postId: string) => void;
+  onOpenNotifications: () => void;
 };
 
 function GridIcon() {
@@ -14,15 +16,15 @@ function ListIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></svg>;
 }
 
-function BookmarkIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>;
+function BellIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5h11l-1.5-2V10a4 4 0 0 0-8 0v4.5z" /><path d="M10 19h4" /></svg>;
 }
 
 function FlaskIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3" /><path d="M7.5 16h9" /></svg>;
 }
 
-export function HomeScreen({ onStartWork, onOpenProfile }: HomeScreenProps) {
+export function HomeScreen({ onStartWork, onOpenProfile, onOpenPost, onOpenNotifications }: HomeScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
 
@@ -37,17 +39,17 @@ export function HomeScreen({ onStartWork, onOpenProfile }: HomeScreenProps) {
           <svg className="home-wordmark-angle" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
           <strong>AICE Kiln</strong>
         </div>
-        <button className="home-bookmark" type="button" aria-label="저장한 게시물"><BookmarkIcon /></button>
+        <button className="home-notifications" type="button" aria-label="알림 목록" onClick={onOpenNotifications}><BellIcon /><span aria-hidden="true" /></button>
       </header>
 
       <main className={`home-feed home-feed--${layout}`} data-layout={layout}>
         {layout === "grid"
           ? [FEED_POSTS.filter((_, index) => index % 2 === 0), FEED_POSTS.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
             <div className="home-feed-column" key={columnIndex}>
-              {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} />)}
+              {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}
             </div>
           ))
-          : <div className="home-feed-list">{FEED_POSTS.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} />)}</div>}
+          : <div className="home-feed-list">{FEED_POSTS.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}</div>}
       </main>
 
       <div className="home-action-dock">
@@ -77,7 +79,7 @@ export function HomeScreen({ onStartWork, onOpenProfile }: HomeScreenProps) {
   );
 }
 
-function FeedCard({ post, layout, onOpenProfile }: { post: (typeof FEED_POSTS)[number]; layout: "grid" | "list"; onOpenProfile: (userId: string) => void }) {
+function FeedCard({ post, layout, onOpenProfile, onOpenPost }: { post: (typeof FEED_POSTS)[number]; layout: "grid" | "list"; onOpenProfile: (userId: string) => void; onOpenPost: (postId: string) => void }) {
   const user = findFeedUser(post.userId);
   return (
     <article className={`home-feed-card home-feed-card--${layout}`}>
@@ -85,7 +87,8 @@ function FeedCard({ post, layout, onOpenProfile }: { post: (typeof FEED_POSTS)[n
         <span className={`avatar-tone-${user.avatarTone}`} aria-hidden="true" />
         <small>{user.username}</small>
       </button>
-      {layout === "grid"
+      <button className="home-post-open" type="button" aria-label={`${post.glazeName} 게시물 보기`} onClick={() => onOpenPost(post.id)}>
+        {layout === "grid"
         ? <img className={`home-feed-photo ${post.size} crop-${post.crop}`} src={post.image} alt={post.label} loading="lazy" />
         : <div className="home-list-content">
             <div className="home-list-copy">
@@ -95,6 +98,7 @@ function FeedCard({ post, layout, onOpenProfile }: { post: (typeof FEED_POSTS)[n
             </div>
             <img className={`home-list-thumbnail crop-${post.crop}`} src={post.image} alt={post.label} loading="lazy" />
           </div>}
+      </button>
     </article>
   );
 }

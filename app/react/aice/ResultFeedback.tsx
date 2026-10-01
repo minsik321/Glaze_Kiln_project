@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent } from "react";
 import type { ResultEvaluation } from "./feedback";
-import { Alert, StatusBadge } from "./ui";
+import { Alert } from "./ui";
 
 function ChipGroup<T extends string>({ label, value, options, onChange }: { label: string; value: T | null; options: Array<{ id: T; label: string }>; onChange: (value: T) => void }) {
   return <fieldset className="feedback-chip-group"><legend>{label}</legend><div className="choice-chip-row">{options.map((option) => <button type="button" className="choice-chip" aria-pressed={value === option.id} key={option.id} onClick={() => onChange(option.id)}>{option.label}</button>)}</div></fieldset>;
@@ -38,7 +38,7 @@ export function ResultFeedback({
   }
 
   return <section className="result-feedback" aria-labelledby="result-feedback-title">
-    <div className="result-feedback-heading"><div><h3 id="result-feedback-title">결과 관찰 기록</h3><p>평가 완료에는 전체 인상·광택·투명도와 결함 확인이 필요합니다. 사진·색상·질감은 선택 사항입니다.</p></div><StatusBadge tone="unavailable">실제 관찰 입력 · 품질 보장 아님</StatusBadge></div>
+    <div className="result-feedback-heading"><h3 id="result-feedback-title">결과 관찰 기록</h3></div>
     <div className="photo-intake"><label htmlFor={fileInputId}>관찰 사진 첨부</label><input id={fileInputId} type="file" accept="image/*" onChange={handlePhotoChange} /></div>
     {photoError && <Alert tone="warning" title="사진을 확인해 주세요">{photoError}</Alert>}
     <div className="prototype-result-compare">

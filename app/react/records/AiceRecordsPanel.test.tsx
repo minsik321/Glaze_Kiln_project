@@ -2,22 +2,18 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
 import { AiceRecordsPanel } from "./AiceRecordsPanel";
+import { FEED_IMPORT_SOURCE_REFERENCE } from "./workRecords";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-function record(id: string, title: string, generated = true) {
+function record(id: string, title: string, kind: "completed" | "imported" | "draft" = "completed") {
   const run = sampleAiceRun();
   run.title = title;
-  run.intake = generated
-    ? {
-        prompt_text: title,
-        prompt_photos: [],
-        candidates: { candidates: [], selected_id: null },
-      }
-    : null;
+  run.status = kind === "completed" ? "evaluated" : "draft";
+  if (kind === "imported") run.sources.push({ source_type: "observed", reference: FEED_IMPORT_SOURCE_REFERENCE, limitation: "테스트", confidence: "medium" });
 
   return {
     id,
@@ -35,13 +31,14 @@ function record(id: string, title: string, generated = true) {
   };
 }
 
-describe("후보 생성 기록", () => {
-  it("후보를 생성한 기록의 제목만 나열하고 클릭하면 복원한다", async () => {
-    const generated = record("run-1", "청록 사틴 유약");
-    const firingLog = record("run-2", "소성 테스트 기록", false);
+describe("작업 기록", () => {
+  it("완료 기록과 가져온 기록만 나열하고 출처를 구분한다", async () => {
+    const completed = record("run-1", "청록 사틴 유약");
+    const imported = record("run-2", "미라님의 동적유", "imported");
+    const draft = record("run-3", "후보 생성 초안", "draft");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
-        JSON.stringify({ items: [generated, firingLog], limit: 20, offset: 0 }),
+        JSON.stringify({ items: [completed, imported, draft], limit: 20, offset: 0 }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
@@ -49,15 +46,16 @@ describe("후보 생성 기록", () => {
 
     render(<AiceRecordsPanel token="token" onRestore={onRestore} />);
 
-    const title = await screen.findByRole("button", { name: "청록 사틴 유약" });
-    expect(screen.queryByText("소성 테스트 기록")).toBeNull();
-    expect(screen.queryByText(/공개|비공개|후보 ·|레시피|소성 결과/)).toBeNull();
+    const title = await screen.findByRole("button", { name: "청록 사틴 유약 작업기록 열기" });
+    expect(screen.getByText("내 완료 기록")).toBeTruthy();
+    expect(screen.getByText("다른 사람의 작업")).toBeTruthy();
+    expect(screen.queryByText("후보 생성 초안")).toBeNull();
 
     fireEvent.click(title);
-    expect(onRestore).toHaveBeenCalledWith(generated.run);
+    expect(onRestore).toHaveBeenCalledWith(completed.run, "mine");
   });
 
-  it("생성 기록이 없으면 빈 목록 안내만 보여준다", async () => {
+  it("작업 기록이 없으면 빈 목록 안내만 보여준다", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ items: [], limit: 20, offset: 0 }), {
         status: 200,
@@ -67,7 +65,7 @@ describe("후보 생성 기록", () => {
 
     render(<AiceRecordsPanel token="token" />);
 
-    expect(await screen.findByText("아직 생성한 유약 후보가 없습니다.")).toBeTruthy();
+    expect(await screen.findByText("아직 완료하거나 가져온 작업이 없습니다.")).toBeTruthy();
     expect(screen.queryByRole("tab")).toBeNull();
   });
 });

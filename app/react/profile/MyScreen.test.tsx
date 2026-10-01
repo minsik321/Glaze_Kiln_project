@@ -183,4 +183,16 @@ describe("MyScreen", () => {
     expect(notifications.getAttribute("aria-checked")).toBe("false");
     vi.useRealTimers();
   });
+
+  it("opens a profile post in the post detail flow", () => {
+    const onOpenPost = vi.fn();
+    render(<MyScreen username="Chloe.jung" displayName="가마쟁이" posts={YEJIN_DEMO_POSTS} onOpenPost={onOpenPost} />);
+
+    fireEvent.click(screen.getByRole("button", { name: `${YEJIN_DEMO_POSTS[0].label} 게시물 보기` }));
+    expect(onOpenPost).toHaveBeenCalledWith(YEJIN_DEMO_POSTS[0].id);
+
+    fireEvent.click(screen.getByRole("tab", { name: "목록으로 보기" }));
+    fireEvent.click(screen.getByRole("button", { name: `${YEJIN_DEMO_POSTS[1].label} 게시물 보기` }));
+    expect(onOpenPost).toHaveBeenLastCalledWith(YEJIN_DEMO_POSTS[1].id);
+  });
 });

@@ -8,13 +8,18 @@ import { AppShell, BottomNavigation } from "./aice/ui";
 import type { AiceRun } from "./aice/contract";
 import { useAuth } from "./auth/AuthProvider";
 import { HomeScreen } from "./home/HomeScreen";
-import { findFeedUser, postsForAccount, postsForUser } from "./home/feedData";
+import { NotificationScreen } from "./home/NotificationScreen";
+import { findFeedPost, findFeedUser, postsForAccount, postsForUser } from "./home/feedData";
+import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
+import { aiceRunsApi } from "./lib/api";
+import { feedPostToWorkRecord, type WorkRecordOrigin } from "./records/workRecords";
+import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
-type AppView = "work" | "search" | "records" | "my" | "profile";
+type AppView = "work" | "search" | "records" | "my" | "profile" | "post" | "notifications";
 type SettingsDetail = "account" | "kiln";
 type EntryPhase = "splash" | "onboarding" | "login" | "signup" | "app";
 const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
@@ -43,7 +48,13 @@ export function App() {
   const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
   const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
+  const [selectedPostId, setSelectedPostId] = useState("chloe-1");
+  const [postReturnView, setPostReturnView] = useState<"work" | "my" | "profile">("work");
+  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
+  const [recordEntryOrigin, setRecordEntryOrigin] = useState<WorkRecordOrigin>();
+  const [resumeStep, setResumeStep] = useState<number>();
+  const [resumePrompt, setResumePrompt] = useState<SavedWorkProgress | null>(null);
   const onboardingAfterSplash = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("onboarding") === "1";
   const connectSnapshot = useCallback((getter: SnapshotGetter) => {
     setGetSnapshot(() => getter);
@@ -115,7 +126,7 @@ export function App() {
   const navigation = [
     { id: "home", label: "홈", icon: <NavIcon><path d="m3 11 9-8 9 8" /><path d="M5 10v11h14V10M9 21v-7h6v7" /></NavIcon> },
     { id: "search", label: "검색", icon: <NavIcon><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></NavIcon> },
-    { id: "history", label: "생성기록", icon: <NavIcon><path d="M4 5h16v16H4zM8 3v4M16 3v4M4 10h16" /><path d="M8 14h3M8 17h6" /></NavIcon> },
+    { id: "history", label: "작업기록", icon: <NavIcon><path d="M4 5h16v16H4zM8 3v4M16 3v4M4 10h16" /><path d="M8 14h3M8 17h6" /></NavIcon> },
     { id: "my", label: "마이", icon: <NavIcon><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></NavIcon> },
   ] as const;
 
@@ -130,6 +141,10 @@ export function App() {
   const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
   const myPosts = postsForAccount(session?.user.email);
   const selectedProfile = findFeedUser(selectedProfileId);
+  const selectedPost = findFeedPost(selectedPostId);
+  const selectedPostUser = selectedPost.userId === "self"
+    ? { id: "self", username, displayName, avatarTone: 1, stats: { records: myPosts.length, followers: 545, following: 256 } }
+    : findFeedUser(selectedPost.userId);
 
   function changeNavigation(next: typeof navigation[number]["id"]) {
     setShowWorkflow(false);
@@ -160,11 +175,23 @@ export function App() {
     settingsDetailCloseTimer.current = window.setTimeout(finishClosingSettingsDetail, reduceMotion ? 0 : 280);
   }
 
-  function openWorkflow() {
+  function startWorkflow(run?: AiceRun, step?: number) {
+    setRestoredRun(run);
+    setResumeStep(step);
+    setRecordEntryOrigin(undefined);
     setView("work");
     setWorkflowClosing(false);
     setWorkflowDragX(0);
     setShowWorkflow(true);
+  }
+
+  function openWorkflow() {
+    const saved = loadWorkProgress();
+    if (saved) {
+      setResumePrompt(saved);
+      return;
+    }
+    startWorkflow();
   }
 
   function closeWorkflow() {
@@ -200,9 +227,14 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={showWorkflow || view === "profile" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={showWorkflow || view === "profile" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
-          <HomeScreen onStartWork={openWorkflow} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} />
+          <HomeScreen
+            onStartWork={openWorkflow}
+            onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
+            onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
+            onOpenNotifications={() => setView("notifications")}
+          />
           {showWorkflow && (
             <div
               className="workflow-slide-panel"
@@ -220,26 +252,34 @@ export function App() {
                   setWorkflowClosing(false);
                 }}
               >
-                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} token={session?.access_token} userId={session?.user.id} onSaved={() => setView("records")} onBackHome={closeWorkflow} />
+                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onSaved={() => {
+                  clearWorkProgress();
+                  setShowWorkflow(false);
+                  setRestoredRun(undefined);
+                  setRecordEntryOrigin(undefined);
+                  setResumeStep(undefined);
+                  setView("records");
+                }} onBackHome={closeWorkflow} />
               </div>
             </div>
           )}
         </section>
         <section className="app-view app-utility-view" hidden={view !== "search"}>
-          <div className="utility-header">
-            <span className="eyebrow">AICE KILN</span>
-            <h1>검색</h1>
-            <p>유약과 사용자, 게시물을 찾아보세요.</p>
+          <div className="search-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg>
+            <input type="search" aria-label="검색" placeholder="검색" />
           </div>
         </section>
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           <div className="utility-header">
             <span className="eyebrow">AICE KILN</span>
-            <h1>생성 기록</h1>
-            <p>이전에 만든 유약 후보를 다시 확인해보세요.</p>
+            <h1>작업 기록</h1>
+            <p>완료한 작업과 다른 사람에게서 가져온 레시피를 확인해보세요.</p>
           </div>
-          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onRestore={(run) => {
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onRestore={(run, origin) => {
             setRestoredRun(run);
+            setRecordEntryOrigin(origin);
+            setResumeStep(undefined);
             setView("work");
             setWorkflowClosing(false);
             setWorkflowDragX(0);
@@ -252,6 +292,7 @@ export function App() {
             displayName={displayName}
             avatarUrl={avatarUrl}
             posts={myPosts}
+            onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("my"); setView("post"); }}
             stats={{ records: myPosts.length, followers: 545, following: 256 }}
             onOpenAccountSettings={() => openSettingsDetail("account")}
             onOpenKilnSettings={() => openSettingsDetail("kiln")}
@@ -300,7 +341,37 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={postsForUser(selectedProfile.id)} onBack={() => setView("work")} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={postsForUser(selectedProfile.id)} onBack={() => setView("work")} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+        </section>
+        <section className="app-view" hidden={view !== "post"}>
+          <PostDetailScreen
+            key={selectedPost.id}
+            post={selectedPost}
+            user={selectedPostUser}
+            viewer={{ displayName, username, avatarUrl }}
+            comments={postComments[selectedPost.id] ?? []}
+            isOwnPost={selectedPost.userId === "self"}
+            onImportRecipe={selectedPost.userId === "self" ? undefined : async () => {
+              if (!session) throw new Error("로그인이 필요합니다.");
+              const imported = feedPostToWorkRecord(selectedPost, selectedPostUser);
+              await aiceRunsApi.create(session.access_token, { title: imported.title, run: imported, request_id: imported.run_id, is_public: false });
+            }}
+            onAddComment={(body) => setPostComments((current) => ({
+              ...current,
+              [selectedPost.id]: [
+                ...(current[selectedPost.id] ?? []),
+                { id: crypto.randomUUID(), body, displayName, username, avatarUrl, createdAt: "방금 전" },
+              ],
+            }))}
+            onBack={() => setView(postReturnView)}
+            onOpenProfile={(userId) => {
+              if (selectedPost.userId === "self") setView("my");
+              else { setSelectedProfileId(userId); setView("profile"); }
+            }}
+          />
+        </section>
+        <section className="app-view" hidden={view !== "notifications"}>
+          <NotificationScreen onBack={() => setView("work")} />
         </section>
         {settingsDetail && (
           <section
@@ -323,6 +394,25 @@ export function App() {
               <AuthPanel mode={settingsDetail} />
             </div>
           </section>
+        )}
+        {resumePrompt && (
+          <div className="resume-work-dialog-layer">
+            <section className="resume-work-dialog" role="alertdialog" aria-modal="true" aria-labelledby="resume-work-dialog-title">
+              <h2 id="resume-work-dialog-title">마지막으로 저장된 작업 내용이 있습니다. 이어서 작업하시겠습니까?</h2>
+              <div className="resume-work-dialog-actions">
+                <button type="button" onClick={() => {
+                  clearWorkProgress();
+                  setResumePrompt(null);
+                  startWorkflow();
+                }}>신규 작업</button>
+                <button className="primary" type="button" onClick={() => {
+                  const saved = resumePrompt;
+                  setResumePrompt(null);
+                  startWorkflow(saved.run, saved.step);
+                }}>예</button>
+              </div>
+            </section>
+          </div>
         )}
     </AppShell>
   );
