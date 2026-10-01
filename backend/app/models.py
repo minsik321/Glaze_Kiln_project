@@ -236,6 +236,8 @@ class RecipeImageResponse(ApiModel):
     #: 표시해야 한다(``PhotoAsset``) — 실물 사진이 아니다.
     image_base64: str
     media_type: str
+    #: ``ai``가 정상 상류 생성, ``fallback``은 할당량 소진 시 로컬 합성 프리뷰.
+    source_type: str = "ai"
 
 
 # ─── 가상 제어기 패널 — kiln.firing 물리 판정 코어 경계 ──────────────────────

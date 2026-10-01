@@ -89,6 +89,28 @@ async def test_chat_json_maps_upstream_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_image_quota_error_has_specific_code() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "message": "API key quota exceeded (ALL_TIME_LIMIT_EXCEEDED).",
+                "error": {
+                    "name": "ApiKeyQuotaExceededException",
+                    "message": "API key quota exceeded (ALL_TIME_LIMIT_EXCEEDED).",
+                },
+            },
+        )
+
+    client = _client(handler)
+    with pytest.raises(AimlapiError) as excinfo:
+        await client.generate_image("a bowl")
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.code == "aimlapi_quota_exceeded"
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_not_configured_raises_before_request() -> None:
     client = AimlapiClient(_settings(api_key="", text_model=""))
     with pytest.raises(AimlapiError) as excinfo:

@@ -263,6 +263,45 @@ async def test_generate_recipe_candidate_image_returns_base64() -> None:
     assert response.status_code == 200, response.text
     assert base64.b64decode(response.json()["image_base64"]) == raw
     assert response.json()["media_type"] == "image/png"
+    assert response.json()["source_type"] == "ai"
+    await auth_upstream.aclose()
+    await llm_upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_generate_recipe_candidate_image_falls_back_when_quota_is_exhausted() -> None:
+    def llm_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "error": {
+                    "name": "ApiKeyQuotaExceededException",
+                    "message": "API key quota exceeded (ALL_TIME_LIMIT_EXCEEDED).",
+                }
+            },
+        )
+
+    app, auth_upstream, llm_upstream = _app_with_llm(llm_handler)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/aice/recipe-candidates/image",
+            json={
+                "candidate_name": "청록 사틴",
+                "materials": {"장석": 40.0, "석회석": 20.0, "규석": 25.0, "카올린": 15.0},
+                "colorants": {"CuO": 2.0},
+                "target_gloss": "SATIN",
+                "target_transparency": "SEMI_OPAQUE",
+            },
+            headers={"Authorization": "Bearer valid-token"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["media_type"] == "image/svg+xml"
+    assert response.json()["source_type"] == "fallback"
+    svg = base64.b64decode(response.json()["image_base64"])
+    assert svg.startswith(b"<svg")
+    assert b"synthetic glaze preview" in svg
     await auth_upstream.aclose()
     await llm_upstream.aclose()
 

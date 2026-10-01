@@ -28,6 +28,7 @@ from kiln.search.prior import Prior, propose
 
 from . import kiln_bridge
 from .aimlapi import AimlapiClient, AimlapiError
+from .image_fallback import build_glaze_preview_svg
 
 from .dependencies import (
     access_token,
@@ -912,6 +913,23 @@ async def generate_recipe_candidate_image(
     try:
         image_bytes = await llm.generate_image(prompt)
     except AimlapiError as exc:
+        if exc.code == "aimlapi_quota_exceeded":
+            logger.warning(
+                "AIMLAPI image quota exhausted; using local glaze preview for %s",
+                body.candidate_name,
+            )
+            preview = build_glaze_preview_svg(
+                candidate_name=body.candidate_name,
+                materials=body.materials,
+                colorants=body.colorants,
+                target_gloss=body.target_gloss,
+                target_transparency=body.target_transparency,
+            )
+            return RecipeImageResponse(
+                image_base64=base64.b64encode(preview).decode(),
+                media_type="image/svg+xml",
+                source_type="fallback",
+            )
         raise HTTPException(exc.status_code, detail=error_detail(exc.code, exc.message)) from exc
     if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         media_type = "image/png"
@@ -929,6 +947,7 @@ async def generate_recipe_candidate_image(
     return RecipeImageResponse(
         image_base64=base64.b64encode(image_bytes).decode(),
         media_type=media_type,
+        source_type="ai",
     )
 
 

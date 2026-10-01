@@ -278,15 +278,24 @@ class AimlapiClient:
                 continue
             if response.status_code >= 400:
                 message, code = "aimlapi.com 요청을 처리하지 못했습니다.", "aimlapi_error"
+                error_name = ""
                 try:
                     data = response.json()
                     err = data.get("error")
                     if isinstance(err, dict):
                         message = str(err.get("message") or message)
+                        error_name = str(err.get("name") or "")
                     elif isinstance(err, str):
                         message = err
                 except ValueError:
                     pass
+                quota_error = f"{error_name} {message}".lower()
+                if response.status_code == 403 and (
+                    "quota exceeded" in quota_error
+                    or "limit_exceeded" in quota_error
+                    or "apikeyquotaexceeded" in quota_error
+                ):
+                    code = "aimlapi_quota_exceeded"
                 status = (
                     response.status_code
                     if response.status_code in {400, 401, 403, 404, 422, 429}

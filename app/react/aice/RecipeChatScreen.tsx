@@ -86,7 +86,7 @@ export function RecipeChatScreen({
   const [candidates, setCandidates] = useState<RecipeCandidate[]>([]);
   const [dropped, setDropped] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [images, setImages] = useState<Record<string, { base64: string; mediaType: string }>>({});
+  const [images, setImages] = useState<Record<string, { base64: string; mediaType: string; sourceType: "ai" | "fallback" }>>({});
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
   const [historyMatches, setHistoryMatches] = useState<HistoryMatch[]>([]);
@@ -164,7 +164,11 @@ export function RecipeChatScreen({
       });
       setImages((prev) => ({
         ...prev,
-        [candidate.id]: { base64: result.image_base64, mediaType: result.media_type },
+        [candidate.id]: {
+          base64: result.image_base64,
+          mediaType: result.media_type,
+          sourceType: result.source_type ?? "ai",
+        },
       }));
     } catch (err) {
       setImageErrors((prev) => ({
@@ -210,7 +214,8 @@ export function RecipeChatScreen({
 
   function selectCandidate(candidate: RecipeCandidate) {
     setSelectedId(candidate.id);
-    onSelect?.(candidate, images[candidate.id]);
+    const image = images[candidate.id];
+    onSelect?.(candidate, image ? { base64: image.base64, mediaType: image.mediaType } : undefined);
   }
 
   async function restoreFromHistory(record: AiceRunRecord) {
@@ -398,7 +403,9 @@ export function RecipeChatScreen({
                   {images[candidate.id] ? (
                   <img
                     src={`data:${images[candidate.id].mediaType};base64,${images[candidate.id].base64}`}
-                    alt={`${candidate.name} AI 예상 이미지 — 실물 사진 아님`}
+                    alt={images[candidate.id].sourceType === "fallback"
+                      ? `${candidate.name} 로컬 합성 유약 프리뷰 — 실물 사진 아님`
+                      : `${candidate.name} AI 예상 이미지 — 실물 사진 아님`}
                     className="recipe-candidate-image"
                   />
                   ) : <span className="recipe-image-placeholder">{imageErrors[candidate.id] ? "이미지 없음" : ""}</span>}
