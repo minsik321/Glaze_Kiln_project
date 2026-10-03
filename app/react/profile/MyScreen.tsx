@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 type MyScreenProps = {
   username?: string;
@@ -9,7 +9,12 @@ type MyScreenProps = {
   stats?: { records: number; followers: number; following: number };
   posts?: readonly { id: string; image: string; label: string; crop?: number }[];
   onBack?: () => void;
+  onMessage?: () => void;
+  isFollowing?: boolean;
+  onToggleFollow?: () => void;
+  onOpenConnections?: (tab: "followers" | "following") => void;
   onOpenPost?: (postId: string) => void;
+  onOpenBookmarks?: () => void;
   onOpenAccountSettings?: () => void;
   onOpenKilnSettings?: () => void;
   onSaveProfile?: (profile: { nickname: string; avatarUrl: string }) => void | Promise<void>;
@@ -84,6 +89,10 @@ function MoreIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="18" cy="12" r="1" /></svg>;
 }
 
+function BookmarkIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>;
+}
+
 function ChevronIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>;
 }
@@ -93,7 +102,6 @@ const settingsItems = [
   { id: "privacy", label: "계정 공개 범위", icon: "lock" },
   { id: "notifications", label: "알림 설정", icon: "bell" },
   { id: "kiln", label: "가마 설정", icon: "kiln" },
-  { id: "bookmarks", label: "북마크 관리", icon: "bookmark" },
   { id: "help", label: "도움말", icon: "help" },
   { id: "about", label: "앱 정보", icon: "info" },
   { id: "logout", label: "로그아웃", icon: "logout" },
@@ -104,7 +112,6 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   const path = {
     person: <><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>,
     kiln: <><path d="M7 4h10l2 16H5z" /><path d="M8 10h8M9 14h6M12 6v2" /></>,
-    bookmark: <path d="M6 4h12v16l-6-4-6 4z" />,
     bell: <><path d="M6.5 16.5h11l-1.5-2V10a4 4 0 0 0-8 0v4.5z" /><path d="M10 19h4" /></>,
     lock: <><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
     leave: <><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></>,
@@ -115,9 +122,8 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   return <svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>;
 }
 
-export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 545, following: 256 }, posts: suppliedPosts = [], onBack, onOpenPost, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
+export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
-  const [following, setFollowing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("menu");
@@ -136,7 +142,30 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   const settingsCloseTimer = useRef<number | undefined>(undefined);
   const settingsPageCloseTimer = useRef<number | undefined>(undefined);
   const handledSettingsRequest = useRef(settingsOpenRequest);
+  const layoutSwipe = useRef({ active: false, startX: 0, startY: 0, latestX: 0, latestY: 0 });
   const isMine = variant === "mine";
+
+  function startLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isMine) return;
+    layoutSwipe.current = { active: true, startX: event.clientX, startY: event.clientY, latestX: event.clientX, latestY: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!layoutSwipe.current.active) return;
+    layoutSwipe.current.latestX = event.clientX;
+    layoutSwipe.current.latestY = event.clientY;
+  }
+
+  function finishLayoutSwipe() {
+    const swipe = layoutSwipe.current;
+    if (!swipe.active) return;
+    swipe.active = false;
+    const deltaX = swipe.latestX - swipe.startX;
+    const deltaY = Math.abs(swipe.latestY - swipe.startY);
+    if (Math.abs(deltaX) < 56 || Math.abs(deltaX) <= deltaY) return;
+    setLayout(deltaX < 0 ? "list" : "grid");
+  }
 
   function openSettings() {
     setSettingsClosing(false);
@@ -319,7 +348,10 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
           ? <span aria-hidden="true" />
           : <button type="button" aria-label="홈 피드로 돌아가기" onClick={onBack}><BackIcon /></button>}
         <strong>{username}</strong>
-        <button type="button" aria-label={isMine ? "마이 메뉴" : "프로필 더보기"} aria-expanded={isMine ? settingsOpen : undefined} onClick={isMine ? openSettings : undefined}>{isMine ? <MenuIcon /> : <MoreIcon />}</button>
+        <div className="my-header-actions">
+          {isMine && <button type="button" aria-label="북마크 피드" onClick={onOpenBookmarks}><BookmarkIcon /></button>}
+          <button type="button" aria-label={isMine ? "마이 메뉴" : "프로필 더보기"} aria-expanded={isMine ? settingsOpen : undefined} onClick={isMine ? openSettings : undefined}>{isMine ? <MenuIcon /> : <MoreIcon />}</button>
+        </div>
       </header>
 
       {isMine && settingsOpen && (
@@ -412,13 +444,16 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
         <strong className="my-display-name">{displayName}</strong>
         {isMine
           ? <button className="my-edit-button" type="button" onClick={openProfileEditor}>프로필 편집</button>
-          : <button className="my-follow-button" type="button" aria-pressed={following} onClick={() => setFollowing((value) => !value)}>{following ? "팔로잉" : "팔로우"}</button>}
+          : <div className="my-profile-actions">
+              <button className="my-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>
+              <button className="my-message-button" type="button" onClick={onMessage}>메시지</button>
+            </div>}
       </div>
 
       <dl className="my-stats" aria-label="프로필 통계">
-        <div><dt>기록</dt><dd>{suppliedPosts.length}</dd></div>
-        <div><dt>팔로워</dt><dd>{stats.followers}</dd></div>
-        <div><dt>팔로잉</dt><dd>{stats.following}</dd></div>
+        <div><dt>게시물</dt><dd>{suppliedPosts.length}</dd></div>
+        <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
+        <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
       </dl>
 
       <div className="my-layout-tabs" role="tablist" aria-label="게시물 보기 방식">
@@ -426,7 +461,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
         <button type="button" role="tab" aria-selected={layout === "list"} aria-label="목록으로 보기" onClick={() => setLayout("list")}><ListIcon /></button>
       </div>
 
-      <div className={`my-posts ${layout}`} aria-label="내 게시물">
+      <div className={`my-posts ${layout}`} aria-label="내 게시물" onPointerDown={startLayoutSwipe} onPointerMove={moveLayoutSwipe} onPointerUp={finishLayoutSwipe} onPointerCancel={finishLayoutSwipe}>
         {suppliedPosts.map((post, index) => (
           <article className="my-post" key={post.id}>
             <button className="my-post-open" type="button" aria-label={`${post.label} 게시물 보기`} onClick={() => onOpenPost?.(post.id)}>

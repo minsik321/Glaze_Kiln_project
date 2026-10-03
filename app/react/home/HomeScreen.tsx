@@ -9,6 +9,9 @@ type HomeScreenProps = {
   onOpenProfile: (userId: string) => void;
   onOpenPost: (postId: string) => void;
   onOpenSearch: () => void;
+  /** @deprecated Bookmarks now open from the My screen. */
+  onOpenBookmarks?: () => void;
+  onOpenFollowingFeed: () => void;
   onOpenNotifications: () => void;
 };
 
@@ -40,9 +43,16 @@ function SaleIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16l-1 4a3 3 0 0 1-3 2 3 3 0 0 1-2-.8 3 3 0 0 1-4 0 3 3 0 0 1-2 .8 3 3 0 0 1-3-2z" /><path d="M6 12v8h12v-8M9 20v-5h6v5" /></svg>;
 }
 
-export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenNotifications }: HomeScreenProps) {
+type FeedFilter = "all" | "recipe" | "sale";
+
+export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications }: HomeScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filter, setFilter] = useState<FeedFilter>("all");
+  const filteredPosts = posts.filter((post) => filter === "all"
+    || (filter === "recipe" && post.kind !== "sale")
+    || (filter === "sale" && post.kind === "sale"));
 
   return (
     <section className="home-screen" aria-label="홈 피드">
@@ -50,10 +60,20 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
         <div className="home-view-actions" aria-label="피드 보기 방식">
           <button type="button" aria-label="격자 보기" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><GridIcon /></button>
           <button type="button" aria-label="목록 보기" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><ListIcon /></button>
+          <div className="home-type-filters" role="group" aria-label="게시물 종류 필터">
+            <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>전체</button>
+            <button type="button" aria-pressed={filter === "recipe"} onClick={() => setFilter((current) => current === "recipe" ? "all" : "recipe")}>레시피</button>
+            <button type="button" aria-pressed={filter === "sale"} onClick={() => setFilter((current) => current === "sale" ? "all" : "sale")}>판매글</button>
+          </div>
         </div>
-        <div className="home-wordmark">
-          <svg className="home-wordmark-angle" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-          <strong>AICE Kiln</strong>
+        <div className="home-wordmark-wrap">
+          <button className={`home-wordmark${isFilterOpen ? " is-open" : ""}`} type="button" aria-label="홈 피드 필터" aria-expanded={isFilterOpen} onClick={() => setIsFilterOpen((open) => !open)}>
+            <svg className="home-wordmark-angle" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            <strong>AICE Kiln</strong>
+          </button>
+          {isFilterOpen && <div className="home-filter-menu" role="menu" aria-label="홈 피드 필터 선택">
+            <button type="button" role="menuitem" onClick={() => { setIsFilterOpen(false); onOpenFollowingFeed(); }}>팔로우</button>
+          </div>}
         </div>
         <div className="home-header-actions">
           <button type="button" aria-label="검색 열기" onClick={onOpenSearch}><SearchIcon /></button>
@@ -62,13 +82,13 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
       </header>
 
       <main className={`home-feed home-feed--${layout}`} data-layout={layout}>
-        {layout === "grid"
-          ? [posts.filter((_, index) => index % 2 === 0), posts.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
+        {filteredPosts.length === 0 ? <div className="home-filter-empty" role="status"><strong>표시할 게시물이 없어요</strong><p>다른 필터를 선택해 보세요.</p></div> : layout === "grid"
+          ? [filteredPosts.filter((_, index) => index % 2 === 0), filteredPosts.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
             <div className="home-feed-column" key={columnIndex}>
               {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}
             </div>
           ))
-          : <div className="home-feed-list">{posts.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}</div>}
+          : <div className="home-feed-list">{filteredPosts.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}</div>}
       </main>
 
       {isCreateMenuOpen && <button className="home-create-backdrop" type="button" aria-label="게시 메뉴 바깥 영역 닫기" onClick={() => setIsCreateMenuOpen(false)} />}
@@ -106,7 +126,7 @@ function formatPrice(post: FeedPost) {
   return post.priceNegotiable ? "가격 협의" : "";
 }
 
-function FeedCard({ post, layout, onOpenProfile, onOpenPost }: { post: FeedPost; layout: "grid" | "list"; onOpenProfile: (userId: string) => void; onOpenPost: (postId: string) => void }) {
+export function FeedCard({ post, layout, onOpenProfile, onOpenPost }: { post: FeedPost; layout: "grid" | "list"; onOpenProfile: (userId: string) => void; onOpenPost: (postId: string) => void }) {
   const user = findFeedUser(post.userId);
   const isSale = post.kind === "sale";
   return (
@@ -118,12 +138,14 @@ function FeedCard({ post, layout, onOpenProfile, onOpenPost }: { post: FeedPost;
       <button className="home-post-open" type="button" aria-label={`${post.glazeName} 게시물 보기`} onClick={() => onOpenPost(post.id)}>
         {layout === "grid"
         ? <><img className={`home-feed-photo ${post.size} crop-${post.crop}`} src={post.image} alt={post.label} loading="lazy" />
-            {isSale && <div className="home-sale-summary"><span>판매</span><strong>{post.glazeName}</strong><b>{formatPrice(post)}</b>{post.priceNegotiable && post.price && <small>가격 협의 가능</small>}</div>}
+            {isSale
+              ? <div className="home-sale-summary"><span>판매</span><strong>{post.glazeName}</strong><b>{formatPrice(post)}</b><small>{post.saleDetails?.location} · {post.publishedAt}</small>{post.priceNegotiable && post.price && <em>가격 협의 가능</em>}</div>
+              : <div className="home-work-summary"><strong>{post.glazeName}</strong><small>{post.firing} · {post.cone}</small></div>}
           </>
         : <div className="home-list-content">
             <div className="home-list-copy">
               <h2>{post.glazeName}</h2>
-              {isSale ? <><p className="home-sale-price">{formatPrice(post)}</p><small>{post.priceNegotiable ? "가격 협의 가능" : "기물 판매"}</small></> : <><p>{post.firing} · {post.cone}</p><small>{post.finish}</small></>}
+              {isSale ? <><p className="home-sale-price">{formatPrice(post)}</p><small>{post.saleDetails?.location} · {post.publishedAt}{post.priceNegotiable ? " · 가격 협의 가능" : ""}</small></> : <><p>{post.firing} · {post.cone}</p><small>{post.finish}</small></>}
             </div>
             <img className={`home-list-thumbnail crop-${post.crop}`} src={post.image} alt={post.label} loading="lazy" />
           </div>}

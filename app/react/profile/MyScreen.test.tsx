@@ -7,11 +7,11 @@ afterEach(cleanup);
 
 describe("MyScreen", () => {
   it("shows the profile, stats, and the user's posts", () => {
-    render(<MyScreen username="Chloe.jung" displayName="가마쟁이" posts={YEJIN_DEMO_POSTS} />);
+    render(<MyScreen username="Chloe.jung" displayName="가마쟁이" posts={YEJIN_DEMO_POSTS} stats={{ records: 7, followers: 5, following: 2 }} />);
 
     expect(screen.getByText("Chloe.jung")).toBeTruthy();
     expect(screen.getByText("가마쟁이")).toBeTruthy();
-    expect(screen.getByText("545")).toBeTruthy();
+    expect(screen.getByText("5")).toBeTruthy();
     expect(screen.getByText("7")).toBeTruthy();
     expect(screen.getByLabelText("내 게시물").children).toHaveLength(7);
     expect(screen.getAllByRole("img")).toHaveLength(7);
@@ -20,7 +20,7 @@ describe("MyScreen", () => {
   it("shows an empty state for a new account", () => {
     render(<MyScreen username="new-user" posts={[]} />);
 
-    expect(screen.getByText("0")).toBeTruthy();
+    expect(screen.getAllByText("0")).toHaveLength(3);
     expect(screen.getByText("아직 작업 기록이 없습니다.")).toBeTruthy();
   });
 
@@ -33,14 +33,32 @@ describe("MyScreen", () => {
     expect(screen.getByRole("dialog", { name: "프로필 편집" })).toBeTruthy();
   });
 
+  it("switches another profile between grid and list with horizontal swipes", () => {
+    render(<MyScreen variant="other" posts={YEJIN_DEMO_POSTS} />);
+    const posts = screen.getByLabelText("내 게시물");
+    fireEvent.pointerDown(posts, { pointerId: 1, clientX: 240, clientY: 300 });
+    fireEvent.pointerMove(posts, { pointerId: 1, clientX: 130, clientY: 304 });
+    fireEvent.pointerUp(posts, { pointerId: 1, clientX: 130, clientY: 304 });
+    expect(screen.getByRole("tab", { name: "목록으로 보기" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.pointerDown(posts, { pointerId: 2, clientX: 100, clientY: 300 });
+    fireEvent.pointerMove(posts, { pointerId: 2, clientX: 210, clientY: 304 });
+    fireEvent.pointerUp(posts, { pointerId: 2, clientX: 210, clientY: 304 });
+    expect(screen.getByRole("tab", { name: "격자로 보기" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("게시물")).toBeTruthy();
+  });
+
   it("renders another user's profile with back and follow actions", () => {
     const onBack = vi.fn();
-    render(<MyScreen variant="other" username="Chloe.jung" onBack={onBack} />);
+    const onMessage = vi.fn();
+    const onToggleFollow = vi.fn();
+    render(<MyScreen variant="other" username="Chloe.jung" onBack={onBack} onMessage={onMessage} onToggleFollow={onToggleFollow} />);
 
     expect(screen.queryByRole("button", { name: "프로필 편집" })).toBeNull();
     const follow = screen.getByRole("button", { name: "팔로우" });
     fireEvent.click(follow);
-    expect(screen.getByRole("button", { name: "팔로잉" }).getAttribute("aria-pressed")).toBe("true");
+    expect(onToggleFollow).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "메시지" }));
+    expect(onMessage).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "홈 피드로 돌아가기" }));
     expect(onBack).toHaveBeenCalledOnce();
   });
@@ -56,7 +74,7 @@ describe("MyScreen", () => {
     expect(onSettingsOpenChange).toHaveBeenCalledWith(true);
     expect(menuButton.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("dialog", { name: "설정" })).toBeTruthy();
-    for (const label of ["계정 설정", "가마 설정", "북마크 관리", "알림 설정", "계정 공개 범위", "회원탈퇴", "도움말", "로그아웃", "앱 정보"]) {
+    for (const label of ["계정 설정", "가마 설정", "알림 설정", "계정 공개 범위", "회원탈퇴", "도움말", "로그아웃", "앱 정보"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
     }
     expect(Array.from(screen.getByRole("navigation", { name: "마이 설정" }).querySelectorAll("button"), (button) => button.textContent)).toEqual([
@@ -64,7 +82,6 @@ describe("MyScreen", () => {
       "계정 공개 범위",
       "알림 설정",
       "가마 설정",
-      "북마크 관리",
       "도움말",
       "앱 정보",
       "로그아웃",

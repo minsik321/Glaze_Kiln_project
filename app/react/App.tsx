@@ -10,7 +10,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { HomeScreen } from "./home/HomeScreen";
 import { CreatePostScreen, type CreatePostDraft, type CreatePostKind } from "./home/CreatePostScreen";
 import { NotificationScreen } from "./home/NotificationScreen";
-import { FEED_POSTS, findFeedPost, findFeedUser, postsForAccount, postsForUser, type FeedPost } from "./home/feedData";
+import { FEED_POSTS, FEED_USERS, dummyFollowerIds, dummyFollowingIds, findFeedPost, findFeedUser, postsForAccount, postsForUser, type FeedPost, type FeedUser } from "./home/feedData";
 import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
@@ -18,9 +18,14 @@ import { requireSupabase } from "./lib/supabase";
 import { aiceRunsApi } from "./lib/api";
 import { feedPostToWorkRecord, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
+import { ChatListScreen, ConversationScreen } from "./chat/ChatScreen";
+import { loadChatThreads, saveChatThreads, type ChatMessage, type ChatThread } from "./chat/chatStore";
+import { ConnectionsScreen, type ConnectionTab } from "./profile/ConnectionsScreen";
+import { SearchScreen } from "./home/SearchScreen";
+import { FeedCollectionScreen } from "./home/FeedCollectionScreen";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
-type AppView = "work" | "records" | "chat" | "my" | "profile" | "post" | "notifications";
+type AppView = "work" | "followingFeed" | "bookmarks" | "records" | "chat" | "conversation" | "my" | "profile" | "connections" | "post" | "notifications";
 type SettingsDetail = "account" | "kiln";
 type EntryPhase = "splash" | "onboarding" | "login" | "signup" | "app";
 const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
@@ -32,6 +37,21 @@ function NavIcon({ children }: { children: ReactNode }) {
     </svg>
   );
 }
+
+const DEMO_POST_COMMENTS: Record<string, PostComment[]> = {
+  "chloe-1": [
+    { id: "comment-chloe-1-a", body: "청록 결정이 정말 선명하네요. 냉각 구간을 어떻게 잡으셨는지 궁금해요!", displayName: "미라의 흙방", username: "mira.ceramic", avatarUrl: "", createdAt: "2일 전" },
+    { id: "comment-chloe-1-b", body: "가장자리의 흐름이 멋져요. 다음 테스트도 기대할게요.", displayName: "도훈 소성실", username: "dohoon.kiln", avatarUrl: "", createdAt: "1일 전" },
+  ],
+  "sale-moon-jar": [
+    { id: "comment-sale-moon-a", body: "실물 색감도 사진처럼 푸른 기가 도나요?", displayName: "세나유약", username: "sena.glaze", avatarUrl: "", createdAt: "18분 전" },
+  ],
+  "sori-2": [
+    { id: "comment-sori-2-a", body: "빙렬이 고르게 나와서 정말 예뻐요.", displayName: "해은도예", username: "haeun.pottery", avatarUrl: "", createdAt: "3일 전" },
+    { id: "comment-sori-2-b", body: "청자토와 유약 조합 참고하고 싶어요!", displayName: "채의 그릇", username: "chae.pot", avatarUrl: "", createdAt: "2일 전" },
+    { id: "comment-sori-2-c", body: "차분한 색감이 기물 형태와 잘 어울립니다.", displayName: "준 클레이랩", username: "jun.claylab", avatarUrl: "", createdAt: "1일 전" },
+  ],
+};
 
 function draftToFeedPost(draft: CreatePostDraft): FeedPost {
   return {
@@ -66,6 +86,10 @@ export function App() {
   const [searchClosing, setSearchClosing] = useState(false);
   const [createPostKind, setCreatePostKind] = useState<CreatePostKind | null>(null);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
+  const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
+  const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
+  const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
+  const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
   const [workflowDragX, setWorkflowDragX] = useState(0);
@@ -78,9 +102,13 @@ export function App() {
   const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
   const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
+  const [connectionsOwnerId, setConnectionsOwnerId] = useState("self");
+  const [connectionsInitialTab, setConnectionsInitialTab] = useState<ConnectionTab>("followers");
   const [selectedPostId, setSelectedPostId] = useState("chloe-1");
-  const [postReturnView, setPostReturnView] = useState<"work" | "my" | "profile">("work");
-  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
+  const [postReturnView, setPostReturnView] = useState<"work" | "followingFeed" | "bookmarks" | "my" | "profile">("work");
+  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>(DEMO_POST_COMMENTS);
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>(loadChatThreads);
+  const [activeChatUserId, setActiveChatUserId] = useState<string>();
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
   const [recordEntryOrigin, setRecordEntryOrigin] = useState<WorkRecordOrigin>();
   const [recordDetailOpen, setRecordDetailOpen] = useState(false);
@@ -112,6 +140,8 @@ export function App() {
   }, [session?.user.id]);
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
+
+  useEffect(() => saveChatThreads(chatThreads), [chatThreads]);
 
   useEffect(() => {
     if (entryPhase !== "splash") return;
@@ -174,13 +204,68 @@ export function App() {
     ?? session?.user.user_metadata.nickname
     ?? "가마쟁이";
   const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
-  const feedPosts = [...createdPosts, ...FEED_POSTS];
-  const myPosts = [...createdPosts, ...postsForAccount(session?.user.email)];
-  const selectedProfile = findFeedUser(selectedProfileId);
-  const selectedPost = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
+  const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
+  const feedPosts = applyPostState([...createdPosts, ...FEED_POSTS]);
+  const followingFeedPosts = feedPosts.filter((post) => followedUserIds.has(post.userId));
+  const bookmarkedPosts = feedPosts.filter((post) => bookmarkedPostIds.has(post.id));
+  const myPosts = applyPostState([...createdPosts, ...postsForAccount(session?.user.email)]);
+  const selectedProfileBase = findFeedUser(selectedProfileId);
+  const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
+  const selectedPostBase = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
+  const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
+  const selfUser: FeedUser = { id: "self", username, displayName, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
   const selectedPostUser = selectedPost.userId === "self"
-    ? { id: "self", username, displayName, avatarTone: 1, stats: { records: myPosts.length, followers: 545, following: 256 } }
+    ? selfUser
     : findFeedUser(selectedPost.userId);
+  const activeChat = chatThreads.find((thread) => thread.userId === activeChatUserId);
+
+  function openConversation(user: { id: string; username: string; displayName: string; avatarTone: number }) {
+    const openedAt = new Date().toISOString();
+    setChatThreads((current) => current.some((thread) => thread.userId === user.id)
+      ? current
+      : [{ userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: openedAt, messages: [] }, ...current]);
+    setActiveChatUserId(user.id);
+    setView("conversation");
+  }
+
+  function sendChatMessage(message: ChatMessage) {
+    setChatThreads((current) => current.map((thread) => thread.userId === activeChatUserId
+      ? { ...thread, updatedAt: message.sentAt, messages: [...thread.messages, message] }
+      : thread));
+  }
+
+  function toggleFollow(userId: string) {
+    if (userId === "self") return;
+    setFollowedUserIds((current) => {
+      const next = new Set(current);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+
+  function toggleBookmark(postId: string) {
+    setBookmarkedPostIds((current) => {
+      const next = new Set(current);
+      if (next.has(postId)) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+  }
+
+  function openConnections(ownerId: string, tab: ConnectionTab) {
+    setConnectionsOwnerId(ownerId);
+    setConnectionsInitialTab(tab);
+    setView("connections");
+  }
+
+  const connectionsOwner = connectionsOwnerId === "self" ? selfUser : findFeedUser(connectionsOwnerId);
+  const connectionFollowers = connectionsOwnerId === "self"
+    ? []
+    : [...dummyFollowerIds(connectionsOwnerId).map(findFeedUser), ...(followedUserIds.has(connectionsOwnerId) ? [selfUser] : [])];
+  const connectionFollowing = connectionsOwnerId === "self"
+    ? [...followedUserIds].map(findFeedUser)
+    : dummyFollowingIds(connectionsOwnerId).map(findFeedUser);
 
   function changeNavigation(next: typeof navigation[number]["id"]) {
     setShowSearch(false);
@@ -271,7 +356,7 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={createPostKind || showSearch || showWorkflow || recordDetailOpen || view === "profile" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={createPostKind || showSearch || showWorkflow || recordDetailOpen || view === "followingFeed" || view === "bookmarks" || view === "profile" || view === "connections" || view === "conversation" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen
             posts={feedPosts}
@@ -280,6 +365,7 @@ export function App() {
             onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
             onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
+            onOpenFollowingFeed={() => setView("followingFeed")}
             onOpenNotifications={() => setView("notifications")}
           />
           {showWorkflow && (
@@ -310,11 +396,18 @@ export function App() {
                   setRestoredRun(undefined);
                   setRecordEntryOrigin(undefined);
                   setResumeStep(undefined);
-                  setView("work");
+                  setRecordDetailOpen(false);
+                  setView("records");
                 }} onBackHome={closeWorkflow} />
               </div>
             </div>
           )}
+        </section>
+        <section className="app-view" hidden={view !== "followingFeed"}>
+          {view === "followingFeed" && <FeedCollectionScreen title="팔로우 피드" posts={followingFeedPosts} emptyTitle="팔로우한 작가의 게시물이 없어요" emptyDescription="관심 있는 작가를 팔로우하면 새 게시물이 여기에 모여요." onBack={() => setView("work")} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("followingFeed"); setView("post"); }} />}
+        </section>
+        <section className="app-view" hidden={view !== "bookmarks"}>
+          {view === "bookmarks" && <FeedCollectionScreen title="북마크" posts={bookmarkedPosts} emptyTitle="저장한 게시물이 없어요" emptyDescription="게시물 상세에서 북마크를 누르면 이곳에 모아볼 수 있어요." onBack={() => setView("work")} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("bookmarks"); setView("post"); }} />}
         </section>
         {createPostKind && (
           <CreatePostScreen
@@ -328,25 +421,17 @@ export function App() {
           />
         )}
         {showSearch && (
-          <section
-            className={`search-slide-panel${searchClosing ? " is-closing" : ""}`}
-            aria-label="검색 화면"
+          <SearchScreen
+            posts={feedPosts}
+            closing={searchClosing}
+            onBack={closeSearch}
+            onOpenPost={(postId) => { setShowSearch(false); setSearchClosing(false); setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
             onAnimationEnd={(event) => {
               if (event.currentTarget !== event.target || !searchClosing) return;
               setShowSearch(false);
               setSearchClosing(false);
             }}
-          >
-            <div className="search-toolbar">
-              <button className="search-back" type="button" aria-label="홈으로 돌아가기" onClick={closeSearch}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
-              </button>
-              <div className="search-input-wrap">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg>
-                <input type="search" aria-label="검색" placeholder="검색" />
-              </div>
-            </div>
-          </section>
+          />
         )}
         <section className="app-view app-utility-view" hidden={view !== "records"}>
           {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onStart={(run, origin) => {
@@ -360,13 +445,11 @@ export function App() {
             setShowWorkflow(true);
           }} /></Suspense>}
         </section>
-        <section className="app-view app-utility-view chat-screen" hidden={view !== "chat"} aria-label="채팅">
-          <header className="chat-header"><h1>채팅</h1></header>
-          <div className="chat-empty">
-            <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4z" /><path d="M8 10h8M8 13h5" /></svg></span>
-            <strong>아직 대화가 없어요</strong>
-            <p>새로운 대화가 시작되면 여기에 표시됩니다.</p>
-          </div>
+        <section className="app-view app-utility-view" hidden={view !== "chat"}>
+          <ChatListScreen threads={chatThreads} onOpen={(userId) => { setActiveChatUserId(userId); setView("conversation"); }} />
+        </section>
+        <section className="app-view" hidden={view !== "conversation"}>
+          {activeChat && <ConversationScreen thread={activeChat} onBack={() => setView("chat")} onSend={sendChatMessage} />}
         </section>
         <section className="app-view" hidden={view !== "my"}>
           <MyScreen
@@ -375,7 +458,9 @@ export function App() {
             avatarUrl={avatarUrl}
             posts={myPosts}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("my"); setView("post"); }}
-            stats={{ records: myPosts.length, followers: 545, following: 256 }}
+            onOpenBookmarks={() => setView("bookmarks")}
+            stats={{ records: myPosts.length, followers: 0, following: followedUserIds.size }}
+            onOpenConnections={(tab) => openConnections("self", tab)}
             onOpenAccountSettings={() => openSettingsDetail("account")}
             onOpenKilnSettings={() => openSettingsDetail("kiln")}
             onSaveProfile={async ({ nickname, avatarUrl: nextAvatarUrl }) => {
@@ -423,7 +508,20 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={postsForUser(selectedProfile.id)} onBack={() => setView("work")} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState(postsForUser(selectedProfile.id))} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+        </section>
+        <section className="app-view" hidden={view !== "connections"}>
+          {view === "connections" && <ConnectionsScreen
+            key={`${connectionsOwnerId}-${connectionsInitialTab}`}
+            ownerName={connectionsOwner.displayName}
+            initialTab={connectionsInitialTab}
+            followers={connectionFollowers}
+            following={connectionFollowing}
+            viewerFollowingIds={followedUserIds}
+            onBack={() => setView(connectionsOwnerId === "self" ? "my" : "profile")}
+            onOpenProfile={(userId) => { if (userId === "self") setView("my"); else { setSelectedProfileId(userId); setView("profile"); } }}
+            onToggleFollow={toggleFollow}
+          />}
         </section>
         <section className="app-view" hidden={view !== "post"}>
           <PostDetailScreen
@@ -433,6 +531,12 @@ export function App() {
             viewer={{ displayName, username, avatarUrl }}
             comments={postComments[selectedPost.id] ?? []}
             isOwnPost={selectedPost.userId === "self"}
+            isFollowing={followedUserIds.has(selectedPostUser.id)}
+            isSaved={bookmarkedPostIds.has(selectedPost.id)}
+            onToggleFollow={() => toggleFollow(selectedPostUser.id)}
+            onToggleSaved={() => toggleBookmark(selectedPost.id)}
+            onEdit={(changes) => setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, ...changes } }))}
+            onDelete={() => { setDeletedPostIds((current) => new Set(current).add(selectedPost.id)); setView(postReturnView); }}
             onImportRecipe={selectedPost.userId === "self" ? undefined : async () => {
               if (!session) throw new Error("로그인이 필요합니다.");
               const imported = feedPostToWorkRecord(selectedPost, selectedPostUser);
@@ -446,7 +550,7 @@ export function App() {
               ],
             }))}
             onBack={() => setView(postReturnView)}
-            onStartChat={() => setView("chat")}
+            onStartChat={() => openConversation(selectedPostUser)}
             onOpenProfile={(userId) => {
               if (selectedPost.userId === "self") setView("my");
               else { setSelectedProfileId(userId); setView("profile"); }

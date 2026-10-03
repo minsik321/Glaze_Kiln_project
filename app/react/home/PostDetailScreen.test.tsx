@@ -49,7 +49,9 @@ describe("PostDetailScreen", () => {
     const user = findFeedUser(post.userId);
     const onBack = vi.fn();
     const onOpenProfile = vi.fn();
-    render(<PostDetailScreen post={post} user={user} viewer={viewer} comments={[]} onAddComment={vi.fn()} onBack={onBack} onOpenProfile={onOpenProfile} />);
+    const onToggleFollow = vi.fn();
+    const onToggleSaved = vi.fn();
+    render(<PostDetailScreen post={post} user={user} viewer={viewer} comments={[]} onAddComment={vi.fn()} onBack={onBack} onOpenProfile={onOpenProfile} onToggleFollow={onToggleFollow} onToggleSaved={onToggleSaved} />);
 
     fireEvent.click(screen.getByRole("button", { name: "홈 피드로 돌아가기" }));
     expect(onBack).toHaveBeenCalledTimes(1);
@@ -58,21 +60,32 @@ describe("PostDetailScreen", () => {
 
     const follow = screen.getByRole("button", { name: "팔로우" });
     fireEvent.click(follow);
-    expect(screen.getByRole("button", { name: "팔로잉" }).getAttribute("aria-pressed")).toBe("true");
+    expect(onToggleFollow).toHaveBeenCalledOnce();
 
     const save = screen.getByRole("button", { name: "게시물 저장" });
     fireEvent.click(save);
-    expect(screen.getByRole("button", { name: "게시물 저장 취소" }).getAttribute("aria-pressed")).toBe("true");
+    expect(onToggleSaved).toHaveBeenCalledOnce();
   });
 
-  it("shows edit and delete instead of follow for the viewer's own post", () => {
+  it("edits and asks before deleting the viewer's own post", () => {
     const post = FEED_POSTS[0];
-    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} isOwnPost onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} isOwnPost onEdit={onEdit} onDelete={onDelete} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: "팔로우" })).toBeNull();
     expect(screen.getByRole("button", { name: "공유" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "수정" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "삭제" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    const editDialog = screen.getByRole("dialog", { name: "게시물 수정" });
+    fireEvent.change(within(editDialog).getByLabelText("유약 이름"), { target: { value: "수정한 유약" } });
+    fireEvent.click(within(editDialog).getByRole("button", { name: "저장" }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ glazeName: "수정한 유약" }));
+    expect(screen.getByRole("alertdialog", { name: "수정되었습니다." })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    const deleteDialog = screen.getByRole("alertdialog", { name: "삭제하시겠습니까?" });
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "삭제" }));
+    expect(onDelete).toHaveBeenCalledOnce();
   });
 
   it("adds a comment with the current profile and nickname", () => {

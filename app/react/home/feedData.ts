@@ -27,31 +27,72 @@ export type FeedPost = {
   kind?: "work" | "sale";
   price?: number | null;
   priceNegotiable?: boolean;
+  saleDetails?: {
+    condition: string;
+    dimensions: string;
+    location: string;
+    delivery: string;
+  };
 };
 
 const FEED_POST_COUNT = 3;
 
+export const DUMMY_FOLLOWING: Readonly<Record<string, readonly string[]>> = {
+  chloe: ["mira", "sena", "jun"],
+  mira: ["sori", "haeun", "noa", "chae"],
+  dohoon: ["chloe", "mira"],
+  sena: ["mira", "jun", "yuna", "arin", "dami"],
+  jun: ["dohoon", "haneul", "jiho"],
+  haeun: ["sori", "tae", "boram", "chae"],
+  noa: ["chloe", "sena", "leo"],
+  yeon: ["dohoon", "jun", "haneul", "ian", "minu"],
+  sori: ["mira", "haeun"],
+  tae: ["chloe", "yeon", "sori", "yuna"],
+  yuna: ["sena", "noa", "chae"],
+  haneul: ["jun", "yeon", "jiho", "arin"],
+  jiho: ["dohoon", "haneul", "ian"],
+  boram: ["haeun", "sori"],
+  ian: ["chloe", "jun", "yeon", "minu", "leo"],
+  chae: ["mira", "sena", "yuna", "dami"],
+  minu: ["dohoon", "jiho", "ian"],
+  arin: ["sena", "haneul", "leo", "dami"],
+  leo: ["noa", "ian"],
+  dami: ["mira", "boram", "chae"],
+};
+
+export function dummyFollowingIds(userId: string) {
+  return DUMMY_FOLLOWING[userId] ?? [];
+}
+
+export function dummyFollowerIds(userId: string) {
+  return Object.entries(DUMMY_FOLLOWING).filter(([, ids]) => ids.includes(userId)).map(([id]) => id);
+}
+
+function dummyStats(userId: string) {
+  return { records: FEED_POST_COUNT, followers: dummyFollowerIds(userId).length, following: dummyFollowingIds(userId).length };
+}
+
 export const FEED_USERS: readonly FeedUser[] = [
-  { id: "chloe", username: "chloe.jung", displayName: "가마쟁이", avatarTone: 1, stats: { records: FEED_POST_COUNT, followers: 545, following: 256 } },
-  { id: "mira", username: "mira.ceramic", displayName: "미라의 흙방", avatarTone: 2, stats: { records: FEED_POST_COUNT, followers: 812, following: 193 } },
-  { id: "dohoon", username: "dohoon.kiln", displayName: "도훈 소성실", avatarTone: 3, stats: { records: FEED_POST_COUNT, followers: 397, following: 128 } },
-  { id: "sena", username: "sena.glaze", displayName: "세나유약", avatarTone: 4, stats: { records: FEED_POST_COUNT, followers: 621, following: 344 } },
-  { id: "jun", username: "jun.claylab", displayName: "준 클레이랩", avatarTone: 5, stats: { records: FEED_POST_COUNT, followers: 1094, following: 287 } },
-  { id: "haeun", username: "haeun.pottery", displayName: "해은도예", avatarTone: 6, stats: { records: FEED_POST_COUNT, followers: 284, following: 96 } },
-  { id: "noa", username: "noa.studio", displayName: "노아 스튜디오", avatarTone: 7, stats: { records: FEED_POST_COUNT, followers: 733, following: 215 } },
-  { id: "yeon", username: "yeon.fire", displayName: "연의 불기록", avatarTone: 8, stats: { records: FEED_POST_COUNT, followers: 468, following: 178 } },
-  { id: "sori", username: "sori.celadon", displayName: "소리청자", avatarTone: 9, stats: { records: FEED_POST_COUNT, followers: 925, following: 301 } },
-  { id: "tae", username: "tae.works", displayName: "태 작업실", avatarTone: 10, stats: { records: FEED_POST_COUNT, followers: 352, following: 147 } },
-  { id: "yuna", username: "yuna.ceramics", displayName: "유나 세라믹스", avatarTone: 11, stats: { records: FEED_POST_COUNT, followers: 689, following: 234 } },
-  { id: "haneul", username: "haneul.glaze", displayName: "하늘빛 유약", avatarTone: 12, stats: { records: FEED_POST_COUNT, followers: 574, following: 206 } },
-  { id: "jiho", username: "jiho.kilnlog", displayName: "지호 가마일지", avatarTone: 13, stats: { records: FEED_POST_COUNT, followers: 846, following: 319 } },
-  { id: "boram", username: "boram.clay", displayName: "보람의 흙", avatarTone: 14, stats: { records: FEED_POST_COUNT, followers: 239, following: 88 } },
-  { id: "ian", username: "ian.stoneware", displayName: "이안 스톤웨어", avatarTone: 15, stats: { records: FEED_POST_COUNT, followers: 1218, following: 402 } },
-  { id: "chae", username: "chae.pot", displayName: "채의 그릇", avatarTone: 16, stats: { records: FEED_POST_COUNT, followers: 653, following: 221 } },
-  { id: "minu", username: "minu.oxide", displayName: "민우 산화물", avatarTone: 17, stats: { records: FEED_POST_COUNT, followers: 491, following: 164 } },
-  { id: "arin", username: "arin.firebox", displayName: "아린 파이어박스", avatarTone: 18, stats: { records: FEED_POST_COUNT, followers: 778, following: 275 } },
-  { id: "leo", username: "leo.glazebook", displayName: "레오 유약책", avatarTone: 19, stats: { records: FEED_POST_COUNT, followers: 416, following: 139 } },
-  { id: "dami", username: "dami.mud", displayName: "다미의 진흙", avatarTone: 20, stats: { records: FEED_POST_COUNT, followers: 704, following: 248 } },
+  { id: "chloe", username: "chloe.jung", displayName: "가마쟁이", avatarTone: 1, stats: dummyStats("chloe") },
+  { id: "mira", username: "mira.ceramic", displayName: "미라의 흙방", avatarTone: 2, stats: dummyStats("mira") },
+  { id: "dohoon", username: "dohoon.kiln", displayName: "도훈 소성실", avatarTone: 3, stats: dummyStats("dohoon") },
+  { id: "sena", username: "sena.glaze", displayName: "세나유약", avatarTone: 4, stats: dummyStats("sena") },
+  { id: "jun", username: "jun.claylab", displayName: "준 클레이랩", avatarTone: 5, stats: dummyStats("jun") },
+  { id: "haeun", username: "haeun.pottery", displayName: "해은도예", avatarTone: 6, stats: dummyStats("haeun") },
+  { id: "noa", username: "noa.studio", displayName: "노아 스튜디오", avatarTone: 7, stats: dummyStats("noa") },
+  { id: "yeon", username: "yeon.fire", displayName: "연의 불기록", avatarTone: 8, stats: dummyStats("yeon") },
+  { id: "sori", username: "sori.celadon", displayName: "소리청자", avatarTone: 9, stats: dummyStats("sori") },
+  { id: "tae", username: "tae.works", displayName: "태 작업실", avatarTone: 10, stats: dummyStats("tae") },
+  { id: "yuna", username: "yuna.ceramics", displayName: "유나 세라믹스", avatarTone: 11, stats: dummyStats("yuna") },
+  { id: "haneul", username: "haneul.glaze", displayName: "하늘빛 유약", avatarTone: 12, stats: dummyStats("haneul") },
+  { id: "jiho", username: "jiho.kilnlog", displayName: "지호 가마일지", avatarTone: 13, stats: dummyStats("jiho") },
+  { id: "boram", username: "boram.clay", displayName: "보람의 흙", avatarTone: 14, stats: dummyStats("boram") },
+  { id: "ian", username: "ian.stoneware", displayName: "이안 스톤웨어", avatarTone: 15, stats: dummyStats("ian") },
+  { id: "chae", username: "chae.pot", displayName: "채의 그릇", avatarTone: 16, stats: dummyStats("chae") },
+  { id: "minu", username: "minu.oxide", displayName: "민우 산화물", avatarTone: 17, stats: dummyStats("minu") },
+  { id: "arin", username: "arin.firebox", displayName: "아린 파이어박스", avatarTone: 18, stats: dummyStats("arin") },
+  { id: "leo", username: "leo.glazebook", displayName: "레오 유약책", avatarTone: 19, stats: dummyStats("leo") },
+  { id: "dami", username: "dami.mud", displayName: "다미의 진흙", avatarTone: 20, stats: dummyStats("dami") },
 ] as const;
 
 const textures = [
@@ -90,7 +131,7 @@ function firingCurve(peak: number, hold: number) {
 
 const sizes = ["medium", "tall", "short"] as const;
 
-export const FEED_POSTS: readonly FeedPost[] = FEED_USERS.flatMap((user, userIndex) =>
+const WORK_POSTS: readonly FeedPost[] = FEED_USERS.flatMap((user, userIndex) =>
   Array.from({ length: FEED_POST_COUNT }, (_, postIndex) => {
     const textureIndex = (userIndex * 3 + postIndex) % textures.length;
     const detail = postDetails[textureIndex];
@@ -116,7 +157,109 @@ export const FEED_POSTS: readonly FeedPost[] = FEED_USERS.flatMap((user, userInd
   }),
 );
 
-export const YEJIN_DEMO_POSTS: readonly FeedPost[] = FEED_POSTS.slice(0, 7).map((post, index) => ({
+export const SALE_POSTS: readonly FeedPost[] = [
+  {
+    id: "sale-moon-jar",
+    userId: "mira",
+    image: "/sale-pottery/moon-jar.webp",
+    label: "햇살 아래 놓인 푸른 빙렬 백자 달항아리",
+    size: "tall",
+    crop: 1,
+    glazeName: "푸른 빙렬 백자 달항아리",
+    firing: "환원 소성",
+    cone: "Cone 9",
+    finish: "유광 · 옅은 빙렬",
+    clayBody: "백자토",
+    application: "담금 시유",
+    recipe: [],
+    colorants: [],
+    curve: [],
+    memo: "직접 물레 성형해 만든 백자 달항아리입니다. 자연스럽게 흐르는 푸른 빙렬과 손맛이 느껴지는 비대칭 형태가 매력적이에요. 전시용으로만 사용해 물을 담은 적은 없으며, 깨짐이나 이 빠짐 없이 상태가 좋습니다. 공간에 포인트가 되는 넉넉한 크기예요.",
+    publishedAt: "방금 전",
+    kind: "sale",
+    price: 128000,
+    priceNegotiable: true,
+    saleDetails: { condition: "거의 새 상품", dimensions: "지름 24 · 높이 27 cm", location: "서울 성수동", delivery: "직거래 · 안전 포장 택배" },
+  },
+  {
+    id: "sale-celadon-cups",
+    userId: "sori",
+    image: "/sale-pottery/celadon-cup-set.webp",
+    label: "월넛 트레이 위 청자 구름 찻잔 2인 세트",
+    size: "medium",
+    crop: 2,
+    glazeName: "청자 구름 찻잔 2인 세트",
+    firing: "환원 소성",
+    cone: "Cone 10",
+    finish: "유광 · 음각 문양",
+    clayBody: "청자토",
+    application: "담금 시유",
+    recipe: [],
+    colorants: [],
+    curve: [],
+    memo: "은은한 비색이 예쁜 수제 청자 찻잔 두 점 세트입니다. 구름 문양을 손으로 얕게 새겼고 입술이 편안하게 닿도록 얇게 다듬었습니다. 촬영과 전시만 한 미사용 제품이며 두 잔의 색감과 크기가 자연스럽게 어우러져 선물용으로도 좋아요.",
+    publishedAt: "35분 전",
+    kind: "sale",
+    price: 62000,
+    priceNegotiable: false,
+    saleDetails: { condition: "미사용", dimensions: "각 지름 9 · 높이 6 cm", location: "경기 이천시", delivery: "택배 가능 · 배송비 별도" },
+  },
+  {
+    id: "sale-speckled-vase",
+    userId: "haeun",
+    image: "/sale-pottery/speckled-vase.webp",
+    label: "흰 들꽃을 꽂은 철점 웨이브 화병",
+    size: "tall",
+    crop: 3,
+    glazeName: "철점 웨이브 롱 화병",
+    firing: "산화 소성",
+    cone: "Cone 6",
+    finish: "무광 · 철점",
+    clayBody: "샌드 베이지 석기토",
+    application: "분무 시유",
+    recipe: [],
+    colorants: [],
+    curve: [],
+    memo: "입구의 물결 모양을 한 장씩 손으로 빚은 하나뿐인 화병입니다. 작은 들꽃이나 긴 가지 한두 송이를 꽂았을 때 형태가 가장 잘 살아나요. 바닥에 사용 흔적이 아주 조금 있지만 유약면과 내부는 깨끗하고 누수도 없습니다.",
+    publishedAt: "2시간 전",
+    kind: "sale",
+    price: 48000,
+    priceNegotiable: true,
+    saleDetails: { condition: "상태 좋음", dimensions: "폭 10 · 높이 28 cm", location: "서울 연남동", delivery: "직거래 선호 · 택배 가능" },
+  },
+  {
+    id: "sale-tenmoku-bowl",
+    userId: "dohoon",
+    image: "/sale-pottery/tenmoku-bowl.webp",
+    label: "먹빛 패브릭 위 흑유 전무늬 다용도 볼",
+    size: "medium",
+    crop: 4,
+    glazeName: "흑유 전무늬 다용도 볼",
+    firing: "산화 소성",
+    cone: "Cone 9",
+    finish: "고광택 · 흑갈색 흐름",
+    clayBody: "갈색 석기토",
+    application: "국자 시유",
+    recipe: [],
+    colorants: [],
+    curve: [],
+    memo: "깊은 흑갈색 유약 아래 물레 자국이 은은하게 보이는 넓은 볼입니다. 샐러드나 과일을 담는 서빙볼로 사용하기 좋고, 가장자리의 붉은 갈색 흐름이 빛에 따라 다르게 보여요. 두 번 사용했으며 금이나 이 빠짐 없이 깨끗합니다.",
+    publishedAt: "어제",
+    kind: "sale",
+    price: 73000,
+    priceNegotiable: false,
+    saleDetails: { condition: "사용감 적음", dimensions: "지름 26 · 높이 8 cm", location: "서울 망원동", delivery: "직거래 · 택배 가능" },
+  },
+] as const;
+
+const saleInsertAfter = new Map([[1, 0], [7, 1], [13, 2], [19, 3]]);
+
+export const FEED_POSTS: readonly FeedPost[] = WORK_POSTS.flatMap((post, index) => {
+  const saleIndex = saleInsertAfter.get(index);
+  return saleIndex === undefined ? [post] : [post, SALE_POSTS[saleIndex]];
+});
+
+export const YEJIN_DEMO_POSTS: readonly FeedPost[] = WORK_POSTS.slice(0, 7).map((post, index) => ({
   ...post,
   id: `yejin-demo-${index + 1}`,
   userId: "self",
