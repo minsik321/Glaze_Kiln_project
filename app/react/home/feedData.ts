@@ -24,6 +24,9 @@ export type FeedPost = {
   curve: readonly { minute: number; temperatureC: number }[];
   memo: string;
   publishedAt: string;
+  kind?: "work" | "sale";
+  price?: number | null;
+  priceNegotiable?: boolean;
 };
 
 const FEED_POST_COUNT = 3;

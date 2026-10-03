@@ -59,6 +59,17 @@ describe("MyScreen", () => {
     for (const label of ["계정 설정", "가마 설정", "북마크 관리", "알림 설정", "계정 공개 범위", "회원탈퇴", "도움말", "로그아웃", "앱 정보"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
     }
+    expect(Array.from(screen.getByRole("navigation", { name: "마이 설정" }).querySelectorAll("button"), (button) => button.textContent)).toEqual([
+      "계정 설정",
+      "계정 공개 범위",
+      "알림 설정",
+      "가마 설정",
+      "북마크 관리",
+      "도움말",
+      "앱 정보",
+      "로그아웃",
+      "회원탈퇴",
+    ]);
 
     fireEvent.click(screen.getByRole("button", { name: "마이 화면으로 돌아가기" }));
     expect(screen.getByRole("dialog", { name: "설정" }).classList.contains("is-closing")).toBe(true);

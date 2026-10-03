@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { sampleAiceRun } from "./contract";
-import { canPublish, feedbackTrace, transformSharedCurve, type ResultEvaluation } from "./feedback";
+import { canPublish, feedbackTrace, resolveGlossObservation, resolveTransparencyObservation, transformSharedCurve, type ResultEvaluation } from "./feedback";
 
-const evaluation: ResultEvaluation = { match: "different", color: "darker", gloss: "satin", texture: "smooth", transparency: "opaque", defects: ["pinholes"], scope: "common_candidate", resultPhoto: null };
+const evaluation: ResultEvaluation = { match: "different", color: "darker", gloss: "less", texture: "match", transparency: "much_less", defects: ["pinholes"], defectSeverities: { pinholes: 3 }, scope: "common_candidate", resultPhoto: null };
 
 describe("feedback and sharing boundaries", () => {
   it("never applies common feedback automatically", () => {
     expect(feedbackTrace(evaluation)).toMatchObject({ sourceType: "observed", scope: "common_candidate", automaticCommonUpdate: false });
+  });
+
+  it("resolves target-relative answers to persisted observation levels", () => {
+    expect(resolveGlossObservation("satin", "much_less")).toBe("dry");
+    expect(resolveGlossObservation("satin", "more")).toBe("semi_gloss");
+    expect(resolveTransparencyObservation("semi_opaque", "much_more")).toBe("transparent");
   });
 
   it("requires every consent check before publication", () => {

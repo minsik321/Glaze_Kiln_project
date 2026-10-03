@@ -41,6 +41,7 @@ function historyPage(items: unknown[] = []) {
 
 function historyRecord(overrides: Partial<{ id: string; title: string; intake: ChatIntake | null }> = {}) {
   const run = sampleAiceRun();
+  run.status = "draft";
   const title = overrides.title ?? "예전 질문";
   const intake: ChatIntake | null = overrides.intake !== undefined
     ? overrides.intake
@@ -71,9 +72,9 @@ function mockFetch({
 }: { suggest?: Response; history?: Response; image?: Response } = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
-    if (url.includes("/recipe-candidates/image")) return image;
-    if (url.includes("/aice/recipe-candidates")) return suggest;
-    if (url.includes("/aice-runs")) return history;
+    if (url.includes("/recipe-candidates/image")) return image.clone();
+    if (url.includes("/aice/recipe-candidates")) return suggest.clone();
+    if (url.includes("/aice-runs")) return history.clone();
     throw new Error(`unexpected fetch in test: ${url}`);
   });
 }
@@ -211,10 +212,34 @@ describe("RecipeChatScreen (화면 1)", () => {
     render(<RecipeChatScreen token="user-token" onGenerated={onGenerated} onIntake={onIntake} />);
     fireEvent.change(screen.getByLabelText("원하는 결과를 설명해 주세요"), { target: { value: "유약" } });
     fireEvent.click(screen.getByText("후보 만들기"));
-    await waitFor(() => expect(screen.getByText("해안 사틴")).toBeTruthy());
+    await waitFor(() => expect(onGenerated).toHaveBeenCalledTimes(1));
 
-    expect(onGenerated).toHaveBeenCalledTimes(1);
+    expect(onGenerated.mock.calls[0][1][0].photo.data_url).toBe("data:image/png;base64,Zm9v");
     expect(onIntake).toHaveBeenCalledWith("유약", expect.arrayContaining([expect.objectContaining({ id: "cand-1" })]));
+  });
+
+  it("reuses a stored candidate image without calling the image API again", async () => {
+    const cachedCandidate: RecipeCandidate = {
+      ...CANDIDATE,
+      photo: { ...CANDIDATE.photo, data_url: "data:image/png;base64,Zm9v", placeholder: false },
+    };
+    const record = historyRecord({
+      id: "run-cached",
+      title: "저장된 이미지 기록",
+      intake: { prompt_text: "저장된 이미지 기록", prompt_photos: [], candidates: { candidates: [cachedCandidate], selected_id: null } },
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).includes("/aice-runs")) return historyPage([record]);
+      throw new Error(`unexpected fetch in test: ${String(input)}`);
+    });
+
+    render(<RecipeChatScreen token="user-token" />);
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
+    fireEvent.click(await screen.findByText("저장된 이미지 기록"));
+
+    const image = await screen.findByAltText("해안 사틴 AI 예상 이미지 — 실물 사진 아님");
+    expect(image.getAttribute("src")).toBe("data:image/png;base64,Zm9v");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/recipe-candidates/image"))).toBe(false);
   });
 
   it("opens a history sidebar of past questions and restores the chosen one", async () => {
@@ -232,6 +257,54 @@ describe("RecipeChatScreen (화면 1)", () => {
     await waitFor(() => expect(screen.getByDisplayValue("지난주 청록 유약")).toBeTruthy());
     expect(screen.getByText("해안 사틴")).toBeTruthy();
     expect(onIntake).toHaveBeenCalledWith("지난주 청록 유약", expect.arrayContaining([expect.objectContaining({ id: "cand-1" })]));
+  });
+
+  it("shows only chat-generated candidates in generation history", async () => {
+    const generated = historyRecord({ id: "run-chat", title: "채팅으로 만든 청록 유약" });
+    const imported = historyRecord({ id: "run-feed", title: "피드에서 가져온 동적유" });
+    imported.run.sources.push({
+      source_type: "observed",
+      reference: "aice-feed-post-import",
+      limitation: "테스트용 피드 기록",
+      confidence: "medium",
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).includes("/aice-runs")) return historyPage([generated, imported]);
+      throw new Error(`unexpected fetch in test: ${String(input)}`);
+    });
+
+    render(<RecipeChatScreen token="user-token" />);
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
+
+    expect(await screen.findByText("채팅으로 만든 청록 유약")).toBeTruthy();
+    expect(screen.queryByText("피드에서 가져온 동적유")).toBeNull();
+  });
+
+  it("reveals delete on a right swipe and removes the record only after confirmation", async () => {
+    const record = historyRecord({ id: "run-delete", title: "삭제할 생성 기록" });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/aice-runs/run-delete") && init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (url.includes("/aice-runs")) return historyPage([record]);
+      throw new Error(`unexpected fetch in test: ${url}`);
+    });
+
+    render(<RecipeChatScreen token="user-token" />);
+    fireEvent.click(screen.getByLabelText("생성 기록 열기"));
+    const recordButton = await screen.findByRole("button", { name: "삭제할 생성 기록" });
+
+    fireEvent.pointerDown(recordButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 20 });
+    fireEvent.pointerMove(recordButton, { pointerId: 1, pointerType: "touch", clientX: 76, clientY: 22 });
+    fireEvent.pointerUp(recordButton, { pointerId: 1, pointerType: "touch", clientX: 76, clientY: 22 });
+    expect(recordButton.closest("li")?.classList.contains("is-revealed")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "삭제할 생성 기록 삭제" }));
+    expect(screen.getByRole("alertdialog", { name: "삭제하시겠습니까?" })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "예" }));
+    await waitFor(() => expect(screen.queryByText("삭제할 생성 기록")).toBeNull());
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes("/aice-runs/run-delete") && init?.method === "DELETE")).toBe(true);
   });
 
   it("slides the history sidebar in and keeps it mounted until the closing slide finishes", async () => {

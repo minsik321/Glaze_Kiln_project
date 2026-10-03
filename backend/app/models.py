@@ -106,6 +106,28 @@ def validate_aice_payload(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _normalize_level(value: Any) -> Any:
+    """브라우저·레거시 기록에서 온 enum 표기를 계약의 snake_case로 맞춘다."""
+    if not isinstance(value, str):
+        return value
+    return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def normalize_evaluated_run(value: dict[str, Any]) -> dict[str, Any]:
+    """완료 기록의 목표/관찰 enum을 검증 전에 정규화한다."""
+    normalized = dict(value)
+    goal = dict(normalized.get("goal") or {})
+    result = dict(normalized.get("result") or {})
+    for key in ("gloss", "transparency"):
+        if key in goal:
+            goal[key] = _normalize_level(goal[key])
+        if key in result:
+            result[key] = _normalize_level(result[key])
+    normalized["goal"] = goal
+    normalized["result"] = result
+    return normalized
+
+
 class AiceRunCreate(ApiModel):
     request_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
@@ -123,9 +145,10 @@ class AiceRunCreate(ApiModel):
     @field_validator("run")
     @classmethod
     def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
+        value = normalize_evaluated_run(value)
         if value.get("status") == "evaluated":
             result = value.get("result") or {}
-            if result.get("gloss") not in {"matte", "satin", "gloss"} or result.get("transparency") not in {"opaque", "translucent", "transparent"}:
+            if result.get("gloss") not in {"dry", "matte", "satin", "semi_gloss", "gloss"} or result.get("transparency") not in {"opaque", "semi_opaque", "translucent", "transparent"}:
                 raise ValueError("평가 완료에는 실제 광택과 투명도 입력이 필요합니다.")
             if result.get("defects_reviewed") is not True or result.get("match") not in {"close", "different"}:
                 raise ValueError("평가 완료에는 목표 비교와 결함 확인이 필요합니다.")

@@ -26,7 +26,11 @@ async function withDatabase(run) {
       grant execute on function storage.foldername(text) to authenticated;
       grant select, insert, update, delete on storage.objects to authenticated;
       insert into auth.users values ('${alice}'), ('${bob}');`);
-    for (const file of ["20260915000000_initial.sql", "20260916010000_aice_runs.sql"])
+    for (const file of [
+      "20260915000000_initial.sql",
+      "20260916010000_aice_runs.sql",
+      "20260930000000_add_jar_ware_preset.sql",
+    ])
       await db.exec(await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), "utf8"));
     const asUser = async (id) => {
       await db.exec("reset role; set role authenticated");
@@ -94,6 +98,19 @@ test("AiceRun constraints reject unknown provenance and legacy records stay read
     await assert.rejects(db.query(`insert into public.aice_run_sources(run_id,source_type,reference,limitation,confidence) values ($1,'measured','x','x','low')`, [run.id]), invalid);
     await db.query("insert into public.work_records(title,payload) values ('Legacy','{}')");
     assert.equal((await db.query("select title from public.legacy_work_records_readonly")).rows[0].title, "Legacy");
+  });
+});
+
+test("the deployed ware constraint accepts the jar option exposed by the app", async () => {
+  await withDatabase(async (db, asUser) => {
+    await asUser(alice);
+    const jarPayload = { ...payload, ware: { preset: "jar" } };
+    const { rows } = await db.query(
+      `insert into public.aice_runs(title,payload,status,goal_gloss,goal_transparency,recipe_id,ware_preset)
+       values ('Jar result',$1,'evaluated','satin','opaque','recipe-1','jar') returning ware_preset`,
+      [JSON.stringify(jarPayload)],
+    );
+    assert.equal(rows[0].ware_preset, "jar");
   });
 });
 

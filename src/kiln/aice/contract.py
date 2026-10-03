@@ -73,9 +73,9 @@ class PhotoAsset:
         if self.storage_path and not self.rights_confirmed:
             raise ValueError("사진 파일은 권리 확인 없이 연결할 수 없습니다")
         if self.data_url is not None:
-            match = re.fullmatch(r"data:image/(?:png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)", self.data_url)
+            match = re.fullmatch(r"data:image/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)", self.data_url)
             if not match or len(self.data_url) > 8_000_000:
-                raise ValueError("관찰 사진은 6MB 이하의 PNG/JPEG/GIF/WebP 데이터여야 합니다")
+                raise ValueError("사진은 6MB 이하의 PNG/JPEG/GIF/WebP/SVG 데이터여야 합니다")
             try:
                 base64.b64decode(match[1], validate=True)
             except ValueError as exc:
@@ -293,12 +293,21 @@ class ResultEvaluation:
     feedback_scope: Literal["personal", "common_candidate"] | None
     match: Literal["close", "different"] | None = None
     defects_reviewed: bool = False
+    defect_severities: dict[str, int] = field(default_factory=dict)
+    gloss_comparison: str | None = None
+    texture_comparison: str | None = None
+    transparency_comparison: str | None = None
 
     def __post_init__(self) -> None:
         if self.match not in (None, "close", "different"):
             raise ValueError("전체 인상은 close 또는 different여야 합니다")
         if not isinstance(self.defects_reviewed, bool):
             raise ValueError("결함 확인은 boolean이어야 합니다")
+        if any(defect not in self.defects or not isinstance(level, int) or not 1 <= level <= 5 for defect, level in self.defect_severities.items()):
+            raise ValueError("결함 정도는 선택한 결함별 1~5 정수여야 합니다")
+        relative_values = {None, "much_less", "less", "match", "more", "much_more"}
+        if any(value not in relative_values for value in (self.gloss_comparison, self.texture_comparison, self.transparency_comparison)):
+            raise ValueError("목표 대비 관찰은 정해진 5단계 값이어야 합니다")
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,7 +398,7 @@ class AiceRun:
         loading_data = dict(data["loading"]); loading_data["sensors"] = tuple(loading_data.get("sensors", ()))
         curve_data = dict(data["curves"]); curve_data["baseline"] = FiringCurve(**{**curve_data["baseline"], "points": tuple(curve_data["baseline"].get("points", ())) }); curve_data["candidates"] = tuple(FiringCurve(**{**item, "points": tuple(item.get("points", ()))}) for item in curve_data.get("candidates", ()))
         pid_data = dict(data["pid"]); pid_data["parameters"] = {key: sourced(value) for key, value in pid_data.get("parameters", {}).items()}; pid_data["samples"] = tuple(pid_data.get("samples", ())); pid_data["alarms"] = tuple(pid_data.get("alarms", ()))
-        result_data = dict(data["result"]); result_data["photo"] = PhotoAsset(**result_data["photo"]) if result_data.get("photo") else None; result_data["defects"] = tuple(result_data.get("defects", ()))
+        result_data = dict(data["result"]); result_data["photo"] = PhotoAsset(**result_data["photo"]) if result_data.get("photo") else None; result_data["defects"] = tuple(result_data.get("defects", ())); result_data["defect_severities"] = dict(result_data.get("defect_severities", {}))
         intake_data = data.get("intake")
         if intake_data is not None:
             intake_data = dict(intake_data)

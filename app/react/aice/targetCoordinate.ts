@@ -24,6 +24,22 @@ export const TRANSPARENCY_LEVEL: Record<TransparencyLevel, number> = {
   transparent: 3,
 };
 
+function normalizeLevel(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/[\s-]+/g, "_")
+    : "";
+}
+
+export function normalizeGlossLevel(value: unknown): GlossLevel | null {
+  const normalized = normalizeLevel(value);
+  return normalized in GLOSS_LEVEL ? normalized as GlossLevel : null;
+}
+
+export function normalizeTransparencyLevel(value: unknown): TransparencyLevel | null {
+  const normalized = normalizeLevel(value);
+  return normalized in TRANSPARENCY_LEVEL ? normalized as TransparencyLevel : null;
+}
+
 export type TargetCoordinate = { gloss: GlossLevel; transparency: TransparencyLevel };
 
 export function coordinateDistance(

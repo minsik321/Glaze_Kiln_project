@@ -55,15 +55,6 @@ function samplePath(samples: ControllerSample[], field: "plannedC" | "sensorC" |
   return samples.map((sample) => `${30 + sample.minute / 480 * 420},${205 - sample[field] / 1250 * 175}`).join(" ");
 }
 
-function temperatureAtMinute(points: Array<{ minute: number; temperatureC: number }>, minute: number) {
-  const nextIndex = points.findIndex((point) => point.minute >= minute);
-  if (nextIndex <= 0) return points[Math.max(0, nextIndex)]?.temperatureC ?? 20;
-  const previous = points[nextIndex - 1];
-  const next = points[nextIndex];
-  const progress = (minute - previous.minute) / Math.max(1, next.minute - previous.minute);
-  return previous.temperatureC + (next.temperatureC - previous.temperatureC) * progress;
-}
-
 export function KilnFiringScreen({
   ware,
   coating,
@@ -172,8 +163,6 @@ export function KilnFiringScreen({
   const toggle = (role: "baseline" | "adjusted") => setVisible((current) => ({ ...current, [role]: !current[role] }));
   const plan = SCENARIO_CONTROL_PLANS[scenario];
   const cursorX = 30 + minute / 480 * 420;
-  const fireTemperatureC = temperatureAtMinute(curves[1].points, minute);
-  const fireY = 205 - fireTemperatureC / 1250 * 175;
 
   //: v9 후속(4페이지): "이대로 진행" 승인 버튼을 따로 두지 않는다 — 가상
   //: 소성을 재생하는 것 자체가 곧 이 계획을 가마에 적용해 시작하는
@@ -234,7 +223,6 @@ export function KilnFiringScreen({
           </>
         )}
         <line className="kiln-time-cursor" x1={cursorX} x2={cursorX} y1="20" y2="210" />
-        <g className="kiln-fire-cursor" style={{ transform: `translate(${cursorX}px, ${fireY}px)` }} aria-hidden="true"><text x="0" y="0">🔥</text></g>
         <text x="34" y="23">굵은 선 실제 값 · 가는 점선 기물 추정</text>
         <text x="30" y="225">0분</text><text x="430" y="225">480분</text>
       </svg>

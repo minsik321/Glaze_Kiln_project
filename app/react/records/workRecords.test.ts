@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateAiceRun } from "../aice/contract";
 import { FEED_POSTS, findFeedUser } from "../home/feedData";
-import { feedPostToWorkRecord, isVisibleWorkRecord, workRecordOrigin } from "./workRecords";
+import { feedPostToWorkRecord, isChatGenerationRecord, isVisibleWorkRecord, workRecordOrigin } from "./workRecords";
 
 describe("work record imports", () => {
   it("keeps the source recipe, firing curve, application, and memo", () => {
@@ -16,6 +16,7 @@ describe("work record imports", () => {
     expect(run.recipe.photo.data_url).toBeNull();
     expect(run.sources.some((source) => source.conversion === post.image)).toBe(true);
     expect(workRecordOrigin(run)).toBe("imported");
+    expect(isChatGenerationRecord(run)).toBe(false);
     expect(isVisibleWorkRecord(run)).toBe(true);
     expect(validateAiceRun(run)).toEqual([]);
     vi.unstubAllGlobals();

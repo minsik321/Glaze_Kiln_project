@@ -14,6 +14,13 @@ export function isVisibleWorkRecord(run: AiceRun) {
   return run.status === "evaluated" || workRecordOrigin(run) === "imported";
 }
 
+export function isChatGenerationRecord(run: AiceRun) {
+  return run.status === "draft"
+    && workRecordOrigin(run) === "mine"
+    && Boolean(run.intake?.prompt_text.trim())
+    && Boolean(run.intake?.candidates.candidates.length);
+}
+
 export function importedWorkMemo(run: AiceRun) {
   return run.sources.find((source) => source.reference === FEED_IMPORT_SOURCE_REFERENCE)?.interpretation ?? "";
 }

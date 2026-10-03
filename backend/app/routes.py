@@ -478,13 +478,18 @@ _OUTLIER_DEFECT_IDS = ("pinholes", "crawling", "crazing", "running")
 _SEARCH_HISTORY_LIMIT = 200
 
 
-#: ResultEvaluation.gloss/transparency(app/react/aice/feedback.ts)의 사용자
-#: 선택지 → kiln.domain.enums 멤버. goal_gloss/transparency와 달리
-#: `.upper()` 하나로 안 맞는다 — 이 평가 UI는 5/4단계 전체 등급이 아니라
-#: 좁힌 3종 선택지만 준다(예: DRY·SEMI_GLOSS는 평가 화면에 없음).
-_RESULT_GLOSS_MAP: dict[str, Gloss] = {"matte": Gloss.MATTE, "satin": Gloss.SATIN, "gloss": Gloss.GLOSS}
+#: 목표 대비 5단계 답변은 프런트에서 목표 좌표에 더해 실제 관찰 등급으로
+#: 저장된다. 여기서는 그 전체 등급을 개인화 좌표로 복원한다.
+_RESULT_GLOSS_MAP: dict[str, Gloss] = {
+    "dry": Gloss.DRY,
+    "matte": Gloss.MATTE,
+    "satin": Gloss.SATIN,
+    "semi_gloss": Gloss.SEMI_GLOSS,
+    "gloss": Gloss.GLOSS,
+}
 _RESULT_TRANSPARENCY_MAP: dict[str, Transparency] = {
     "opaque": Transparency.OPAQUE,
+    "semi_opaque": Transparency.SEMI_OPAQUE,
     "translucent": Transparency.TRANSLUCENT,
     "transparent": Transparency.TRANSPARENT,
 }
@@ -503,7 +508,7 @@ def _result_to_coordinate(result: dict) -> TargetCoordinate | None:
 
     이 함수는 목표가 아니라 사용자가 실제로 관찰해 기록한 값만 쓴다.
     광택·투명도 둘 중 하나라도 기록되지 않았으면(아직 평가 안 함, 또는
-    이 함수가 아는 3종 선택지 밖의 값) ``None`` — 판정 불가를 지어내지
+    이 함수가 아는 순서형 등급 밖의 값) ``None`` — 판정 불가를 지어내지
     않는다(부록 D). 목표 적중 여부(``evaluation.match``)는 더 이상 별도로
     가늠할 필요가 없다 — 목표가 아니라 실제 결과를 저장하므로, 목표를
     빗나간 회차는 그 빗나간 좌표 그대로 쌓여 다음 추천에서 "이 배합은

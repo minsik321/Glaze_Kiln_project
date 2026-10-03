@@ -165,6 +165,10 @@ export type AiceRun = {
     texture: string | null;
     transparency: string | null;
     defects: string[];
+    defect_severities?: Record<string, number>;
+    gloss_comparison?: "much_less" | "less" | "match" | "more" | "much_more" | null;
+    texture_comparison?: "much_less" | "less" | "match" | "more" | "much_more" | null;
+    transparency_comparison?: "much_less" | "less" | "match" | "more" | "much_more" | null;
     feedback_scope: "personal" | "common_candidate" | null;
   };
   sources: SourceReference[];

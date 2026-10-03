@@ -90,14 +90,14 @@ function ChevronIcon() {
 
 const settingsItems = [
   { id: "account", label: "계정 설정", icon: "person" },
+  { id: "privacy", label: "계정 공개 범위", icon: "lock" },
+  { id: "notifications", label: "알림 설정", icon: "bell" },
   { id: "kiln", label: "가마 설정", icon: "kiln" },
   { id: "bookmarks", label: "북마크 관리", icon: "bookmark" },
-  { id: "notifications", label: "알림 설정", icon: "bell" },
-  { id: "privacy", label: "계정 공개 범위", icon: "lock" },
-  { id: "withdraw", label: "회원탈퇴", icon: "leave", danger: true },
   { id: "help", label: "도움말", icon: "help" },
-  { id: "logout", label: "로그아웃", icon: "logout" },
   { id: "about", label: "앱 정보", icon: "info" },
+  { id: "logout", label: "로그아웃", icon: "logout" },
+  { id: "withdraw", label: "회원탈퇴", icon: "leave", danger: true },
 ] as const;
 
 function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon"] }) {
@@ -340,8 +340,8 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             </header>
             {settingsError && settingsPage === "menu" && <p className="my-settings-error" role="alert">{settingsError}</p>}
             <nav className="my-settings-menu" aria-label="마이 설정">
-              {settingsItems.map((item, index) => (
-                <div className={index === 6 ? "my-settings-group-start" : undefined} key={item.id}>
+              {settingsItems.map((item) => (
+                <div className={item.id === "help" ? "my-settings-group-start" : undefined} key={item.id}>
                   <button className={"danger" in item && item.danger ? "danger" : undefined} type="button" onClick={() => selectSetting(item.id)}>
                     <span className="my-settings-icon"><SettingsItemIcon name={item.icon} /></span>
                     <strong className="my-settings-label">{item.label}</strong>

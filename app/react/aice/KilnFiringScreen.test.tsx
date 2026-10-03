@@ -73,17 +73,18 @@ describe("kiln + firing screen (v9 6/7/8페이지 통합)", () => {
     expect(mocks.from).toHaveBeenCalledWith("profiles");
   });
 
-  it("shows the plain simulation layout with four readouts and a moving fire cursor", async () => {
+  it("shows the plain simulation layout with four readouts and a moving time cursor without the fire emoji", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => kilnSimulateResponse());
     const { container } = render(<Harness />);
     expect(screen.getByRole("heading", { name: "소성 시뮬레이션" })).toBeTruthy();
     expect(container.querySelectorAll(".kiln-readouts-top > span")).toHaveLength(4);
     expect(screen.queryByText(/가상 제어 · 실제 제어 아님/)).toBeNull();
     expect(screen.queryByText(/센서 위치는 공기 온도만/)).toBeNull();
-    const fire = container.querySelector(".kiln-fire-cursor") as SVGGElement;
-    const before = fire.style.transform;
+    expect(container.querySelector(".kiln-fire-cursor")).toBeNull();
+    const cursor = container.querySelector(".kiln-time-cursor") as SVGLineElement;
+    const before = cursor.getAttribute("x1");
     fireEvent.change(screen.getByLabelText("가상 시간 이동"), { target: { value: "380" } });
-    expect(fire.style.transform).not.toBe(before);
+    expect(cursor.getAttribute("x1")).not.toBe(before);
   });
 
   it("keeps the baseline plan fixed and recalculates the reactive plan when an anomaly scenario is chosen", async () => {

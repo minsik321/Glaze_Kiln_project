@@ -42,9 +42,9 @@ describe("작업 기록", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    const onRestore = vi.fn();
+    const onOpen = vi.fn();
 
-    render(<AiceRecordsPanel token="token" onRestore={onRestore} />);
+    render(<AiceRecordsPanel token="token" onOpen={onOpen} />);
 
     const title = await screen.findByRole("button", { name: "청록 사틴 유약 작업기록 열기" });
     expect(screen.getByText("내 완료 기록")).toBeTruthy();
@@ -52,7 +52,7 @@ describe("작업 기록", () => {
     expect(screen.queryByText("후보 생성 초안")).toBeNull();
 
     fireEvent.click(title);
-    expect(onRestore).toHaveBeenCalledWith(completed.run, "mine");
+    expect(onOpen).toHaveBeenCalledWith(completed, "mine");
   });
 
   it("작업 기록이 없으면 빈 목록 안내만 보여준다", async () => {
@@ -67,5 +67,42 @@ describe("작업 기록", () => {
 
     expect(await screen.findByText("아직 완료하거나 가져온 작업이 없습니다.")).toBeTruthy();
     expect(screen.queryByRole("tab")).toBeNull();
+  });
+
+  it("출처로 필터링하고 날짜와 이름으로 정렬한다", async () => {
+    const newestMine = record("run-1", "나 작업");
+    newestMine.created_at = "2026-09-20T00:00:00.000Z";
+    const oldestMine = record("run-2", "가 작업");
+    oldestMine.created_at = "2026-09-01T00:00:00.000Z";
+    const imported = record("run-3", "다 작업", "imported");
+    imported.created_at = "2026-09-10T00:00:00.000Z";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ items: [oldestMine, imported, newestMine], limit: 20, offset: 0 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    render(<AiceRecordsPanel token="token" />);
+    await screen.findByRole("button", { name: "나 작업 작업기록 열기" });
+
+    expect(screen.getByRole("button", { name: "전체" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("button", { name: /작업 작업기록 열기/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "나 작업 작업기록 열기",
+      "다 작업 작업기록 열기",
+      "가 작업 작업기록 열기",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "불러온 작업" }));
+    expect(screen.getByRole("button", { name: "다 작업 작업기록 열기" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "나 작업 작업기록 열기" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "전체" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "작업 기록 정렬" }), { target: { value: "title-asc" } });
+    expect(screen.getAllByRole("button", { name: /작업 작업기록 열기/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "가 작업 작업기록 열기",
+      "나 작업 작업기록 열기",
+      "다 작업 작업기록 열기",
+    ]);
   });
 });

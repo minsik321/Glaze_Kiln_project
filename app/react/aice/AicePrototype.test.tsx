@@ -190,17 +190,14 @@ describe("AICE guided prototype", () => {
     expect(screen.getByTestId("aice-step-3")).toBeTruthy();
   });
 
-  it("opens a work record with its recipe and firing log before continuing to step two", () => {
+  it("starts a work record directly at step two", () => {
     const run = sampleAiceRun();
     run.status = "evaluated";
     render(<AicePrototype token="" restoredRun={run} recordEntryOrigin="mine" />);
 
-    expect(screen.getByText("내 완료 기록")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "유약 레시피" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "소성 방법" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "이전 작업 기록" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "이 기록으로 작업 시작" }));
+    expect(screen.getByTestId("aice-step-2")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "기물 모양" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "이전" })).toBeNull();
   });
 
   it("shows the five-stage progress rail from the updated work screen", () => {
@@ -234,6 +231,7 @@ describe("AICE guided prototype", () => {
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
     expect(screen.getByTestId("aice-step-5")).toBeTruthy();
     expect(screen.queryByRole("spinbutton")).toBeNull();
@@ -358,6 +356,7 @@ describe("AICE guided prototype", () => {
     const savedBody = JSON.parse(String(saveCall?.[1]?.body));
     expect(savedBody.title).toBe("유약");
     expect(savedBody.run.intake).toMatchObject({ prompt_text: "유약", candidates: { candidates: [{ id: "cand-a" }, { id: "cand-b" }] } });
+    expect(savedBody.run.intake.candidates.candidates.every((candidate: RecipeCandidate) => candidate.photo.data_url === "data:image/png;base64,Zm9v")).toBe(true);
     expect(savedBody.run.application.dip_seconds).toBeNull();
     expect(savedBody.request_id).toBe(savedBody.run.run_id);
     const recipeNextButton = screen.getByRole("button", { name: "다음" });
@@ -390,8 +389,8 @@ describe("AICE guided prototype", () => {
 
   it("saves the finished run to work records and navigates there (9페이지)", async () => {
     const fetchMock = mockFetch();
-    const onSaved = vi.fn();
-    render(<AicePrototype token="test-token" onSaved={onSaved} />);
+    const onFinish = vi.fn();
+    render(<AicePrototype token="test-token" onFinish={onFinish} />);
     await skipToWare();
     for (const name of [/^사발/, /백색 석기 소지/, /^다음/]) {
       fireEvent.click(screen.getByRole("button", { name }));
@@ -402,24 +401,41 @@ describe("AICE guided prototype", () => {
     const playButton = screen.getByRole("button", { name: "소성 시뮬레이션 재생" });
     await waitFor(() => expect((playButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(playButton);
+    const main = screen.getByTestId("aice-step-4");
+    main.scrollTop = 500;
     fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
-    // 평가 완료(evaluationComplete, feedback.ts)는 전체 인상뿐 아니라
-    // 광택·투명도·결함 확인까지 모두 요구한다 — 항목 4("평가 완료... 필수로
-    // 검증"): 불완전한 기록은 저장 버튼이 계속 비활성 상태로 남는다.
+    expect(screen.getByTestId("aice-step-5").scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     fireEvent.click(screen.getByRole("button", { name: /목표에 가까워요/ }));
-    fireEvent.click(screen.getByRole("button", { name: "사틴" }));
-    fireEvent.click(screen.getByRole("button", { name: "불투명" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /결함을 확인했습니다/ }));
+    fireEvent.click(screen.getByRole("button", { name: "가까움" }));
+    for (const group of ["광택", "질감", "투명도"]) {
+      fireEvent.click(within(screen.getByRole("group", { name: group })).getByRole("button", { name: "목표와 일치함" }));
+    }
 
     const saveButton = screen.getByRole("button", { name: "완료" });
     expect((saveButton as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(saveButton);
+    const dialog = screen.getByRole("dialog", { name: "기록 저장" });
+    const titleInput = within(dialog).getByLabelText("기록 제목") as HTMLInputElement;
+    expect(titleInput.value.length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    const saveCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/aice-runs") && init?.method === "POST");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "작업이 기록되었습니다" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "신규 작업" })).toBeTruthy();
+    const saveCall = fetchMock.mock.calls.find(([url, init]) => {
+      if (!String(url).includes("/aice-runs") || init?.method !== "POST") return false;
+      return JSON.parse(String(init.body)).run.status === "evaluated";
+    });
     expect(saveCall).toBeTruthy();
     const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.title).toBe(titleInput.value);
+    expect(body.run.title).toBe(titleInput.value);
     expect(body.run.status).toBe("evaluated");
     expect(body.run.result.feedback_scope).toBe("personal");
+    expect(body.run.result).toMatchObject({ defects_reviewed: true, gloss: "satin", gloss_comparison: "match", transparency: "opaque", transparency_comparison: "match" });
+    expect(body.run.created_at).toBe(body.run.updated_at);
+    expect(screen.queryByRole("button", { name: "새 작업" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "작업 끝내기" }));
+    expect(onFinish).toHaveBeenCalledTimes(1);
   });
 });

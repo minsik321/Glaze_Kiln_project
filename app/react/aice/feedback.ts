@@ -1,13 +1,59 @@
 import type { FiringCurve, SourceType } from "./contract";
+import type { GlossLevel, TransparencyLevel } from "./targetCoordinate";
+
+export type RelativeObservation = "much_less" | "less" | "match" | "more" | "much_more";
+
+const RELATIVE_OFFSET: Record<RelativeObservation, number> = {
+  much_less: -2,
+  less: -1,
+  match: 0,
+  more: 1,
+  much_more: 2,
+};
+
+const GLOSS_SCALE: GlossLevel[] = ["dry", "matte", "satin", "semi_gloss", "gloss"];
+const TRANSPARENCY_SCALE: TransparencyLevel[] = ["opaque", "semi_opaque", "translucent", "transparent"];
+const TEXTURE_SCALE = ["smooth", "slightly_rough", "rough", "very_rough", "extremely_rough"] as const;
+
+function resolveRelative<T extends string>(target: T, comparison: RelativeObservation | null, scale: readonly T[]): T | null {
+  if (!comparison) return null;
+  const targetIndex = scale.indexOf(target);
+  if (targetIndex < 0) return target;
+  if (comparison === "much_less") return scale[0];
+  if (comparison === "much_more") return scale[scale.length - 1];
+  const nextIndex = Math.max(0, Math.min(scale.length - 1, targetIndex + RELATIVE_OFFSET[comparison]));
+  return scale[nextIndex];
+}
+
+function compareOrdinal<T extends string>(target: T, observed: string | null, scale: readonly T[]): RelativeObservation | null {
+  if (!observed) return null;
+  if (observed in RELATIVE_OFFSET) return observed as RelativeObservation;
+  const targetIndex = scale.indexOf(target);
+  const observedIndex = scale.indexOf(observed as T);
+  if (targetIndex < 0 || observedIndex < 0) return observed === target ? "match" : null;
+  const difference = observedIndex - targetIndex;
+  if (difference <= -2) return "much_less";
+  if (difference === -1) return "less";
+  if (difference === 0) return "match";
+  if (difference === 1) return "more";
+  return "much_more";
+}
+
+export const resolveGlossObservation = (target: GlossLevel, comparison: RelativeObservation | null) => resolveRelative(target, comparison, GLOSS_SCALE);
+export const resolveTransparencyObservation = (target: TransparencyLevel, comparison: RelativeObservation | null) => resolveRelative(target, comparison, TRANSPARENCY_SCALE);
+export const resolveTextureObservation = (target: string, comparison: RelativeObservation | null) => resolveRelative(target, comparison, TEXTURE_SCALE);
+export const compareGlossObservation = (target: GlossLevel, observed: string | null) => compareOrdinal(target, observed, GLOSS_SCALE);
+export const compareTransparencyObservation = (target: TransparencyLevel, observed: string | null) => compareOrdinal(target, observed, TRANSPARENCY_SCALE);
+export const compareTextureObservation = (target: string, observed: string | null) => compareOrdinal(target, observed, TEXTURE_SCALE);
 
 export type ResultEvaluation = {
   match: "close" | "different" | null;
   color: "close" | "lighter" | "darker" | "different" | null;
-  gloss: "matte" | "satin" | "gloss" | null;
-  texture: "smooth" | "slightly_rough" | "rough" | null;
-  transparency: "opaque" | "translucent" | "transparent" | null;
+  gloss: RelativeObservation | null;
+  texture: RelativeObservation | null;
+  transparency: RelativeObservation | null;
   defects: string[];
-  defectsReviewed?: boolean;
+  defectSeverities: Record<string, number>;
   scope: "personal" | "common_candidate";
   //: 9페이지 — 첨부한 관찰 사진(파일 첨부, 로컬 데이터URL). 클라우드
   //: 스토리지 연동 없이 작업기록 payload(jsonb)에 그대로 실려 저장된다.
@@ -15,7 +61,7 @@ export type ResultEvaluation = {
 };
 
 export function evaluationComplete(value: ResultEvaluation): boolean {
-  return Boolean(value.match && value.gloss && value.transparency && value.defectsReviewed);
+  return Boolean(value.match && value.color && value.gloss && value.texture && value.transparency);
 }
 
 export type ShareConsent = { photoRights: boolean; piiReviewed: boolean; locationRemoved: boolean; withdrawalUnderstood: boolean };

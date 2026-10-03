@@ -46,7 +46,11 @@ def test_observation_fields_and_photo_survive_json_roundtrip() -> None:
     data = sample_aice_run().to_dict()
     data["recipe"].update(colorants={"CuO": 2.0}, colorant_note="외배합")
     data["application"].update(method="pouring", dip_seconds=None, drying_complete=True)
-    data["result"].update(match="different", gloss="matte", transparency="opaque", defects_reviewed=True)
+    data["result"].update(
+        match="different", gloss="matte", transparency="opaque", defects=["pinholes"],
+        defects_reviewed=True, defect_severities={"pinholes": 4},
+        gloss_comparison="less", texture_comparison="match", transparency_comparison="match",
+    )
     data["result"]["photo"] = {"id": "observation", "kind": "result", "storage_path": None, "data_url": "data:image/png;base64,aGVsbG8=", "placeholder": False, "source_type": "observed", "rights_confirmed": False, "alt": "관찰.png"}
     restored = AiceRun.from_dict(json.loads(json.dumps(data)))
     assert restored.result.photo.data_url == data["result"]["photo"]["data_url"]
@@ -54,7 +58,17 @@ def test_observation_fields_and_photo_survive_json_roundtrip() -> None:
     assert restored.application.drying_complete is True
     assert restored.result.match == "different"
     assert restored.result.defects_reviewed is True
+    assert restored.result.defect_severities == {"pinholes": 4}
+    assert restored.result.gloss_comparison == "less"
     assert restored.recipe.colorants == {"CuO": 2.0}
+
+
+def test_synthetic_svg_photo_survives_json_roundtrip() -> None:
+    data = sample_aice_run().to_dict()
+    data["recipe"]["photo"]["data_url"] = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+    data["recipe"]["photo"]["placeholder"] = False
+    restored = AiceRun.from_dict(json.loads(json.dumps(data)))
+    assert restored.recipe.photo.data_url == data["recipe"]["photo"]["data_url"]
 
 
 def test_legacy_run_does_not_invent_review_or_drying_confirmation() -> None:

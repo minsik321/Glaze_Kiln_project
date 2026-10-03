@@ -8,8 +8,9 @@ import { AppShell, BottomNavigation } from "./aice/ui";
 import type { AiceRun } from "./aice/contract";
 import { useAuth } from "./auth/AuthProvider";
 import { HomeScreen } from "./home/HomeScreen";
+import { CreatePostScreen, type CreatePostDraft, type CreatePostKind } from "./home/CreatePostScreen";
 import { NotificationScreen } from "./home/NotificationScreen";
-import { findFeedPost, findFeedUser, postsForAccount, postsForUser } from "./home/feedData";
+import { FEED_POSTS, findFeedPost, findFeedUser, postsForAccount, postsForUser, type FeedPost } from "./home/feedData";
 import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
@@ -19,7 +20,7 @@ import { feedPostToWorkRecord, type WorkRecordOrigin } from "./records/workRecor
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
 
 type SnapshotGetter = () => Promise<SimulatorSnapshot>;
-type AppView = "work" | "search" | "records" | "my" | "profile" | "post" | "notifications";
+type AppView = "work" | "records" | "chat" | "my" | "profile" | "post" | "notifications";
 type SettingsDetail = "account" | "kiln";
 type EntryPhase = "splash" | "onboarding" | "login" | "signup" | "app";
 const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
@@ -32,10 +33,39 @@ function NavIcon({ children }: { children: ReactNode }) {
   );
 }
 
+function draftToFeedPost(draft: CreatePostDraft): FeedPost {
+  return {
+    id: crypto.randomUUID(),
+    userId: "self",
+    image: draft.images[0],
+    label: `${draft.title} ${draft.kind === "sale" ? "판매 게시물" : "작업 게시물"}`,
+    size: "medium",
+    crop: 1,
+    glazeName: draft.title,
+    firing: draft.kind === "sale" ? "기물 판매" : "작업 기록",
+    cone: "",
+    finish: draft.kind === "sale" ? "판매 중" : "새 작업",
+    clayBody: "",
+    application: "",
+    recipe: [],
+    colorants: [],
+    curve: [{ minute: 0, temperatureC: 20 }, { minute: 1, temperatureC: 20 }],
+    memo: draft.description,
+    publishedAt: "방금 전",
+    kind: draft.kind,
+    price: draft.price,
+    priceNegotiable: draft.priceNegotiable,
+  };
+}
+
 export function App() {
   const { session } = useAuth();
   const [entryPhase, setEntryPhase] = useState<EntryPhase>("splash");
   const [signupReturn, setSignupReturn] = useState<"onboarding" | "login">("onboarding");
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchClosing, setSearchClosing] = useState(false);
+  const [createPostKind, setCreatePostKind] = useState<CreatePostKind | null>(null);
+  const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
   const [workflowDragX, setWorkflowDragX] = useState(0);
@@ -53,9 +83,9 @@ export function App() {
   const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
   const [recordEntryOrigin, setRecordEntryOrigin] = useState<WorkRecordOrigin>();
+  const [recordDetailOpen, setRecordDetailOpen] = useState(false);
   const [resumeStep, setResumeStep] = useState<number>();
   const [resumePrompt, setResumePrompt] = useState<SavedWorkProgress | null>(null);
-  const onboardingAfterSplash = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("onboarding") === "1";
   const connectSnapshot = useCallback((getter: SnapshotGetter) => {
     setGetSnapshot(() => getter);
   }, []);
@@ -83,10 +113,16 @@ export function App() {
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
+  useEffect(() => {
+    if (entryPhase !== "splash") return;
+    const timer = window.setTimeout(() => setEntryPhase("onboarding"), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [entryPhase]);
+
   if (entryPhase === "splash") {
     return (
       <main className="entry-screen splash-screen" aria-label="AICE 스플래시 화면">
-        <div className="splash-brand" onAnimationEnd={() => setEntryPhase(onboardingAfterSplash ? "onboarding" : "login")}>
+        <div className="splash-brand" onAnimationEnd={() => setEntryPhase("onboarding")}>
           <img className="splash-logo" src="/aice-splash.png" alt="AICE" width="320" height="320" />
           <strong className="splash-title">Kiln</strong>
         </div>
@@ -98,8 +134,7 @@ export function App() {
   if (entryPhase === "onboarding") {
     const finishOnboarding = () => {
       window.history.replaceState({}, "", window.location.pathname);
-      setView("work");
-      setEntryPhase("app");
+      setEntryPhase("login");
     };
     return (
       <OnboardingGuide
@@ -125,12 +160,12 @@ export function App() {
 
   const navigation = [
     { id: "home", label: "홈", icon: <NavIcon><path d="m3 11 9-8 9 8" /><path d="M5 10v11h14V10M9 21v-7h6v7" /></NavIcon> },
-    { id: "search", label: "검색", icon: <NavIcon><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></NavIcon> },
     { id: "history", label: "작업기록", icon: <NavIcon><path d="M4 5h16v16H4zM8 3v4M16 3v4M4 10h16" /><path d="M8 14h3M8 17h6" /></NavIcon> },
+    { id: "chat", label: "채팅", icon: <NavIcon><path d="M4 5h16v12H9l-5 4z" /><path d="M8 10h8M8 13h5" /></NavIcon> },
     { id: "my", label: "마이", icon: <NavIcon><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></NavIcon> },
   ] as const;
 
-  const navigationView = view === "search" ? "search" : view === "records" ? "history" : view === "my" ? "my" : "home";
+  const navigationView = view === "records" ? "history" : view === "chat" ? "chat" : view === "my" ? "my" : "home";
   const username = session?.user.user_metadata.username
     ?? session?.user.user_metadata.full_name
     ?? session?.user.email?.split("@")[0]
@@ -139,21 +174,30 @@ export function App() {
     ?? session?.user.user_metadata.nickname
     ?? "가마쟁이";
   const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
-  const myPosts = postsForAccount(session?.user.email);
+  const feedPosts = [...createdPosts, ...FEED_POSTS];
+  const myPosts = [...createdPosts, ...postsForAccount(session?.user.email)];
   const selectedProfile = findFeedUser(selectedProfileId);
-  const selectedPost = findFeedPost(selectedPostId);
+  const selectedPost = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPostUser = selectedPost.userId === "self"
     ? { id: "self", username, displayName, avatarTone: 1, stats: { records: myPosts.length, followers: 545, following: 256 } }
     : findFeedUser(selectedPost.userId);
 
   function changeNavigation(next: typeof navigation[number]["id"]) {
+    setShowSearch(false);
+    setSearchClosing(false);
     setShowWorkflow(false);
+    setRecordDetailOpen(false);
     setWorkflowClosing(false);
     setWorkflowDragX(0);
     if (next === "history") setView("records");
+    else if (next === "chat") setView("chat");
     else if (next === "my") setView("my");
-    else if (next === "search") setView("search");
     else setView("work");
+  }
+
+  function closeSearch() {
+    if (searchClosing) return;
+    setSearchClosing(true);
   }
 
   function openSettingsDetail(detail: SettingsDetail) {
@@ -227,12 +271,15 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={showWorkflow || view === "profile" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={createPostKind || showSearch || showWorkflow || recordDetailOpen || view === "profile" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen
+            posts={feedPosts}
             onStartWork={openWorkflow}
+            onCreatePost={setCreatePostKind}
             onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
+            onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
             onOpenNotifications={() => setView("notifications")}
           />
           {showWorkflow && (
@@ -252,39 +299,74 @@ export function App() {
                   setWorkflowClosing(false);
                 }}
               >
-                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onSaved={() => {
+                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onStartNew={() => {
+                  clearWorkProgress();
+                  setRestoredRun(undefined);
+                  setRecordEntryOrigin(undefined);
+                  setResumeStep(undefined);
+                }} onFinish={() => {
                   clearWorkProgress();
                   setShowWorkflow(false);
                   setRestoredRun(undefined);
                   setRecordEntryOrigin(undefined);
                   setResumeStep(undefined);
-                  setView("records");
+                  setView("work");
                 }} onBackHome={closeWorkflow} />
               </div>
             </div>
           )}
         </section>
-        <section className="app-view app-utility-view" hidden={view !== "search"}>
-          <div className="search-input-wrap">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg>
-            <input type="search" aria-label="검색" placeholder="검색" />
-          </div>
-        </section>
+        {createPostKind && (
+          <CreatePostScreen
+            kind={createPostKind}
+            onBack={() => setCreatePostKind(null)}
+            onSubmit={(draft) => {
+              setCreatedPosts((current) => [draftToFeedPost(draft), ...current]);
+              setCreatePostKind(null);
+              setView("work");
+            }}
+          />
+        )}
+        {showSearch && (
+          <section
+            className={`search-slide-panel${searchClosing ? " is-closing" : ""}`}
+            aria-label="검색 화면"
+            onAnimationEnd={(event) => {
+              if (event.currentTarget !== event.target || !searchClosing) return;
+              setShowSearch(false);
+              setSearchClosing(false);
+            }}
+          >
+            <div className="search-toolbar">
+              <button className="search-back" type="button" aria-label="홈으로 돌아가기" onClick={closeSearch}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+              </button>
+              <div className="search-input-wrap">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg>
+                <input type="search" aria-label="검색" placeholder="검색" />
+              </div>
+            </div>
+          </section>
+        )}
         <section className="app-view app-utility-view" hidden={view !== "records"}>
-          <div className="utility-header">
-            <span className="eyebrow">AICE KILN</span>
-            <h1>작업 기록</h1>
-            <p>완료한 작업과 다른 사람에게서 가져온 레시피를 확인해보세요.</p>
-          </div>
-          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onRestore={(run, origin) => {
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onStart={(run, origin) => {
+            setRecordDetailOpen(false);
             setRestoredRun(run);
             setRecordEntryOrigin(origin);
-            setResumeStep(undefined);
+            setResumeStep(1);
             setView("work");
             setWorkflowClosing(false);
             setWorkflowDragX(0);
             setShowWorkflow(true);
           }} /></Suspense>}
+        </section>
+        <section className="app-view app-utility-view chat-screen" hidden={view !== "chat"} aria-label="채팅">
+          <header className="chat-header"><h1>채팅</h1></header>
+          <div className="chat-empty">
+            <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4z" /><path d="M8 10h8M8 13h5" /></svg></span>
+            <strong>아직 대화가 없어요</strong>
+            <p>새로운 대화가 시작되면 여기에 표시됩니다.</p>
+          </div>
         </section>
         <section className="app-view" hidden={view !== "my"}>
           <MyScreen
@@ -364,6 +446,7 @@ export function App() {
               ],
             }))}
             onBack={() => setView(postReturnView)}
+            onStartChat={() => setView("chat")}
             onOpenProfile={(userId) => {
               if (selectedPost.userId === "self") setView("my");
               else { setSelectedProfileId(userId); setView("profile"); }

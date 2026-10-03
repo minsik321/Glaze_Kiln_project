@@ -64,7 +64,7 @@ function FiringCurve({ post }: { post: FeedPost }) {
   );
 }
 
-export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, onImportRecipe, onAddComment, onBack, onOpenProfile }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void }) {
+export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void }) {
   const [following, setFollowing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
@@ -93,6 +93,35 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
       setImportStatus("error");
       setImportDialog("error");
     }
+  }
+
+  if (post.kind === "sale") {
+    const price = post.price ? `${post.price.toLocaleString("ko-KR")}원` : "가격 협의";
+    return (
+      <section className="post-detail-screen sale-detail-screen" aria-label={`${post.glazeName} 판매 게시물`}>
+        <header className="post-detail-header">
+          <button type="button" aria-label="홈 피드로 돌아가기" onClick={onBack}><BackIcon /></button>
+          <strong>기물 판매</strong>
+          <button type="button" aria-label="게시물 더보기"><MoreIcon /></button>
+        </header>
+        <main className="post-detail-scroll sale-detail-scroll">
+          <section className={`post-author-panel${isOwnPost ? " own-post" : ""}`} aria-label="작성자 정보">
+            <button className={`post-author-avatar avatar-tone-${user.avatarTone}`} type="button" aria-label={`${user.username} 프로필 보기`} onClick={() => onOpenProfile(user.id)} />
+            <button className="post-author-name" type="button" onClick={() => onOpenProfile(user.id)}><strong>{user.displayName}</strong><span>@{user.username}</span></button>
+          </section>
+          <img className="sale-detail-image" src={post.image} alt={post.label} />
+          <section className="sale-detail-copy">
+            <span>판매 중</span>
+            <h1>{post.glazeName}</h1>
+            <strong>{price}</strong>
+            {post.priceNegotiable && <small>가격 협의 가능</small>}
+            <time>{post.publishedAt}</time>
+            <p>{post.memo}</p>
+          </section>
+        </main>
+        {!isOwnPost && <button className="sale-chat-button" type="button" onClick={onStartChat}>채팅으로 문의하기</button>}
+      </section>
+    );
   }
 
   return (

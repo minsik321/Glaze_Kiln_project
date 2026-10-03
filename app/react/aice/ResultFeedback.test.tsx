@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ResultFeedback } from "./ResultFeedback";
 import type { ResultEvaluation } from "./feedback";
 
 afterEach(cleanup);
-const initial: ResultEvaluation = { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], scope: "personal", resultPhoto: null };
+const initial: ResultEvaluation = { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], defectSeverities: {}, scope: "personal", resultPhoto: null };
 function Harness({ targetPhoto }: { targetPhoto?: { base64: string; mediaType: string } | null }) {
   const [value, setValue] = useState(initial);
   return <ResultFeedback value={value} onChange={setValue} targetPhoto={targetPhoto} />;
@@ -23,6 +23,7 @@ describe("result feedback", () => {
 
   it("shows the selected recipe's generated image as the target photo when one is available", () => {
     render(<Harness targetPhoto={{ base64: "Zm9v", mediaType: "image/png" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     const img = screen.getByAltText(/목표 레시피의 AI 예상 이미지/) as HTMLImageElement;
     expect(img.src).toContain("data:image/png;base64,Zm9v");
   });
@@ -31,20 +32,39 @@ describe("result feedback", () => {
     render(<Harness />);
     expect(screen.queryByText(/색온도 약 5000K/)).toBeNull();
     expect(screen.queryByText(/색상 기준표\(24색 컬러체커/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     fireEvent.click(screen.getByRole("button", { name: "차이가 있어요" }));
     expect(screen.queryByText("다음 추천에 미치는 영향")).toBeNull();
   });
 
   it("makes numeric choices and defects available without requiring a photo", () => {
     render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     fireEvent.click(screen.getByRole("button", { name: "차이가 있어요" }));
+    fireEvent.click(screen.getByRole("button", { name: "가까움" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "광택" })).getByRole("button", { name: "목표와 일치함" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "질감" })).getByRole("button", { name: "목표와 일치함" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "투명도" })).getByRole("button", { name: "목표와 일치함" }));
     fireEvent.click(screen.getByRole("button", { name: "핀홀" }));
     expect(screen.getByRole("button", { name: "핀홀" }).getAttribute("aria-pressed")).toBe("true");
+    const severity = screen.getByRole("combobox", { name: "핀홀 정도" }) as HTMLSelectElement;
+    fireEvent.change(severity, { target: { value: "4" } });
+    expect(severity.value).toBe("4");
   });
 
-  it("keeps common improvement as a review candidate", () => {
+  it("reveals each target-relative field only after the previous answer", () => {
     render(<Harness />);
-    fireEvent.click(screen.getByLabelText(/공통 개선 검토 후보/));
-    expect(screen.getByText(/공통 모델을 자동 갱신하지 않습니다/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "결과를 기록해요" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "목표와 전체 인상" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
+    fireEvent.click(screen.getByRole("button", { name: "목표에 가까워요" }));
+    expect(screen.getByRole("group", { name: "색상" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "광택" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "가까움" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "광택" })).getByRole("button", { name: "목표와 일치함" }));
+    expect(within(screen.getByRole("group", { name: "질감" })).getByRole("button", { name: "아주 거침" })).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "질감" })).getByRole("button", { name: "아주 매끈함" })).toBeTruthy();
+    expect(screen.queryByText("결함을 확인했습니다")).toBeNull();
+    expect(screen.queryByText("이 평가의 사용 범위")).toBeNull();
   });
 });

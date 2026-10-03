@@ -1,5 +1,6 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
+import { isChatGenerationRecord } from "../records/workRecords";
 import type { ChatIntake, RecipeCandidate } from "./contract";
 import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer } from "./ui";
@@ -99,6 +100,13 @@ export function RecipeChatScreen({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [restoredRunId, setRestoredRunId] = useState<string | null>(null);
   const [cardAnimationKey, setCardAnimationKey] = useState(0);
+  const [revealedHistoryId, setRevealedHistoryId] = useState<string | null>(null);
+  const [historyDrag, setHistoryDrag] = useState<{ id: string; offset: number } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AiceRunRecord | null>(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const historyGesture = useRef<{ id: string; startX: number; startY: number; latestX: number; latestY: number; moved: boolean } | null>(null);
+  const suppressHistoryClick = useRef(false);
 
   useEffect(() => {
     if (!initialIntake) return;
@@ -125,7 +133,7 @@ export function RecipeChatScreen({
     setHistoryError(null);
     try {
       const page = await aiceRunsApi.listMine(token);
-      setHistory(page.items);
+      setHistory(page.items.filter((record) => isChatGenerationRecord(record.run)));
     } catch (err) {
       setHistoryError(err instanceof ApiError ? err.message : "이전 기록을 불러오지 못했습니다.");
     } finally {
@@ -145,10 +153,22 @@ export function RecipeChatScreen({
   }, [sidebarMounted, sidebarOpen]);
 
   function requestImagesFor(list: RecipeCandidate[]) {
-    for (const candidate of list) void requestImage(candidate);
+    return Promise.all(list.map((candidate) => requestImage(candidate)));
   }
 
-  async function requestImage(candidate: RecipeCandidate) {
+  async function requestImage(candidate: RecipeCandidate): Promise<RecipeCandidate> {
+    const savedImage = candidate.photo.data_url?.match(/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml));base64,(.+)$/);
+    if (savedImage) {
+      setImages((prev) => ({
+        ...prev,
+        [candidate.id]: {
+          base64: savedImage[2],
+          mediaType: savedImage[1],
+          sourceType: savedImage[1] === "image/svg+xml" ? "fallback" : "ai",
+        },
+      }));
+      return candidate;
+    }
     setImageLoading((prev) => ({ ...prev, [candidate.id]: true }));
     setImageErrors((prev) => ({ ...prev, [candidate.id]: "" }));
     try {
@@ -170,11 +190,23 @@ export function RecipeChatScreen({
           sourceType: result.source_type ?? "ai",
         },
       }));
+      return {
+        ...candidate,
+        photo: {
+          ...candidate.photo,
+          data_url: `data:${result.media_type};base64,${result.image_base64}`,
+          placeholder: false,
+          alt: result.source_type === "fallback"
+            ? `${candidate.name} 로컬 합성 유약 프리뷰 — 실물 사진 아님`
+            : `${candidate.name} AI 예상 이미지 — 실물 사진 아님`,
+        },
+      };
     } catch (err) {
       setImageErrors((prev) => ({
         ...prev,
         [candidate.id]: err instanceof ApiError ? err.message : "이미지를 생성하지 못했습니다.",
       }));
+      return candidate;
     } finally {
       setImageLoading((prev) => ({ ...prev, [candidate.id]: false }));
     }
@@ -203,9 +235,10 @@ export function RecipeChatScreen({
       setStatus("complete");
       setHistoryMatches(findSimilarHistory(trimmed, normalizedCandidates, history));
       setCardAnimationKey((current) => current + 1);
-      requestImagesFor(normalizedCandidates);
+      void requestImagesFor(normalizedCandidates).then((candidatesWithImages) => {
+        onGenerated?.(trimmed, candidatesWithImages);
+      });
       onIntake?.(trimmed, normalizedCandidates);
-      onGenerated?.(trimmed, normalizedCandidates);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "후보를 만들지 못했습니다.");
       setStatus("error");
@@ -259,6 +292,59 @@ export function RecipeChatScreen({
     else openSidebar();
   }
 
+  function beginHistorySwipe(recordId: string, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    historyGesture.current = { id: recordId, startX: event.clientX, startY: event.clientY, latestX: event.clientX, latestY: event.clientY, moved: false };
+    setRevealedHistoryId((current) => current === recordId ? current : null);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveHistorySwipe(event: ReactPointerEvent<HTMLButtonElement>) {
+    const gesture = historyGesture.current;
+    if (!gesture) return;
+    gesture.latestX = event.clientX;
+    gesture.latestY = event.clientY;
+    const deltaX = Math.max(0, event.clientX - gesture.startX);
+    const deltaY = Math.abs(event.clientY - gesture.startY);
+    if (deltaX <= deltaY || deltaX < 6) return;
+    gesture.moved = true;
+    setHistoryDrag({ id: gesture.id, offset: Math.min(deltaX, 66) });
+  }
+
+  function endHistorySwipe() {
+    const gesture = historyGesture.current;
+    if (!gesture) return;
+    const deltaX = gesture.latestX - gesture.startX;
+    const deltaY = Math.abs(gesture.latestY - gesture.startY);
+    const reveal = gesture.moved && deltaX >= 42 && deltaX > deltaY;
+    suppressHistoryClick.current = gesture.moved;
+    historyGesture.current = null;
+    setHistoryDrag(null);
+    setRevealedHistoryId(reveal ? gesture.id : null);
+  }
+
+  function openDeleteDialog(record: AiceRunRecord) {
+    setDeleteError(null);
+    setPendingDelete(record);
+  }
+
+  async function confirmHistoryDelete() {
+    if (!pendingDelete || deletingHistoryId) return;
+    setDeletingHistoryId(pendingDelete.id);
+    setDeleteError(null);
+    try {
+      await aiceRunsApi.remove(token, pendingDelete.id);
+      setHistory((current) => current.filter((record) => record.id !== pendingDelete.id));
+      if (restoredRunId === pendingDelete.id) setRestoredRunId(null);
+      setRevealedHistoryId(null);
+      setPendingDelete(null);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "생성 기록을 삭제하지 못했습니다.");
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  }
+
   const cards: Array<{ candidate: RecipeCandidate; remark?: string }> = [
     ...candidates.map((candidate) => ({ candidate: normalizeCandidateName(candidate) })),
     ...historyMatches
@@ -280,7 +366,7 @@ export function RecipeChatScreen({
         onClick={toggleSidebar}
         disabled={!token}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="1.5" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h11" /></svg>
       </button>
 
       {sidebarMounted && (
@@ -307,17 +393,54 @@ export function RecipeChatScreen({
             {historyError && <Alert tone="danger" title="기록을 불러오지 못했어요">{historyError}</Alert>}
             {!historyLoading && history.length === 0 && <p className="recipe-history-empty">아직 생성 기록이 없습니다.</p>}
             <ul className="recipe-history-list">
-              {history.map((record) => (
-                <li key={record.id}>
-                  <button type="button" aria-current={restoredRunId === record.id ? "true" : undefined} onClick={() => void restoreFromHistory(record)}>
+              {history.map((record) => {
+                const dragOffset = historyDrag?.id === record.id ? historyDrag.offset : revealedHistoryId === record.id ? 66 : 0;
+                return (
+                <li key={record.id} className={`recipe-history-item${revealedHistoryId === record.id || historyDrag?.id === record.id ? " is-revealed" : ""}`} style={{ "--history-item-x": `${dragOffset}px` } as CSSProperties}>
+                  <button type="button" className="recipe-history-delete" aria-label={`${record.title} 삭제`} onClick={() => openDeleteDialog(record)}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="recipe-history-record"
+                    aria-current={restoredRunId === record.id ? "true" : undefined}
+                    onPointerDown={(event) => beginHistorySwipe(record.id, event)}
+                    onPointerMove={moveHistorySwipe}
+                    onPointerUp={endHistorySwipe}
+                    onPointerCancel={endHistorySwipe}
+                    onClick={() => {
+                      if (suppressHistoryClick.current) {
+                        suppressHistoryClick.current = false;
+                        return;
+                      }
+                      if (revealedHistoryId === record.id) {
+                        setRevealedHistoryId(null);
+                        return;
+                      }
+                      void restoreFromHistory(record);
+                    }}
+                  >
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z" /></svg>
                     <span>{record.title}</span>
                   </button>
                 </li>
-              ))}
+              )})}
             </ul>
           </aside>
         </>
+      )}
+
+      {pendingDelete && (
+        <div className="recipe-history-delete-layer">
+          <section className="recipe-history-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="recipe-history-delete-title">
+            <h3 id="recipe-history-delete-title">삭제하시겠습니까?</h3>
+            {deleteError && <p role="alert">{deleteError}</p>}
+            <div>
+              <button type="button" onClick={() => { setPendingDelete(null); setDeleteError(null); }}>아니오</button>
+              <button type="button" className="danger" disabled={deletingHistoryId === pendingDelete.id} onClick={() => void confirmHistoryDelete()}>{deletingHistoryId === pendingDelete.id ? "삭제 중…" : "예"}</button>
+            </div>
+          </section>
+        </div>
       )}
 
       <div className="recipe-chat-intro">

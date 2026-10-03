@@ -101,10 +101,18 @@ def create_app(
             request.url.path,
             validation_errors,
         )
+        first_error = validation_errors[0] if validation_errors else {}
+        location = ".".join(
+            str(part) for part in first_error.get("loc") or () if part != "body"
+        )
+        reason = first_error.get("msg")
+        message = "요청 값이 올바르지 않습니다."
+        if location and reason:
+            message = f"{message} ({location}: {reason})"
         return JSONResponse(
             status_code=422,
             content={
-                "detail": error_detail("validation_error", "요청 값이 올바르지 않습니다.")
+                "detail": error_detail("validation_error", message)
             },
         )
 
