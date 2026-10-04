@@ -228,6 +228,20 @@ export function App() {
     setView("conversation");
   }
 
+  function sharePostInChat(user: { id: string; username: string; displayName: string; avatarTone: number }, body: string) {
+    const sentAt = new Date().toISOString();
+    const message: ChatMessage = { id: crypto.randomUUID(), body, sentAt, sender: "me" };
+    setChatThreads((current) => {
+      const existing = current.find((thread) => thread.userId === user.id);
+      if (!existing) return [{ userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: sentAt, messages: [message] }, ...current];
+      return current.map((thread) => thread.userId === user.id
+        ? { ...thread, updatedAt: sentAt, messages: [...thread.messages, message] }
+        : thread);
+    });
+    setActiveChatUserId(user.id);
+    setView("conversation");
+  }
+
   function sendChatMessage(message: ChatMessage) {
     setChatThreads((current) => current.map((thread) => thread.userId === activeChatUserId
       ? { ...thread, updatedAt: message.sentAt, messages: [...thread.messages, message] }
@@ -533,6 +547,7 @@ export function App() {
             isOwnPost={selectedPost.userId === "self"}
             isFollowing={followedUserIds.has(selectedPostUser.id)}
             isSaved={bookmarkedPostIds.has(selectedPost.id)}
+            shareRecipients={[...followedUserIds].map(findFeedUser)}
             onToggleFollow={() => toggleFollow(selectedPostUser.id)}
             onToggleSaved={() => toggleBookmark(selectedPost.id)}
             onEdit={(changes) => setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, ...changes } }))}
@@ -551,6 +566,7 @@ export function App() {
             }))}
             onBack={() => setView(postReturnView)}
             onStartChat={() => openConversation(selectedPostUser)}
+            onShareToChat={(recipientId, message) => sharePostInChat(findFeedUser(recipientId), message)}
             onOpenProfile={(userId) => {
               if (selectedPost.userId === "self") setView("my");
               else { setSelectedProfileId(userId); setView("profile"); }

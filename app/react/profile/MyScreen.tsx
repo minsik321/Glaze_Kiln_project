@@ -442,12 +442,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
       <div className="my-profile-summary">
         <div className={`my-avatar avatar-tone-${avatarTone}`} aria-label={`${displayName} 프로필 이미지`} style={avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : undefined} />
         <strong className="my-display-name">{displayName}</strong>
-        {isMine
-          ? <button className="my-edit-button" type="button" onClick={openProfileEditor}>프로필 편집</button>
-          : <div className="my-profile-actions">
-              <button className="my-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>
-              <button className="my-message-button" type="button" onClick={onMessage}>메시지</button>
-            </div>}
+        {isMine && <button className="my-edit-button" type="button" onClick={openProfileEditor}>프로필 편집</button>}
       </div>
 
       <dl className="my-stats" aria-label="프로필 통계">
@@ -455,6 +450,11 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
         <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
         <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
       </dl>
+
+      {!isMine && <div className="my-profile-actions">
+        <button className="my-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>
+        <button className="my-message-button" type="button" onClick={onMessage}>메시지</button>
+      </div>}
 
       <div className="my-layout-tabs" role="tablist" aria-label="게시물 보기 방식">
         <button type="button" role="tab" aria-selected={layout === "grid"} aria-label="격자로 보기" onClick={() => setLayout("grid")}><GridIcon /></button>

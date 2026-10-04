@@ -55,6 +55,8 @@ describe("MyScreen", () => {
 
     expect(screen.queryByRole("button", { name: "프로필 편집" })).toBeNull();
     const follow = screen.getByRole("button", { name: "팔로우" });
+    const stats = screen.getByLabelText("프로필 통계");
+    expect(stats.nextElementSibling?.classList.contains("my-profile-actions")).toBe(true);
     fireEvent.click(follow);
     expect(onToggleFollow).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "메시지" }));

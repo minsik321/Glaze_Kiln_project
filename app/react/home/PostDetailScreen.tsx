@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { FeedPost, FeedUser } from "./feedData";
 
 export type PostComment = {
@@ -20,6 +20,18 @@ function MoreIcon() {
 
 function ShareIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m0 0L7 8m5-5 5 5" /><path d="M5 12v8h14v-8" /></svg>;
+}
+
+function LinkIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1" /></svg>;
+}
+
+function ChatShareIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v12H9l-5 4z" /><path d="M8 10h8M8 13h5" /></svg>;
+}
+
+function CloseIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>;
 }
 
 function BookmarkIcon() {
@@ -64,7 +76,7 @@ function FiringCurve({ post }: { post: FeedPost }) {
   );
 }
 
-export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void }) {
+export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, shareRecipients = [], onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat, onShareToChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; shareRecipients?: readonly FeedUser[]; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void; onShareToChat?: (recipientId: string, message: string) => void }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [importStatus, setImportStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [importError, setImportError] = useState("");
@@ -74,6 +86,64 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
   const [editMemo, setEditMemo] = useState(post.memo);
   const [editPrice, setEditPrice] = useState(post.price ? String(post.price) : "");
   const [editNegotiable, setEditNegotiable] = useState(Boolean(post.priceNegotiable));
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareView, setShareView] = useState<"options" | "following">("options");
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2_400);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const shareUrl = typeof window === "undefined"
+    ? `#post-${post.id}`
+    : `${window.location.origin}${window.location.pathname}#post-${post.id}`;
+  const shareMessage = `[게시물 공유] ${post.glazeName}\n${shareUrl}`;
+
+  function showToast(message: string) {
+    setToast({ id: Date.now(), message });
+  }
+
+  function toggleSaved() {
+    onToggleSaved?.();
+    showToast(isSaved ? "북마크에서 삭제되었습니다." : "북마크에 저장되었습니다.");
+  }
+
+  async function copyShareLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareOpen(false);
+      showToast("링크를 복사했습니다.");
+    } catch {
+      showToast("링크를 복사하지 못했습니다.");
+    }
+  }
+
+  async function shareToSns() {
+    if (!navigator.share) {
+      await copyShareLink();
+      return;
+    }
+    try {
+      await navigator.share({ title: post.glazeName, text: `${user.displayName}님의 게시물을 공유합니다.`, url: shareUrl });
+      setShareOpen(false);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      showToast("공유하지 못했습니다.");
+    }
+  }
+
+  function closeShare() {
+    setShareOpen(false);
+    setShareView("options");
+  }
+
+  function shareToChat(recipient: FeedUser) {
+    if (!onShareToChat) return;
+    closeShare();
+    onShareToChat(recipient.id, shareMessage);
+  }
 
   function submitComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -130,6 +200,27 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
     </div>
   );
 
+  const toastLayer = toast && <div className="post-toast" key={toast.id} role="status" aria-live="polite">{toast.message}</div>;
+  const shareLayer = shareOpen && (
+    <div className="post-share-layer" role="presentation" onClick={closeShare}>
+      <section className="post-share-sheet" role="dialog" aria-modal="true" aria-labelledby="post-share-title" onClick={(event) => event.stopPropagation()}>
+        <header><h2 id="post-share-title">{shareView === "options" ? "공유하기" : "팔로잉에게 보내기"}</h2><button type="button" aria-label="공유하기 닫기" onClick={closeShare}><CloseIcon /></button></header>
+        {shareView === "options" ? <div className="post-share-options">
+          <button type="button" onClick={() => void shareToSns()}><span><ShareIcon /></span><strong>SNS로 공유</strong><small>기기의 공유 메뉴를 열어요</small></button>
+          <button type="button" onClick={() => void copyShareLink()}><span><LinkIcon /></span><strong>링크 복사</strong><small>게시물 주소를 복사해요</small></button>
+          <button type="button" disabled={!onShareToChat} onClick={() => setShareView("following")}><span><ChatShareIcon /></span><strong>채팅으로 보내기</strong><small>팔로잉 목록에서 받을 사람을 선택해요</small></button>
+        </div> : <div className="post-share-following" aria-label="팔로잉 목록">
+          {shareRecipients.length > 0 ? shareRecipients.map((recipient) => <button type="button" key={recipient.id} onClick={() => shareToChat(recipient)}>
+            <span className={`avatar-tone-${recipient.avatarTone}`} aria-hidden="true" />
+            <span><strong>{recipient.displayName}</strong><small>@{recipient.username}</small></span>
+            <b>보내기</b>
+          </button>) : <div className="post-share-empty"><strong>팔로잉한 사용자가 없어요</strong><p>사용자를 팔로우하면 이곳에서 선택할 수 있어요.</p></div>}
+          <button className="post-share-back" type="button" onClick={() => setShareView("options")}>이전으로</button>
+        </div>}
+      </section>
+    </div>
+  );
+
   if (post.kind === "sale") {
     const price = post.price ? `${post.price.toLocaleString("ko-KR")}원` : "가격 협의";
     return (
@@ -137,7 +228,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
         <header className="post-detail-header">
           <button type="button" aria-label="홈 피드로 돌아가기" onClick={onBack}><BackIcon /></button>
           <strong>기물 판매</strong>
-          <button type="button" aria-label={isSaved ? "게시물 저장 취소" : "게시물 저장"} aria-pressed={isSaved} onClick={onToggleSaved}><BookmarkIcon /></button>
+          <button type="button" aria-label={isSaved ? "게시물 저장 취소" : "게시물 저장"} aria-pressed={isSaved} onClick={toggleSaved}><BookmarkIcon /></button>
         </header>
         <main className="post-detail-scroll sale-detail-scroll">
           <section className={`post-author-panel${isOwnPost ? " own-post" : ""}`} aria-label="작성자 정보">
@@ -163,6 +254,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           </section>
         </main>
         {!isOwnPost && <button className="sale-chat-button" type="button" onClick={onStartChat}>채팅으로 문의하기</button>}
+        {toastLayer}
         {ownerDialogLayer}
       </section>
     );
@@ -189,8 +281,8 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           <figcaption>
             <div><span>{post.publishedAt}</span><h1>{post.glazeName}</h1><p>{post.finish}</p></div>
             <div className="post-hero-actions">
-              <button type="button" aria-label={isSaved ? "게시물 저장 취소" : "게시물 저장"} aria-pressed={isSaved} onClick={onToggleSaved}><BookmarkIcon /></button>
-              <button type="button" aria-label="공유"><ShareIcon /></button>
+              <button type="button" aria-label={isSaved ? "게시물 저장 취소" : "게시물 저장"} aria-pressed={isSaved} onClick={toggleSaved}><BookmarkIcon /></button>
+              <button type="button" aria-label="공유" aria-haspopup="dialog" onClick={() => { setShareView("options"); setShareOpen(true); }}><ShareIcon /></button>
               {onImportRecipe && <button className={importStatus === "saved" ? "is-added" : ""} type="button" aria-label={importStatus === "saved" ? "작업기록에 추가됨" : "내 작업 레시피에 추가"} disabled={importStatus === "saving" || importStatus === "saved"} onClick={() => setImportDialog("confirm")}>{importStatus === "saved" ? <CheckIcon /> : <PlusIcon />}</button>}
             </div>
           </figcaption>
@@ -268,6 +360,8 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           </section>
         </div>
       )}
+      {shareLayer}
+      {toastLayer}
       {ownerDialogLayer}
     </section>
   );

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FEED_POSTS, findFeedUser } from "./feedData";
+import { FEED_POSTS, FEED_USERS, findFeedUser } from "./feedData";
 import { PostDetailScreen, type PostComment } from "./PostDetailScreen";
 
 afterEach(cleanup);
@@ -65,6 +65,39 @@ describe("PostDetailScreen", () => {
     const save = screen.getByRole("button", { name: "게시물 저장" });
     fireEvent.click(save);
     expect(onToggleSaved).toHaveBeenCalledOnce();
+    expect(screen.getByRole("status").textContent).toBe("북마크에 저장되었습니다.");
+  });
+
+  it("opens sharing options and sends the post through chat", () => {
+    const post = FEED_POSTS[0];
+    const recipient = FEED_USERS[1];
+    const onShareToChat = vi.fn();
+    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} shareRecipients={[recipient]} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} onShareToChat={onShareToChat} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    const dialog = screen.getByRole("dialog", { name: "공유하기" });
+    expect(within(dialog).getByRole("button", { name: /SNS로 공유/ })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /링크 복사/ })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /채팅으로 보내기/ }));
+    const followingDialog = screen.getByRole("dialog", { name: "팔로잉에게 보내기" });
+    fireEvent.click(within(followingDialog).getByRole("button", { name: new RegExp(recipient.displayName) }));
+
+    expect(onShareToChat).toHaveBeenCalledWith(recipient.id, expect.stringContaining(post.glazeName));
+    expect(onShareToChat).toHaveBeenCalledWith(recipient.id, expect.stringContaining(`#post-${post.id}`));
+    expect(screen.queryByRole("dialog", { name: "공유하기" })).toBeNull();
+  });
+
+  it("copies a shareable post link", async () => {
+    const post = FEED_POSTS[0];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "공유하기" })).getByRole("button", { name: /링크 복사/ }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining(`#post-${post.id}`)));
+    expect((await screen.findByRole("status")).textContent).toBe("링크를 복사했습니다.");
   });
 
   it("edits and asks before deleting the viewer's own post", () => {

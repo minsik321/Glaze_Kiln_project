@@ -24,7 +24,7 @@ function ListIcon() {
 }
 
 function BellIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5h11l-1.5-2V10a4 4 0 0 0-8 0v4.5z" /><path d="M10 19h4" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 17.5h15l-2-3V9.5a5.5 5.5 0 0 0-11 0v5z" /><path d="M9.5 20.5h5" /></svg>;
 }
 
 function SearchIcon() {
