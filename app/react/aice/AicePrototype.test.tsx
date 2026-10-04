@@ -294,6 +294,22 @@ describe("AICE guided prototype", () => {
     });
   });
 
+  it("keeps the snapshot callback stable after a thickness profile arrives", async () => {
+    mockFetch();
+    const onSnapshotReady = vi.fn();
+    const view = render(<AicePrototype onSnapshotReady={onSnapshotReady} />);
+    await skipToWare();
+    fireEvent.click(screen.getByRole("button", { name: /^사발/ }));
+    fireEvent.click(screen.getByRole("button", { name: /백색 석기 소지/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^다음/ }));
+    await fillWeightInputs();
+    await waitFor(() => expect(screen.getByText(/평균 1\.00mm/)).toBeTruthy());
+
+    const callbackCount = onSnapshotReady.mock.calls.length;
+    view.rerender(<AicePrototype onSnapshotReady={onSnapshotReady} />);
+    expect(onSnapshotReady).toHaveBeenCalledTimes(callbackCount);
+  });
+
   it("records only an approved curve and its synthetic controller samples", async () => {
     mockFetch();
     const onSnapshotReady = vi.fn();

@@ -89,6 +89,8 @@ export function App() {
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
+  const [followToast, setFollowToast] = useState<{ id: number; message: string } | null>(null);
+  const followToastId = useRef(0);
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
@@ -100,7 +102,7 @@ export function App() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsDetail | null>(null);
   const [settingsDetailClosing, setSettingsDetailClosing] = useState(false);
   const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
-  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string }>();
+  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string; bio: string }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
   const [connectionsOwnerId, setConnectionsOwnerId] = useState("self");
   const [connectionsInitialTab, setConnectionsInitialTab] = useState<ConnectionTab>("followers");
@@ -126,7 +128,7 @@ export function App() {
     let active = true;
     void requireSupabase()
       .from("profiles")
-      .select("display_name, avatar_url")
+      .select("display_name, avatar_url, bio")
       .eq("id", session.user.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -134,6 +136,7 @@ export function App() {
         setProfileIdentity({
           displayName: data.display_name || session.user.user_metadata.display_name || "가마쟁이",
           avatarUrl: data.avatar_url || session.user.user_metadata.avatar_url || "",
+          bio: data.bio || "",
         });
       });
     return () => { active = false; };
@@ -142,6 +145,12 @@ export function App() {
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
   useEffect(() => saveChatThreads(chatThreads), [chatThreads]);
+
+  useEffect(() => {
+    if (!followToast) return;
+    const timer = window.setTimeout(() => setFollowToast(null), 2_400);
+    return () => window.clearTimeout(timer);
+  }, [followToast]);
 
   useEffect(() => {
     if (entryPhase !== "splash") return;
@@ -204,6 +213,7 @@ export function App() {
     ?? session?.user.user_metadata.nickname
     ?? "가마쟁이";
   const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
+  const bio = profileIdentity?.bio ?? session?.user.user_metadata.bio ?? "";
   const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
   const feedPosts = applyPostState([...createdPosts, ...FEED_POSTS]);
   const followingFeedPosts = feedPosts.filter((post) => followedUserIds.has(post.userId));
@@ -213,7 +223,7 @@ export function App() {
   const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
   const selectedPostBase = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
-  const selfUser: FeedUser = { id: "self", username, displayName, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
+  const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
   const selectedPostUser = selectedPost.userId === "self"
     ? selfUser
     : findFeedUser(selectedPost.userId);
@@ -250,11 +260,16 @@ export function App() {
 
   function toggleFollow(userId: string) {
     if (userId === "self") return;
+    const wasFollowing = followedUserIds.has(userId);
     setFollowedUserIds((current) => {
       const next = new Set(current);
       if (next.has(userId)) next.delete(userId);
       else next.add(userId);
       return next;
+    });
+    setFollowToast({
+      id: ++followToastId.current,
+      message: `${findFeedUser(userId).displayName}님을 ${wasFollowing ? "언팔로우했습니다." : "팔로우했습니다."}`,
     });
   }
 
@@ -469,6 +484,7 @@ export function App() {
           <MyScreen
             username={username}
             displayName={displayName}
+            bio={bio}
             avatarUrl={avatarUrl}
             posts={myPosts}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("my"); setView("post"); }}
@@ -477,20 +493,20 @@ export function App() {
             onOpenConnections={(tab) => openConnections("self", tab)}
             onOpenAccountSettings={() => openSettingsDetail("account")}
             onOpenKilnSettings={() => openSettingsDetail("kiln")}
-            onSaveProfile={async ({ nickname, avatarUrl: nextAvatarUrl }) => {
+            onSaveProfile={async ({ nickname, avatarUrl: nextAvatarUrl, bio: nextBio }) => {
               if (!session) throw new Error("로그인 정보를 확인할 수 없습니다.");
               const client = requireSupabase();
               const saved = await client.from("profiles").upsert(
-                { id: session.user.id, display_name: nickname, avatar_url: nextAvatarUrl || null },
+                { id: session.user.id, display_name: nickname, avatar_url: nextAvatarUrl || null, bio: nextBio },
                 { onConflict: "id" },
               );
               if (saved.error) {
                 if (saved.error.code === "23505") throw new Error("이미 사용중인 닉네임입니다.");
                 throw new Error(saved.error.message || "프로필을 저장하지 못했습니다.");
               }
-              const metadata = await client.auth.updateUser({ data: { display_name: nickname, avatar_url: nextAvatarUrl || null } });
+              const metadata = await client.auth.updateUser({ data: { display_name: nickname, avatar_url: nextAvatarUrl || null, bio: nextBio } });
               if (metadata.error) throw metadata.error;
-              setProfileIdentity({ displayName: nickname, avatarUrl: nextAvatarUrl });
+              setProfileIdentity({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio });
             }}
             onSettingsOpenChange={setMySettingsOpen}
             onLogout={async () => {
@@ -522,7 +538,7 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState(postsForUser(selectedProfile.id))} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState(postsForUser(selectedProfile.id))} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
         </section>
         <section className="app-view" hidden={view !== "connections"}>
           {view === "connections" && <ConnectionsScreen
@@ -617,6 +633,7 @@ export function App() {
             </section>
           </div>
         )}
+        {followToast && <div className={`follow-toast${view === "post" && selectedPost.kind === "sale" ? " on-sale-detail" : ""}`} key={followToast.id} role="status" aria-live="polite">{followToast.message}</div>}
     </AppShell>
   );
 }

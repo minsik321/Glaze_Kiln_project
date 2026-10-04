@@ -2,6 +2,7 @@ export type FeedUser = {
   id: string;
   username: string;
   displayName: string;
+  bio: string;
   avatarTone: number;
   stats: { records: number; followers: number; following: number };
 };
@@ -73,26 +74,26 @@ function dummyStats(userId: string) {
 }
 
 export const FEED_USERS: readonly FeedUser[] = [
-  { id: "chloe", username: "chloe.jung", displayName: "가마쟁이", avatarTone: 1, stats: dummyStats("chloe") },
-  { id: "mira", username: "mira.ceramic", displayName: "미라의 흙방", avatarTone: 2, stats: dummyStats("mira") },
-  { id: "dohoon", username: "dohoon.kiln", displayName: "도훈 소성실", avatarTone: 3, stats: dummyStats("dohoon") },
-  { id: "sena", username: "sena.glaze", displayName: "세나유약", avatarTone: 4, stats: dummyStats("sena") },
-  { id: "jun", username: "jun.claylab", displayName: "준 클레이랩", avatarTone: 5, stats: dummyStats("jun") },
-  { id: "haeun", username: "haeun.pottery", displayName: "해은도예", avatarTone: 6, stats: dummyStats("haeun") },
-  { id: "noa", username: "noa.studio", displayName: "노아 스튜디오", avatarTone: 7, stats: dummyStats("noa") },
-  { id: "yeon", username: "yeon.fire", displayName: "연의 불기록", avatarTone: 8, stats: dummyStats("yeon") },
-  { id: "sori", username: "sori.celadon", displayName: "소리청자", avatarTone: 9, stats: dummyStats("sori") },
-  { id: "tae", username: "tae.works", displayName: "태 작업실", avatarTone: 10, stats: dummyStats("tae") },
-  { id: "yuna", username: "yuna.ceramics", displayName: "유나 세라믹스", avatarTone: 11, stats: dummyStats("yuna") },
-  { id: "haneul", username: "haneul.glaze", displayName: "하늘빛 유약", avatarTone: 12, stats: dummyStats("haneul") },
-  { id: "jiho", username: "jiho.kilnlog", displayName: "지호 가마일지", avatarTone: 13, stats: dummyStats("jiho") },
-  { id: "boram", username: "boram.clay", displayName: "보람의 흙", avatarTone: 14, stats: dummyStats("boram") },
-  { id: "ian", username: "ian.stoneware", displayName: "이안 스톤웨어", avatarTone: 15, stats: dummyStats("ian") },
-  { id: "chae", username: "chae.pot", displayName: "채의 그릇", avatarTone: 16, stats: dummyStats("chae") },
-  { id: "minu", username: "minu.oxide", displayName: "민우 산화물", avatarTone: 17, stats: dummyStats("minu") },
-  { id: "arin", username: "arin.firebox", displayName: "아린 파이어박스", avatarTone: 18, stats: dummyStats("arin") },
-  { id: "leo", username: "leo.glazebook", displayName: "레오 유약책", avatarTone: 19, stats: dummyStats("leo") },
-  { id: "dami", username: "dami.mud", displayName: "다미의 진흙", avatarTone: 20, stats: dummyStats("dami") },
+  { id: "chloe", username: "chloe.jung", displayName: "가마쟁이", bio: "가마 앞에서 매일 새로운 색을 실험합니다.", avatarTone: 1, stats: dummyStats("chloe") },
+  { id: "mira", username: "mira.ceramic", displayName: "미라의 흙방", bio: "손으로 빚은 그릇과 흙의 질감을 기록해요.", avatarTone: 2, stats: dummyStats("mira") },
+  { id: "dohoon", username: "dohoon.kiln", displayName: "도훈 소성실", bio: "온도와 시간을 쌓아 나만의 소성 곡선을 찾습니다.", avatarTone: 3, stats: dummyStats("dohoon") },
+  { id: "sena", username: "sena.glaze", displayName: "세나유약", bio: "빛에 따라 달라지는 유약 색을 좋아해요.", avatarTone: 4, stats: dummyStats("sena") },
+  { id: "jun", username: "jun.claylab", displayName: "준 클레이랩", bio: "흙과 유약의 작은 변화를 실험하는 작업실.", avatarTone: 5, stats: dummyStats("jun") },
+  { id: "haeun", username: "haeun.pottery", displayName: "해은도예", bio: "일상에서 오래 쓰이는 그릇을 만듭니다.", avatarTone: 6, stats: dummyStats("haeun") },
+  { id: "noa", username: "noa.studio", displayName: "노아 스튜디오", bio: "차분한 형태와 부드러운 표면을 탐색해요.", avatarTone: 7, stats: dummyStats("noa") },
+  { id: "yeon", username: "yeon.fire", displayName: "연의 불기록", bio: "매번 다른 불의 흔적을 기록합니다.", avatarTone: 8, stats: dummyStats("yeon") },
+  { id: "sori", username: "sori.celadon", displayName: "소리청자", bio: "푸른 청자빛과 맑은 빙렬을 연구해요.", avatarTone: 9, stats: dummyStats("sori") },
+  { id: "tae", username: "tae.works", displayName: "태 작업실", bio: "흙으로 담백한 일상을 빚습니다.", avatarTone: 10, stats: dummyStats("tae") },
+  { id: "yuna", username: "yuna.ceramics", displayName: "유나 세라믹스", bio: "따뜻한 색감의 식기를 만들어요.", avatarTone: 11, stats: dummyStats("yuna") },
+  { id: "haneul", username: "haneul.glaze", displayName: "하늘빛 유약", bio: "푸른 유약의 깊이를 찾아가는 중입니다.", avatarTone: 12, stats: dummyStats("haneul") },
+  { id: "jiho", username: "jiho.kilnlog", displayName: "지호 가마일지", bio: "소성 결과와 배움을 꾸준히 남겨요.", avatarTone: 13, stats: dummyStats("jiho") },
+  { id: "boram", username: "boram.clay", displayName: "보람의 흙", bio: "흙의 자연스러운 결을 좋아합니다.", avatarTone: 14, stats: dummyStats("boram") },
+  { id: "ian", username: "ian.stoneware", displayName: "이안 스톤웨어", bio: "튼튼하고 편안한 생활 도자기를 만들어요.", avatarTone: 15, stats: dummyStats("ian") },
+  { id: "chae", username: "chae.pot", displayName: "채의 그릇", bio: "매일 손이 가는 그릇을 빚습니다.", avatarTone: 16, stats: dummyStats("chae") },
+  { id: "minu", username: "minu.oxide", displayName: "민우 산화물", bio: "산화물 배합으로 새로운 표면을 실험해요.", avatarTone: 17, stats: dummyStats("minu") },
+  { id: "arin", username: "arin.firebox", displayName: "아린 파이어박스", bio: "가마 속 색의 변화를 관찰합니다.", avatarTone: 18, stats: dummyStats("arin") },
+  { id: "leo", username: "leo.glazebook", displayName: "레오 유약책", bio: "유약 레시피와 테스트를 한 장씩 모아요.", avatarTone: 19, stats: dummyStats("leo") },
+  { id: "dami", username: "dami.mud", displayName: "다미의 진흙", bio: "흙을 만지는 느린 시간을 좋아해요.", avatarTone: 20, stats: dummyStats("dami") },
 ] as const;
 
 const textures = [

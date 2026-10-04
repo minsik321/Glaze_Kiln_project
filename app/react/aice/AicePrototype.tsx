@@ -225,7 +225,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
     () => buildThicknessView({ ware: state.ware ?? "bowl", profile: thicknessProfile, safeRangeMm: safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM }),
     [state.ware, thicknessProfile, safeThicknessMm],
   );
-  const arealDensity = arealDensityFromProfile(thicknessProfile);
+  const arealDensity = useMemo(() => arealDensityFromProfile(thicknessProfile), [thicknessProfile]);
   //: v9: 5페이지 요구사항 — 도포 상태는 선택이 아니라 실측 무게로 계산된
   //: 값이어야 한다. thicknessViewData.overallStatus(무게 미입력이면
   //: "unavailable")를 그대로 따라가고, 아직 계산 전에는 이후 화면(가마·

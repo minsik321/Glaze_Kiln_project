@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 type MyScreenProps = {
   username?: string;
   displayName?: string;
+  bio?: string;
   avatarUrl?: string;
   variant?: "mine" | "other";
   avatarTone?: number;
   stats?: { records: number; followers: number; following: number };
-  posts?: readonly { id: string; image: string; label: string; crop?: number }[];
+  posts?: readonly { id: string; image: string; label: string; crop?: number; kind?: "work" | "sale"; price?: number | null; glazeName?: string }[];
   onBack?: () => void;
   onMessage?: () => void;
   isFollowing?: boolean;
@@ -17,7 +18,7 @@ type MyScreenProps = {
   onOpenBookmarks?: () => void;
   onOpenAccountSettings?: () => void;
   onOpenKilnSettings?: () => void;
-  onSaveProfile?: (profile: { nickname: string; avatarUrl: string }) => void | Promise<void>;
+  onSaveProfile?: (profile: { nickname: string; avatarUrl: string; bio: string }) => void | Promise<void>;
   onLogout?: () => void | Promise<void>;
   onDeleteAccount?: (password: string) => void | Promise<void>;
   onReturnToLogin?: () => void;
@@ -69,14 +70,6 @@ async function profileImageDataUrl(file: File) {
   return canvas.toDataURL("image/jpeg", 0.82);
 }
 
-function GridIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></svg>;
-}
-
-function ListIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1" /></svg>;
-}
-
 function MenuIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg>;
 }
@@ -95,6 +88,18 @@ function BookmarkIcon() {
 
 function ChevronIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>;
+}
+
+function SaleIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h8l10 10-7 7L3 10V4Z" /><circle cx="7.5" cy="7.5" r="1" /></svg>;
+}
+
+function WorkIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8M9 3v3c0 1.5-.7 2.5-2 3.7A6.8 6.8 0 0 0 5 14a7 7 0 0 0 14 0 6.8 6.8 0 0 0-2-4.3C15.7 8.5 15 7.5 15 6V3M8 12h8" /></svg>;
+}
+
+function ChatIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c4.4 0 8 3.3 8 7.5S16.4 19 12 19c-1.1 0-2.2-.2-3.2-.6L4 20l1.4-4.1A7.1 7.1 0 0 1 4 11.5C4 7.3 7.6 4 12 4Z" /><circle cx="8.5" cy="11.5" r="1" /><circle cx="12" cy="11.5" r="1" /><circle cx="15.5" cy="11.5" r="1" /></svg>;
 }
 
 const settingsItems = [
@@ -122,8 +127,8 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   return <svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>;
 }
 
-export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
-  const [layout, setLayout] = useState<"grid" | "list">("grid");
+export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", bio = "", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
+  const [layout, setLayout] = useState<"sale" | "work">("work");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("menu");
@@ -136,17 +141,60 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   const [settingsError, setSettingsError] = useState("");
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileNickname, setProfileNickname] = useState(displayName);
+  const [profileBio, setProfileBio] = useState(bio);
   const [profileAvatar, setProfileAvatar] = useState(avatarUrl);
   const [profileError, setProfileError] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
+  const [bioExpanded, setBioExpanded] = useState(false);
+  const [bioTruncated, setBioTruncated] = useState(false);
+  const bioRef = useRef<HTMLParagraphElement>(null);
   const settingsCloseTimer = useRef<number | undefined>(undefined);
   const settingsPageCloseTimer = useRef<number | undefined>(undefined);
   const handledSettingsRequest = useRef(settingsOpenRequest);
   const layoutSwipe = useRef({ active: false, startX: 0, startY: 0, latestX: 0, latestY: 0 });
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [postsHeight, setPostsHeight] = useState<number>();
+  const postsViewport = useRef<HTMLDivElement>(null);
+  const salePanel = useRef<HTMLDivElement>(null);
+  const workPanel = useRef<HTMLDivElement>(null);
+  const suppressPostClick = useRef(false);
   const isMine = variant === "mine";
+  const salePosts = suppliedPosts.filter((post) => post.kind === "sale");
+  const workPosts = suppliedPosts.filter((post) => post.kind !== "sale");
+  const postsLayoutKey = suppliedPosts.map((post) => `${post.id}:${post.kind ?? "work"}`).join("|");
+
+  useLayoutEffect(() => {
+    setBioExpanded(false);
+  }, [bio]);
+
+  useLayoutEffect(() => {
+    const paragraph = bioRef.current;
+    if (!paragraph || bioExpanded) return;
+    const checkOverflow = () => setBioTruncated(paragraph.clientHeight === 0 ? bio.length > 80 : paragraph.scrollHeight > paragraph.clientHeight + 1);
+    checkOverflow();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(checkOverflow);
+    observer.observe(paragraph);
+    return () => observer.disconnect();
+  }, [bio, bioExpanded]);
+
+  useLayoutEffect(() => {
+    const panel = layout === "sale" ? salePanel.current : workPanel.current;
+    if (!panel) return;
+    const updateHeight = () => {
+      const height = panel.offsetHeight;
+      setPostsHeight((current) => current === height ? current : height);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [layout, postsLayoutKey]);
 
   function startLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
-    if (isMine) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     layoutSwipe.current = { active: true, startX: event.clientX, startY: event.clientY, latestX: event.clientX, latestY: event.clientY };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
@@ -155,16 +203,27 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
     if (!layoutSwipe.current.active) return;
     layoutSwipe.current.latestX = event.clientX;
     layoutSwipe.current.latestY = event.clientY;
+    const deltaX = event.clientX - layoutSwipe.current.startX;
+    const deltaY = event.clientY - layoutSwipe.current.startY;
+    if (Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      const width = postsViewport.current?.clientWidth || 1;
+      setDragging(true);
+      setDragX(Math.max(layout === "sale" ? -width : 0, Math.min(layout === "sale" ? 0 : width, deltaX)));
+    }
   }
 
-  function finishLayoutSwipe() {
+  function finishLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
     const swipe = layoutSwipe.current;
     if (!swipe.active) return;
     swipe.active = false;
-    const deltaX = swipe.latestX - swipe.startX;
+    const deltaX = event.clientX - swipe.startX;
     const deltaY = Math.abs(swipe.latestY - swipe.startY);
+    setDragging(false);
+    setDragX(0);
     if (Math.abs(deltaX) < 56 || Math.abs(deltaX) <= deltaY) return;
-    setLayout(deltaX < 0 ? "list" : "grid");
+    suppressPostClick.current = true;
+    window.setTimeout(() => { suppressPostClick.current = false; }, 0);
+    setLayout(deltaX < 0 ? "work" : "sale");
   }
 
   function openSettings() {
@@ -246,6 +305,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
 
   function openProfileEditor() {
     setProfileNickname(displayName);
+    setProfileBio(bio);
     setProfileAvatar(avatarUrl);
     setProfileError("");
     setProfileEditorOpen(true);
@@ -286,7 +346,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
     setProfileBusy(true);
     setProfileError("");
     try {
-      await onSaveProfile?.({ nickname, avatarUrl: profileAvatar });
+      await onSaveProfile?.({ nickname, avatarUrl: profileAvatar, bio: profileBio.trim() });
       setProfileEditorOpen(false);
     } catch (error) {
       setProfileError(errorMessage(error, "프로필을 저장하지 못했습니다."));
@@ -441,43 +501,53 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
 
       <div className="my-profile-summary">
         <div className={`my-avatar avatar-tone-${avatarTone}`} aria-label={`${displayName} 프로필 이미지`} style={avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : undefined} />
-        <strong className="my-display-name">{displayName}</strong>
-        {isMine && <button className="my-edit-button" type="button" onClick={openProfileEditor}>프로필 편집</button>}
+        <div className="my-identity">
+          <strong className="my-display-name">{displayName}</strong>
+          {isMine && <button className="my-edit-button" type="button" onClick={openProfileEditor}>프로필 편집</button>}
+          {!isMine && <div className="my-profile-actions">
+            <button className="my-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>
+            <button className="my-message-button" type="button" aria-label="메시지" onClick={onMessage}><ChatIcon /></button>
+          </div>}
+          <dl className="my-stats" aria-label="프로필 통계">
+            <div><dt>게시물</dt><dd>{suppliedPosts.length}</dd></div>
+            <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
+            <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
+          </dl>
+        </div>
+        {bio && <div className="my-bio-block">
+          <p className={`my-bio${bioExpanded ? " is-expanded" : ""}`} ref={bioRef}>{bio}</p>
+          {(bioTruncated || bioExpanded) && <button className="my-bio-more" type="button" aria-expanded={bioExpanded} onClick={() => setBioExpanded((value) => !value)}>{bioExpanded ? "접기" : "더 보기"}</button>}
+        </div>}
       </div>
-
-      <dl className="my-stats" aria-label="프로필 통계">
-        <div><dt>게시물</dt><dd>{suppliedPosts.length}</dd></div>
-        <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
-        <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
-      </dl>
-
-      {!isMine && <div className="my-profile-actions">
-        <button className="my-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>
-        <button className="my-message-button" type="button" onClick={onMessage}>메시지</button>
-      </div>}
 
       <div className="my-layout-tabs" role="tablist" aria-label="게시물 보기 방식">
-        <button type="button" role="tab" aria-selected={layout === "grid"} aria-label="격자로 보기" onClick={() => setLayout("grid")}><GridIcon /></button>
-        <button type="button" role="tab" aria-selected={layout === "list"} aria-label="목록으로 보기" onClick={() => setLayout("list")}><ListIcon /></button>
+        <button type="button" role="tab" aria-selected={layout === "sale"} onClick={() => setLayout("sale")}><SaleIcon />판매글</button>
+        <button type="button" role="tab" aria-selected={layout === "work"} onClick={() => setLayout("work")}><WorkIcon />작업물</button>
       </div>
 
-      <div className={`my-posts ${layout}`} aria-label="내 게시물" onPointerDown={startLayoutSwipe} onPointerMove={moveLayoutSwipe} onPointerUp={finishLayoutSwipe} onPointerCancel={finishLayoutSwipe}>
-        {suppliedPosts.map((post, index) => (
+      <div className="my-posts-viewport" ref={postsViewport} style={postsHeight === undefined ? undefined : { height: postsHeight }} aria-label="내 게시물" onPointerDown={startLayoutSwipe} onPointerMove={moveLayoutSwipe} onPointerUp={finishLayoutSwipe} onPointerCancel={() => { layoutSwipe.current.active = false; setDragging(false); setDragX(0); }} onClickCapture={(event) => { if (suppressPostClick.current) { event.stopPropagation(); event.preventDefault(); suppressPostClick.current = false; } }}>
+        <div className={`my-posts-track${dragging ? " is-dragging" : ""}`} style={{ transform: `translate3d(calc(${layout === "work" ? "-50%" : "0%"} + ${dragX}px), 0, 0)` }}>
+        {(["sale", "work"] as const).map((panelLayout) => <div className={`my-posts ${panelLayout}`} key={panelLayout} ref={panelLayout === "sale" ? salePanel : workPanel} aria-hidden={layout !== panelLayout} inert={layout !== panelLayout}>
+        {(panelLayout === "sale" ? salePosts : workPosts).map((post, index) => (
           <article className="my-post" key={post.id}>
             <button className="my-post-open" type="button" aria-label={`${post.label} 게시물 보기`} onClick={() => onOpenPost?.(post.id)}>
               {post.image
                 ? <img className={`my-post-placeholder crop-${post.crop ?? index + 1}`} src={post.image} alt={post.label} />
                 : <div className={`my-post-placeholder tone-${index + 1}`} role="img" aria-label={post.label} />}
-              {layout === "list" && <div className="my-post-copy"><strong>{post.label}</strong><small>{username}</small></div>}
+              {panelLayout === "sale"
+                ? <span className="my-sale-copy"><strong>{post.glazeName || post.label}</strong><small>{post.price == null ? "가격 문의" : `${post.price.toLocaleString("ko-KR")}원`}</small></span>
+                : <span className="my-post-copy"><strong>{post.label}</strong><small>{username}</small></span>}
             </button>
           </article>
         ))}
-        {suppliedPosts.length === 0 && (
+        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && (
           <div className="my-posts-empty" role="status">
-            <strong>아직 작업 기록이 없습니다.</strong>
-            <p>첫 유약 작업을 기록하면 이곳에 표시됩니다.</p>
+            <strong>{panelLayout === "sale" ? "아직 판매글이 없습니다." : "아직 작업 기록이 없습니다."}</strong>
+            <p>{panelLayout === "sale" ? "판매글을 등록하면 이곳에 표시됩니다." : "첫 유약 작업을 기록하면 이곳에 표시됩니다."}</p>
           </div>
         )}
+        </div>)}
+        </div>
       </div>
 
       {isMine && profileEditorOpen && (
@@ -488,6 +558,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             <label className="profile-photo-picker">프로필 사진 변경<input type="file" accept="image/*" onChange={(event) => void chooseProfileImage(event.target.files?.[0])} /></label>
             <label className="profile-nickname-field"><span>닉네임</span><input value={profileNickname} maxLength={20} autoComplete="nickname" onChange={(event) => setProfileNickname(event.target.value)} /></label>
             <small className="profile-nickname-help">영문자, 한글, 숫자만 사용할 수 있습니다.</small>
+            <label className="profile-bio-field"><span>자기소개</span><textarea value={profileBio} maxLength={150} rows={3} onChange={(event) => setProfileBio(event.target.value)} placeholder="나의 작업과 관심사를 소개해 주세요" /></label>
             {profileError && <p className="profile-editor-error" role="alert">{profileError}</p>}
             <button className="profile-editor-save" type="button" disabled={profileBusy} onClick={() => void saveProfile()}>{profileBusy ? "저장 중…" : "저장"}</button>
           </section>
