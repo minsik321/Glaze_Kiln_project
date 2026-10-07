@@ -23,7 +23,7 @@ function profile(totals: [number, number, number], overrides: Partial<ThicknessC
 describe("thickness section model", () => {
   it("defines normalized assets for every ware preset", () => {
     expect(Object.keys(SECTION_ASSETS).sort()).toEqual(["bottle", "bowl", "cylinder_vase", "jar", "mug", "other", "plate", "tile"]);
-    expect(Object.values(SECTION_ASSETS).every((asset) => asset.glazePaths.length === 3)).toBe(true);
+    expect(Object.values(SECTION_ASSETS).every((asset) => asset.outline.length >= 4)).toBe(true);
   });
 
   it("classifies segments from real profile points against the safe range, not a coating lookup table", () => {
