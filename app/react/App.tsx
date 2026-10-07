@@ -15,7 +15,7 @@ import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
-import { aiceRunsApi } from "./lib/api";
+import { aiceRunsApi, feedPostsApi } from "./lib/api";
 import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
 import { ChatListScreen, ConversationScreen } from "./chat/ChatScreen";
@@ -91,6 +91,7 @@ export function App() {
   const [createPostRecord, setCreatePostRecord] = useState<{ seed: RecordPostSeed; from: "picker" | "detail" } | null>(null);
   const [pickingRecord, setPickingRecord] = useState(false);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
+  const [postError, setPostError] = useState("");
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
@@ -153,6 +154,22 @@ export function App() {
   }, [session?.user.id]);
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
+
+  //: 올린 게시글은 DB(feed_posts)에 있다 — 로그인하면 다시 불러온다.
+  useEffect(() => {
+    const token = session?.access_token;
+    setCreatedPosts([]);
+    if (!token) return;
+    let active = true;
+    void feedPostsApi.listMine(token).then((posts) => {
+      if (active) setCreatedPosts(posts);
+    }).catch((error: unknown) => {
+      if (active) setPostError(error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.");
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
+
+  const reportPostError = (error: unknown, fallback: string) => setPostError(error instanceof Error ? error.message : fallback);
 
   useEffect(() => {
     const ownerId = session?.user.id;
@@ -499,13 +516,20 @@ export function App() {
               setCreatePostRecord(null);
             }}
             onSubmit={(draft) => {
-              setCreatedPosts((current) => [draftToFeedPost(draft), ...current]);
-              setCreatePostKind(null);
-              setCreatePostRecord(null);
-              setView("work");
+              const finish = (post: FeedPost) => {
+                setCreatedPosts((current) => [post, ...current]);
+                setCreatePostKind(null);
+                setCreatePostRecord(null);
+                setView("work");
+              };
+              const post = draftToFeedPost(draft);
+              if (!session) { finish(post); return; }
+              setPostError("");
+              void feedPostsApi.create(session.access_token, post).then(finish).catch((error: unknown) => reportPostError(error, "게시글을 저장하지 못했습니다."));
             }}
           />
         )}
+        {postError && <p className="post-save-error" role="alert" onClick={() => setPostError("")}>{postError}</p>}
         {pickingRecord && session && (
           <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}>
             <RecordPickerScreen
@@ -638,8 +662,28 @@ export function App() {
             shareRecipients={[...followedUserIds].map(findFeedUser)}
             onToggleFollow={() => toggleFollow(selectedPostUser.id)}
             onToggleSaved={() => toggleBookmark(selectedPost.id)}
-            onEdit={(changes) => setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, ...changes } }))}
-            onDelete={() => { setDeletedPostIds((current) => new Set(current).add(selectedPost.id)); setView(postReturnView); }}
+            onEdit={(changes) => {
+              const next = { ...selectedPost, ...changes };
+              setPostOverrides((current) => ({ ...current, [selectedPost.id]: next }));
+              if (session && createdPosts.some((post) => post.id === next.id)) {
+                setPostError("");
+                void feedPostsApi.update(session.access_token, next).then((saved) => {
+                  setCreatedPosts((current) => current.map((post) => post.id === saved.id ? saved : post));
+                  setPostOverrides((current) => { const { [saved.id]: _removed, ...rest } = current; return rest; });
+                }).catch((error: unknown) => reportPostError(error, "수정 내용을 저장하지 못했습니다."));
+              }
+            }}
+            onDelete={() => {
+              const id = selectedPost.id;
+              setDeletedPostIds((current) => new Set(current).add(id));
+              setView(postReturnView);
+              if (session && createdPosts.some((post) => post.id === id)) {
+                void feedPostsApi.remove(session.access_token, id).catch((error: unknown) => {
+                  setDeletedPostIds((current) => { const next = new Set(current); next.delete(id); return next; });
+                  reportPostError(error, "게시글을 삭제하지 못했습니다.");
+                });
+              }
+            }}
             onImportRecipe={selectedPost.userId === "self" ? undefined : async () => {
               if (!session) throw new Error("로그인이 필요합니다.");
               const imported = feedPostToWorkRecord(selectedPost, selectedPostUser);

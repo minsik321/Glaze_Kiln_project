@@ -458,3 +458,35 @@ class RecipeResponse(ApiModel):
 
 class RecipePage(ApiModel):
     items: list[RecipeResponse]
+
+
+class FeedPostWrite(ApiModel):
+    """홈 피드 게시글 저장 — 화면용 필드는 payload에 그대로 두고 서버는 크기·필수 필드만 본다."""
+
+    kind: Literal["work", "sale"] = "work"
+    payload: dict[str, Any]
+
+    @field_validator("payload")
+    @classmethod
+    def validate_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        title = value.get("glazeName")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("payload.glazeName is required")
+        if len(str(value)) > 100_000:
+            raise ValueError("payload is too large")
+        return value
+
+
+class FeedPostResponse(ApiModel):
+    id: UUID
+    user_id: UUID | None = Field(default=None, exclude=True)
+    kind: Literal["work", "sale"]
+    payload: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class FeedPostPage(ApiModel):
+    items: list[FeedPostResponse]
+    limit: int
+    offset: int

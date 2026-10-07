@@ -59,7 +59,6 @@ export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
   const priceValue = Number(price.replace(/,/g, ""));
   const canSubmit = images.length > 0
     && title.trim().length > 0
-    && description.trim().length > 0
     && (!isSale || priceNegotiable || priceValue > 0);
 
   async function addImages(event: ChangeEvent<HTMLInputElement>) {

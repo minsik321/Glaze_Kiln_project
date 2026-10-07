@@ -90,3 +90,16 @@ export function usePhotoUrl(photo: Pick<PhotoAsset, "kind" | "storage_path" | "d
   }, [photo?.kind, photo?.storage_path, photo?.data_url]);
   return url;
 }
+
+//: 홈 피드 게시글 사진 — 결과 사진 버킷의 내 폴더에 올리고 경로만 DB에 둔다.
+export async function persistPostImage(image: string): Promise<string | null> {
+  if (!isSupabaseConfigured || !/^data:image\//i.test(image)) return null;
+  const { data, error } = await requireSupabase().auth.getUser();
+  if (error || !data.user) throw new Error("사진을 저장하려면 다시 로그인해 주세요.");
+  const stored = await storePhoto({ id: crypto.randomUUID(), kind: "result", storage_path: null, data_url: image, placeholder: false, source_type: "observed", rights_confirmed: false, alt: "" }, data.user.id);
+  return stored.storage_path;
+}
+
+export function signedPostImageUrl(storagePath: string): Promise<string | null> {
+  return signedPhotoUrl({ kind: "result", storage_path: storagePath, data_url: null });
+}

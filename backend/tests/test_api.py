@@ -557,3 +557,38 @@ async def test_deleting_a_run_removes_its_contribution_from_the_recipe_calibrati
     assert firing["calibration_runs"] == 1 and firing["gloss_bias_level"] == pytest.approx(-1.0)
     await upstream.aclose()
 
+
+
+@pytest.mark.asyncio
+async def test_feed_post_create_list_update_delete_are_owner_scoped() -> None:
+    post_id = "11111111-1111-4111-8111-111111111111"
+    stored = {"id": post_id, "kind": "work", "payload": {"glazeName": "해안 사틴", "memo": "m"}, "created_at": NOW, "updated_at": NOW}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/feed_posts"
+        if request.method == "POST":
+            assert json.loads(request.content)["user_id"] == str(USER_ID)
+            return httpx.Response(201, json=[stored])
+        assert request.url.params["user_id"] == f"eq.{USER_ID}"
+        if request.method == "PATCH":
+            assert request.url.params["id"] == f"eq.{post_id}"
+            return httpx.Response(200, json=[{**stored, "payload": json.loads(request.content)["payload"]}])
+        if request.method == "DELETE":
+            return httpx.Response(200, json=[stored])
+        return httpx.Response(200, json=[stored])
+
+    app, upstream = client_for(handler)
+    headers = {"Authorization": "Bearer valid-token"}
+    body = {"kind": "work", "payload": {"glazeName": "해안 사틴", "memo": "m"}}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/v1/feed-posts", headers=headers, json=body)
+        listed = await client.get("/api/v1/feed-posts", headers=headers)
+        edited = await client.put(f"/api/v1/feed-posts/{post_id}", headers=headers, json={**body, "payload": {"glazeName": "고침"}})
+        removed = await client.delete(f"/api/v1/feed-posts/{post_id}", headers=headers)
+        invalid = await client.post("/api/v1/feed-posts", headers=headers, json={"kind": "work", "payload": {}})
+    assert created.status_code == 201 and created.json()["id"] == post_id
+    assert listed.json()["items"][0]["payload"]["glazeName"] == "해안 사틴"
+    assert edited.json()["payload"]["glazeName"] == "고침"
+    assert removed.status_code == 204
+    assert invalid.status_code == 422
+    await upstream.aclose()

@@ -2598,3 +2598,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .next-trial-suggestion p { margin: 0 0 6px; font-size: 13px; line-height: 1.5; }
 .next-trial-suggestion small { display: block; font-size: 11px; opacity: .7; line-height: 1.4; }
 .guided-step-3 .density-check-hint.next-trial-hint { margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
+
+.post-save-error { position: fixed; left: 16px; right: 16px; bottom: 84px; z-index: 60; margin: 0; padding: 12px 14px; border-radius: 12px; background: #fff0f2; color: #d85066; font-size: 12px; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.12); }

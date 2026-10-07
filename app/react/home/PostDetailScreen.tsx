@@ -192,7 +192,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
     reader.readAsDataURL(file);
   }
 
-  const canSaveEdit = editTitle.trim().length > 0 && editMemo.trim().length > 0;
+  const canSaveEdit = editTitle.trim().length > 0;
 
   function saveEdit() {
     if (!canSaveEdit) return;
@@ -284,7 +284,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
             </dl>}
             {editing
               ? <textarea className="post-edit-field post-edit-memo" aria-label="상세 설명" value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} />
-              : <p>{post.memo}</p>}
+              : post.memo && <p>{post.memo}</p>}
           </section>
         </main>
         {!isOwnPost && <button className="sale-chat-button" type="button" onClick={onStartChat}>채팅으로 문의하기</button>}
@@ -344,10 +344,12 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           </dl>
         </section>
 
-        <section className="post-detail-card post-memo-card" aria-labelledby="post-memo-title">
-          <div className="post-section-heading"><div><span>KILN NOTE</span><h2 id="post-memo-title">작업 메모</h2></div></div>
-          {editing ? <textarea className="post-edit-field post-edit-memo" aria-label="메모 수정" value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} /> : <p>{post.memo}</p>}
-        </section>
+        {(editing || post.memo) && (
+          <section className="post-detail-card post-memo-card" aria-labelledby="post-memo-title">
+            <div className="post-section-heading"><div><span>KILN NOTE</span><h2 id="post-memo-title">작업 메모</h2></div></div>
+            {editing ? <textarea className="post-edit-field post-edit-memo" aria-label="메모 수정" value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} /> : <p>{post.memo}</p>}
+          </section>
+        )}
 
         <section className="post-detail-card post-comments-card" aria-labelledby="post-comments-title">
           <div className="post-section-heading"><div><span>COMMENTS</span><h2 id="post-comments-title">댓글 <small>{comments.length}</small></h2></div></div>

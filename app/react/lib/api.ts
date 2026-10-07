@@ -1,5 +1,6 @@
 import { assertAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
-import { persistRunPhotos } from "../aice/photoStorage";
+import { persistPostImage, persistRunPhotos, signedPostImageUrl } from "../aice/photoStorage";
+import type { FeedPost } from "../home/feedData";
 import { requireSupabase } from "./supabase";
 
 const API_URL = (
@@ -341,4 +342,39 @@ export const recipesApi = {
   //: with the recipe it was forked from.
   listMine: (token: string) => request<{ items: Recipe[] }>("/recipes", token),
   get: (token: string, id: string) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, token),
+};
+
+type FeedPostRow = { id: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "publishedAt"> & { imagePath?: string | null; image?: string }; created_at: string };
+
+function relativeTime(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 1) return "방금 전";
+  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}시간 전`;
+  return `${Math.floor(minutes / 1440)}일 전`;
+}
+
+async function rowToPost(row: FeedPostRow): Promise<FeedPost> {
+  const { imagePath, image: legacyImage, ...rest } = row.payload;
+  const image = imagePath ? await signedPostImageUrl(imagePath).catch(() => null) : null;
+  return { ...rest, id: row.id, userId: "self", image: image ?? legacyImage ?? "", publishedAt: relativeTime(row.created_at), kind: row.kind } as FeedPost;
+}
+
+//: 사진은 저장소에 올리고 경로만 payload에 남긴다. 저장소를 못 쓰면 data URL을 그대로 둔다.
+async function postBody(post: FeedPost) {
+  const { id: _id, userId: _userId, image, publishedAt: _publishedAt, ...rest } = post;
+  const imagePath = await persistPostImage(image);
+  return JSON.stringify({ kind: post.kind ?? "work", payload: imagePath ? { ...rest, imagePath } : { ...rest, image } });
+}
+
+export const feedPostsApi = {
+  listMine: async (token: string) => {
+    const page = await request<{ items: FeedPostRow[] }>("/feed-posts?limit=100", token);
+    return Promise.all(page.items.map(rowToPost));
+  },
+  create: async (token: string, post: FeedPost) =>
+    rowToPost(await request<FeedPostRow>("/feed-posts", token, { method: "POST", body: await postBody(post) })),
+  update: async (token: string, post: FeedPost) =>
+    rowToPost(await request<FeedPostRow>(`/feed-posts/${post.id}`, token, { method: "PUT", body: await postBody(post) })),
+  remove: (token: string, id: string) => request<void>(`/feed-posts/${id}`, token, { method: "DELETE" }),
 };

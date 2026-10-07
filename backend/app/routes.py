@@ -49,6 +49,9 @@ from .models import (
     CalibrationRunRequest,
     CalibrationRunResponse,
     CoefficientTableOut,
+    FeedPostPage,
+    FeedPostResponse,
+    FeedPostWrite,
     NextTrialSuggestionOut,
     DipTimeRequest,
     DipTimeResponse,
@@ -90,6 +93,7 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
 AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,recipe_ref_id,ware_preset,is_public,created_at,updated_at"
 RECIPE_COLUMNS = "id,owner_id,forked_from_id,name,materials,colorants,composition_key,is_public,created_at,updated_at"
+FEED_POST_COLUMNS = "id,kind,payload,created_at,updated_at"
 AICE_FEEDBACK_COLUMNS = f"{AICE_COLUMNS},request_id,feedback_status"
 _LEGACY_AICE_RPC_CODES = {"PGRST202", "42883"}
 
@@ -116,6 +120,47 @@ def _one(rows: list[dict], model: type[BaseModel], code: str, message: str) -> B
     if not rows:
         raise HTTPException(404, detail=error_detail(code, message))
     return _validate(model, rows[0])
+
+
+@router.get("/feed-posts", response_model=FeedPostPage)
+async def list_feed_posts(token: Token, user: User, gateway: Gateway, limit: Limit = 50, offset: Offset = 0) -> FeedPostPage:
+    try:
+        rows = await gateway.select("feed_posts", token, {
+            "select": FEED_POST_COLUMNS, "user_id": f"eq.{user.id}",
+            "order": "created_at.desc", "limit": limit, "offset": offset,
+        })
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return FeedPostPage(items=[_validate(FeedPostResponse, row) for row in rows], limit=limit, offset=offset)
+
+
+@router.post("/feed-posts", response_model=FeedPostResponse, status_code=status.HTTP_201_CREATED)
+async def create_feed_post(body: FeedPostWrite, token: Token, user: User, gateway: Gateway) -> BaseModel:
+    try:
+        rows = await gateway.insert("feed_posts", token, {"user_id": str(user.id), "kind": body.kind, "payload": body.payload})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(rows, FeedPostResponse, "feed_post_not_saved", "게시글을 저장하지 못했습니다.")
+
+
+@router.put("/feed-posts/{post_id}", response_model=FeedPostResponse)
+async def update_feed_post(post_id: UUID, body: FeedPostWrite, token: Token, user: User, gateway: Gateway) -> BaseModel:
+    try:
+        rows = await gateway.update("feed_posts", token, {"kind": body.kind, "payload": body.payload}, {"id": f"eq.{post_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _one(rows, FeedPostResponse, "feed_post_not_found", "게시글을 찾을 수 없습니다.")
+
+
+@router.delete("/feed-posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_feed_post(post_id: UUID, token: Token, user: User, gateway: Gateway) -> Response:
+    try:
+        rows = await gateway.delete("feed_posts", token, {"id": f"eq.{post_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    if not rows:
+        raise HTTPException(404, detail=error_detail("feed_post_not_found", "게시글을 찾을 수 없습니다."))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/aice-runs", response_model=AiceRunPage)
