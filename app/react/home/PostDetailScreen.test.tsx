@@ -100,25 +100,47 @@ describe("PostDetailScreen", () => {
     expect((await screen.findByRole("status")).textContent).toBe("링크를 복사했습니다.");
   });
 
-  it("edits and asks before deleting the viewer's own post", () => {
+  it("edits the viewer's own post in place and confirms before deleting", () => {
     const post = FEED_POSTS[0];
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} isOwnPost onEdit={onEdit} onDelete={onDelete} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: "팔로우" })).toBeNull();
-    expect(screen.getByRole("button", { name: "공유" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
-    const editDialog = screen.getByRole("dialog", { name: "게시물 수정" });
-    fireEvent.change(within(editDialog).getByLabelText("유약 이름"), { target: { value: "수정한 유약" } });
-    fireEvent.click(within(editDialog).getByRole("button", { name: "저장" }));
-    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ glazeName: "수정한 유약" }));
-    expect(screen.getByRole("alertdialog", { name: "수정되었습니다." })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    expect(screen.queryByRole("dialog", { name: "게시물 수정" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("유약 이름"), { target: { value: "수정한 유약" } });
+    fireEvent.change(screen.getByLabelText("메모 수정"), { target: { value: "수정한 메모" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ glazeName: "수정한 유약", memo: "수정한 메모" }));
+    expect(screen.queryByLabelText("유약 이름")).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));
     const deleteDialog = screen.getByRole("alertdialog", { name: "삭제하시겠습니까?" });
     fireEvent.click(within(deleteDialog).getByRole("button", { name: "삭제" }));
     expect(onDelete).toHaveBeenCalledOnce();
+  });
+
+  it("discards inline edits on cancel", () => {
+    const post = FEED_POSTS[0];
+    const onEdit = vi.fn();
+    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} isOwnPost onEdit={onEdit} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    fireEvent.change(screen.getByLabelText("유약 이름"), { target: { value: "버릴 이름" } });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("유약 이름")).toBeNull();
+  });
+
+  it("lets the owner replace the post photo while editing", async () => {
+    const post = FEED_POSTS[0];
+    const onEdit = vi.fn();
+    render(<PostDetailScreen post={post} user={findFeedUser(post.userId)} viewer={viewer} comments={[]} isOwnPost onEdit={onEdit} onAddComment={vi.fn()} onBack={vi.fn()} onOpenProfile={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    fireEvent.change(screen.getByLabelText("게시물 사진 변경"), { target: { files: [new File(["x"], "new.png", { type: "image/png" })] } });
+    await waitFor(() => expect((screen.getByAltText(post.label) as HTMLImageElement).src).toContain("data:image/png"));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ image: expect.stringContaining("data:image/png") }));
   });
 
   it("adds a comment with the current profile and nickname", () => {

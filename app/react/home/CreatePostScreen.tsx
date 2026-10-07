@@ -19,8 +19,6 @@ type Props = {
   kind: CreatePostKind;
   //: 작업기록으로 미리 채운 폼 — 유약 이름·메모·사진만 고칠 수 있다.
   record?: RecordPostSeed;
-  //: 게시된 글을 고칠 때 현재 값으로 미리 채운 폼. 있으면 수정 모드다.
-  initial?: { image: string; title: string; description: string; price: number | null; priceNegotiable: boolean };
   onBack: () => void;
   onSubmit: (draft: CreatePostDraft) => void;
 };
@@ -42,11 +40,10 @@ function fileDataUrl(file: File) {
   });
 }
 
-export function CreatePostScreen({ kind, record, initial, onBack, onSubmit }: Props) {
-  const isEdit = Boolean(initial);
-  const [images, setImages] = useState<string[]>(initial?.image ? [initial.image] : []);
-  const [title, setTitle] = useState(initial?.title ?? record?.title ?? "");
-  const [description, setDescription] = useState(initial?.description ?? record?.memo ?? "");
+export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
+  const [images, setImages] = useState<string[]>([]);
+  const [title, setTitle] = useState(record?.title ?? "");
+  const [description, setDescription] = useState(record?.memo ?? "");
   //: 기록의 사진은 서명 URL로 늦게 도착할 수 있어, 한 번만 대표 사진으로 채운다.
   const recordPhotoUrl = usePhotoUrl(record?.photo);
   const [recordPhotoApplied, setRecordPhotoApplied] = useState(false);
@@ -55,8 +52,8 @@ export function CreatePostScreen({ kind, record, initial, onBack, onSubmit }: Pr
     setImages((current) => [recordPhotoUrl, ...current].slice(0, 10));
     setRecordPhotoApplied(true);
   }, [recordPhotoUrl, recordPhotoApplied]);
-  const [price, setPrice] = useState(initial?.price ? String(initial.price) : "");
-  const [priceNegotiable, setPriceNegotiable] = useState(initial?.priceNegotiable ?? false);
+  const [price, setPrice] = useState("");
+  const [priceNegotiable, setPriceNegotiable] = useState(false);
   const [imageError, setImageError] = useState("");
   const isSale = kind === "sale";
   const priceValue = Number(price.replace(/,/g, ""));
@@ -94,10 +91,10 @@ export function CreatePostScreen({ kind, record, initial, onBack, onSubmit }: Pr
   }
 
   return (
-    <section className="create-post-screen" aria-label={isEdit ? "게시물 수정 화면" : isSale ? "내 기물 판매하기 화면" : "작업 게시하기 화면"}>
+    <section className="create-post-screen" aria-label={isSale ? "내 기물 판매하기 화면" : "작업 게시하기 화면"}>
       <header className="create-post-header">
         <button type="button" aria-label="홈으로 돌아가기" onClick={onBack}><BackIcon /></button>
-        <h1>{isEdit ? "게시물 수정" : isSale ? "내 기물 판매하기" : "작업 게시하기"}</h1>
+        <h1>{isSale ? "내 기물 판매하기" : "작업 게시하기"}</h1>
         <span aria-hidden="true" />
       </header>
 
@@ -121,7 +118,7 @@ export function CreatePostScreen({ kind, record, initial, onBack, onSubmit }: Pr
           {imageError && <p className="create-post-error" role="alert">{imageError}</p>}
         </section>
 
-        {record && !isSale && !isEdit && (
+        {record && !isSale && (
           <section className="create-record-summary" aria-label="작업기록에서 불러온 내용">
             <div className="create-field-heading"><strong>작업기록에서 불러온 내용</strong><span>수정 불가</span></div>
             <dl>
@@ -155,7 +152,7 @@ export function CreatePostScreen({ kind, record, initial, onBack, onSubmit }: Pr
           <small>{description.length}/1000</small>
         </label>
 
-        <button className="create-post-submit" type="submit" disabled={!canSubmit}>{isEdit ? "저장하기" : "게시하기"}</button>
+        <button className="create-post-submit" type="submit" disabled={!canSubmit}>게시하기</button>
       </form>
     </section>
   );

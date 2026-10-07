@@ -52,13 +52,4 @@ describe("CreatePostScreen", () => {
 
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ title: "내 해안 사틴", description: "다음엔 더 얇게", record: { recordId: "run-1", details: { clayBody: "백색 석기 소지" } } });
   });
-
-  it("prefills the form and saves changes in edit mode", () => {
-    const onSubmit = vi.fn();
-    render(<CreatePostScreen kind="work" initial={{ image: "data:image/png;base64,a", title: "원래 유약", description: "원래 설명", price: null, priceNegotiable: false }} onBack={vi.fn()} onSubmit={onSubmit} />);
-    expect(screen.getByRole("heading", { name: "게시물 수정" })).toBeTruthy();
-    fireEvent.change(screen.getByDisplayValue("원래 유약"), { target: { value: "고친 유약" } });
-    fireEvent.click(screen.getByRole("button", { name: "저장하기" }));
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ title: "고친 유약", description: "원래 설명", images: ["data:image/png;base64,a"] }));
-  });
 });

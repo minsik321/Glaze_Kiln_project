@@ -91,7 +91,6 @@ export function App() {
   const [createPostRecord, setCreatePostRecord] = useState<{ seed: RecordPostSeed; from: "picker" | "detail" } | null>(null);
   const [pickingRecord, setPickingRecord] = useState(false);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
-  const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
@@ -436,7 +435,7 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={createPostKind || editingPostId || pickingRecord || showSearch || showWorkflow || recordDetailOpen || view === "followingFeed" || view === "bookmarks" || view === "profile" || view === "connections" || view === "conversation" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={createPostKind || pickingRecord || showSearch || showWorkflow || recordDetailOpen || view === "followingFeed" || view === "bookmarks" || view === "profile" || view === "connections" || view === "conversation" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen
             posts={feedPosts}
@@ -504,18 +503,6 @@ export function App() {
               setCreatePostKind(null);
               setCreatePostRecord(null);
               setView("work");
-            }}
-          />
-        )}
-        {editingPostId && (
-          <CreatePostScreen
-            key={`edit-${selectedPost.id}`}
-            kind={selectedPost.kind === "sale" ? "sale" : "work"}
-            initial={{ image: selectedPost.image, title: selectedPost.glazeName, description: selectedPost.memo, price: selectedPost.price ?? null, priceNegotiable: Boolean(selectedPost.priceNegotiable) }}
-            onBack={() => setEditingPostId(null)}
-            onSubmit={(draft) => {
-              setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, image: draft.images[0], glazeName: draft.title, memo: draft.description, price: draft.price, priceNegotiable: draft.priceNegotiable } }));
-              setEditingPostId(null);
             }}
           />
         )}
@@ -651,7 +638,7 @@ export function App() {
             shareRecipients={[...followedUserIds].map(findFeedUser)}
             onToggleFollow={() => toggleFollow(selectedPostUser.id)}
             onToggleSaved={() => toggleBookmark(selectedPost.id)}
-            onEdit={() => setEditingPostId(selectedPost.id)}
+            onEdit={(changes) => setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, ...changes } }))}
             onDelete={() => { setDeletedPostIds((current) => new Set(current).add(selectedPost.id)); setView(postReturnView); }}
             onImportRecipe={selectedPost.userId === "self" ? undefined : async () => {
               if (!session) throw new Error("로그인이 필요합니다.");

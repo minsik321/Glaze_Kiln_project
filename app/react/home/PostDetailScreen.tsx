@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import type { FeedPost, FeedUser } from "./feedData";
 
 export type PostComment = {
@@ -76,14 +76,18 @@ function FiringCurve({ post }: { post: FeedPost }) {
   );
 }
 
-export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, shareRecipients = [], onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat, onShareToChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; shareRecipients?: readonly FeedUser[]; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void; onShareToChat?: (recipientId: string, message: string) => void }) {
+export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, shareRecipients = [], onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat, onShareToChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; shareRecipients?: readonly FeedUser[]; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable" | "image">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void; onShareToChat?: (recipientId: string, message: string) => void }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [importStatus, setImportStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [importError, setImportError] = useState("");
   const [importDialog, setImportDialog] = useState<"confirm" | "success" | "error" | null>(null);
-  const [ownerDialog, setOwnerDialog] = useState<"edit" | "edited" | "delete" | null>(null);
+  const [ownerDialog, setOwnerDialog] = useState<"delete" | null>(null);
+  //: 수정 모드 — 게시글 화면 자체가 입력창으로 바뀐다(작업기록 상세의 수정과 같은 방식).
+  const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(post.glazeName);
   const [editMemo, setEditMemo] = useState(post.memo);
+  const [editImage, setEditImage] = useState(post.image);
+  const [editImageError, setEditImageError] = useState("");
   const [editPrice, setEditPrice] = useState(post.price ? String(post.price) : "");
   const [editNegotiable, setEditNegotiable] = useState(Boolean(post.priceNegotiable));
   const [shareOpen, setShareOpen] = useState(false);
@@ -168,33 +172,53 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
     }
   }
 
-  function openEdit() {
+  function startEdit() {
     setEditTitle(post.glazeName);
     setEditMemo(post.memo);
+    setEditImage(post.image);
+    setEditImageError("");
     setEditPrice(post.price ? String(post.price) : "");
     setEditNegotiable(Boolean(post.priceNegotiable));
-    setOwnerDialog("edit");
+    setEditing(true);
   }
 
-  function saveEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editTitle.trim() || !editMemo.trim()) return;
-    onEdit?.({ glazeName: editTitle.trim(), memo: editMemo.trim(), price: post.kind === "sale" && editPrice ? Number(editPrice) : post.price, priceNegotiable: post.kind === "sale" ? editNegotiable : post.priceNegotiable });
-    setOwnerDialog("edited");
+  function pickEditImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = Array.from(event.target.files ?? []).find((item) => item.type.startsWith("image/"));
+    event.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setEditImage(String(reader.result)); setEditImageError(""); };
+    reader.onerror = () => setEditImageError("사진을 불러오지 못했습니다. 다시 선택해 주세요.");
+    reader.readAsDataURL(file);
   }
+
+  const canSaveEdit = editTitle.trim().length > 0 && editMemo.trim().length > 0;
+
+  function saveEdit() {
+    if (!canSaveEdit) return;
+    onEdit?.({ image: editImage, glazeName: editTitle.trim(), memo: editMemo.trim(), price: post.kind === "sale" && editPrice ? Number(editPrice) : post.price, priceNegotiable: post.kind === "sale" ? editNegotiable : post.priceNegotiable });
+    setEditing(false);
+    showToast("수정되었습니다.");
+  }
+
+  const ownerActions = isOwnPost && (editing
+    ? <>
+      <button className="post-edit-button" type="button" onClick={() => setEditing(false)}>취소</button>
+      <button className="post-edit-button post-save-button" type="button" disabled={!canSaveEdit} onClick={saveEdit}>저장</button>
+    </>
+    : <>
+      <button className="post-edit-button" type="button" onClick={startEdit}>수정</button>
+      <button className="post-delete-button" type="button" onClick={() => setOwnerDialog("delete")}>삭제</button>
+    </>);
+  const photoEditor = editing && <div className="post-edit-photo">
+    <label className="post-edit-photo-button"><span>사진 변경</span><input type="file" accept="image/*" aria-label="게시물 사진 변경" onChange={pickEditImage} /></label>
+    {editImageError && <p role="alert">{editImageError}</p>}
+  </div>;
+  const heroImage = editing ? editImage : post.image;
 
   const ownerDialogLayer = ownerDialog && (
     <div className="post-owner-dialog-layer">
-      <section className="post-owner-dialog" role={ownerDialog === "edit" ? "dialog" : "alertdialog"} aria-modal="true" aria-labelledby="post-owner-dialog-title">
-        {ownerDialog === "edit" && <form onSubmit={saveEdit}>
-          <h2 id="post-owner-dialog-title">게시물 수정</h2>
-          <label><span>{post.kind === "sale" ? "상품 이름" : "유약 이름"}</span><input value={editTitle} maxLength={50} onChange={(event) => setEditTitle(event.target.value)} /></label>
-          {post.kind === "sale" && <label><span>가격</span><div className="post-owner-price"><input type="number" min="0" value={editPrice} onChange={(event) => setEditPrice(event.target.value)} /><b>원</b></div></label>}
-          {post.kind === "sale" && <label className="post-owner-check"><input type="checkbox" checked={editNegotiable} onChange={(event) => setEditNegotiable(event.target.checked)} /><span>가격 협의 가능</span></label>}
-          <label><span>상세 설명</span><textarea value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} /></label>
-          <div className="post-owner-dialog-actions"><button type="button" onClick={() => setOwnerDialog(null)}>취소</button><button className="primary" type="submit" disabled={!editTitle.trim() || !editMemo.trim()}>저장</button></div>
-        </form>}
-        {ownerDialog === "edited" && <><h2 id="post-owner-dialog-title">수정되었습니다.</h2><button className="post-owner-dialog-done" type="button" onClick={() => setOwnerDialog(null)}>확인</button></>}
+      <section className="post-owner-dialog" role="alertdialog" aria-modal="true" aria-labelledby="post-owner-dialog-title">
         {ownerDialog === "delete" && <><h2 id="post-owner-dialog-title">삭제하시겠습니까?</h2><p>삭제한 게시물은 다시 복구할 수 없습니다.</p><div className="post-owner-dialog-actions"><button type="button" onClick={() => setOwnerDialog(null)}>취소</button><button className="danger" type="button" onClick={onDelete}>삭제</button></div></>}
       </section>
     </div>
@@ -234,15 +258,23 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           <section className={`post-author-panel${isOwnPost ? " own-post" : ""}`} aria-label="작성자 정보">
             <button className={`post-author-avatar avatar-tone-${user.avatarTone}`} type="button" aria-label={`${user.username} 프로필 보기`} onClick={() => onOpenProfile(user.id)} />
             <button className="post-author-name" type="button" onClick={() => onOpenProfile(user.id)}><strong>{user.displayName}</strong><span>@{user.username}</span></button>
-            {isOwnPost && <button className="post-edit-button" type="button" onClick={openEdit}>수정</button>}
-            {isOwnPost && <button className="post-delete-button" type="button" onClick={() => setOwnerDialog("delete")}>삭제</button>}
+            {ownerActions}
           </section>
-          <img className="sale-detail-image" src={post.image} alt={post.label} />
+          <img className="sale-detail-image" src={heroImage} alt={post.label} />
+          {photoEditor}
           <section className="sale-detail-copy">
             <span>판매 중</span>
-            <h1>{post.glazeName}</h1>
-            <strong>{price}</strong>
-            {post.priceNegotiable && <small>가격 협의 가능</small>}
+            {editing
+              ? <>
+                <input className="post-edit-field post-edit-title" aria-label="상품 이름" value={editTitle} maxLength={50} onChange={(event) => setEditTitle(event.target.value)} />
+                <div className="post-edit-price"><input className="post-edit-field" type="number" min="0" aria-label="가격" value={editPrice} onChange={(event) => setEditPrice(event.target.value)} /><b>원</b></div>
+                <label className="post-edit-check"><input type="checkbox" checked={editNegotiable} onChange={(event) => setEditNegotiable(event.target.checked)} /><span>가격 협의 가능</span></label>
+              </>
+              : <>
+                <h1>{post.glazeName}</h1>
+                <strong>{price}</strong>
+                {post.priceNegotiable && <small>가격 협의 가능</small>}
+              </>}
             <time>{post.publishedAt}</time>
             {post.saleDetails && <dl className="sale-detail-facts">
               <div><dt>상품 상태</dt><dd>{post.saleDetails.condition}</dd></div>
@@ -250,7 +282,9 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
               <div><dt>거래 지역</dt><dd>{post.saleDetails.location}</dd></div>
               <div><dt>거래 방법</dt><dd>{post.saleDetails.delivery}</dd></div>
             </dl>}
-            <p>{post.memo}</p>
+            {editing
+              ? <textarea className="post-edit-field post-edit-memo" aria-label="상세 설명" value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} />
+              : <p>{post.memo}</p>}
           </section>
         </main>
         {!isOwnPost && <button className="sale-chat-button" type="button" onClick={onStartChat}>채팅으로 문의하기</button>}
@@ -272,14 +306,13 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
           <button className={`post-author-avatar avatar-tone-${user.avatarTone}`} type="button" aria-label={`${user.username} 프로필 보기`} onClick={() => onOpenProfile(user.id)} />
           <button className="post-author-name" type="button" onClick={() => onOpenProfile(user.id)}><strong>{user.displayName}</strong><span>@{user.username}</span></button>
           {!isOwnPost && <button className="post-follow-button" type="button" aria-pressed={isFollowing} onClick={onToggleFollow}>{isFollowing ? "팔로잉" : "팔로우"}</button>}
-          {isOwnPost && <button className="post-edit-button" type="button" onClick={openEdit}>수정</button>}
-          {isOwnPost && <button className="post-delete-button" type="button" onClick={() => setOwnerDialog("delete")}>삭제</button>}
+          {ownerActions}
         </section>
 
         <figure className="post-hero">
-          <img className={`crop-${post.crop}`} src={post.image} alt={post.label} />
+          <img className={`crop-${post.crop}`} src={heroImage} alt={post.label} />
           <figcaption>
-            <div><span>{post.publishedAt}</span><h1>{post.glazeName}</h1><p>{post.finish}</p></div>
+            <div><span>{post.publishedAt}</span>{editing ? <input className="post-edit-field post-edit-title" aria-label="유약 이름" value={editTitle} maxLength={50} onChange={(event) => setEditTitle(event.target.value)} /> : <h1>{post.glazeName}</h1>}<p>{post.finish}</p></div>
             <div className="post-hero-actions">
               <button type="button" aria-label={isSaved ? "게시물 저장 취소" : "게시물 저장"} aria-pressed={isSaved} onClick={toggleSaved}><BookmarkIcon /></button>
               <button type="button" aria-label="공유" aria-haspopup="dialog" onClick={() => { setShareView("options"); setShareOpen(true); }}><ShareIcon /></button>
@@ -287,6 +320,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
             </div>
           </figcaption>
         </figure>
+        {photoEditor}
 
         <div className="post-detail-tags" aria-label="작업 핵심 정보"><span>{post.firing}</span><span>{post.cone}</span><span>{post.clayBody}</span></div>
         <FiringCurve post={post} />
@@ -312,7 +346,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
 
         <section className="post-detail-card post-memo-card" aria-labelledby="post-memo-title">
           <div className="post-section-heading"><div><span>KILN NOTE</span><h2 id="post-memo-title">작업 메모</h2></div></div>
-          <p>{post.memo}</p>
+          {editing ? <textarea className="post-edit-field post-edit-memo" aria-label="메모 수정" value={editMemo} maxLength={1000} onChange={(event) => setEditMemo(event.target.value)} /> : <p>{post.memo}</p>}
         </section>
 
         <section className="post-detail-card post-comments-card" aria-labelledby="post-comments-title">
