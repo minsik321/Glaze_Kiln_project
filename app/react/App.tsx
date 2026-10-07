@@ -16,7 +16,7 @@ import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
 import { aiceRunsApi } from "./lib/api";
-import { feedPostToWorkRecord, type WorkRecordOrigin } from "./records/workRecords";
+import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
 import { ChatListScreen, ConversationScreen } from "./chat/ChatScreen";
 import { loadChatThreads, saveChatMessage, saveChatThread, type ChatMessage, type ChatThread } from "./chat/chatStore";
@@ -28,6 +28,7 @@ type SnapshotGetter = () => Promise<SimulatorSnapshot>;
 type AppView = "work" | "followingFeed" | "bookmarks" | "records" | "chat" | "conversation" | "my" | "profile" | "connections" | "post" | "notifications";
 type SettingsDetail = "account" | "kiln";
 type EntryPhase = "splash" | "onboarding" | "login" | "signup" | "app";
+const RecordPickerScreen = lazy(() => import("./records/RecordPickerScreen").then((module) => ({ default: module.RecordPickerScreen })));
 const RecordsPanel = lazy(() => import("./records/RecordsPanel").then((module) => ({ default: module.RecordsPanel })));
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -54,6 +55,7 @@ const DEMO_POST_COMMENTS: Record<string, PostComment[]> = {
 };
 
 function draftToFeedPost(draft: CreatePostDraft): FeedPost {
+  const record = draft.record?.details;
   return {
     id: crypto.randomUUID(),
     userId: "self",
@@ -62,14 +64,14 @@ function draftToFeedPost(draft: CreatePostDraft): FeedPost {
     size: "medium",
     crop: 1,
     glazeName: draft.title,
-    firing: draft.kind === "sale" ? "기물 판매" : "작업 기록",
+    firing: record?.firing ?? (draft.kind === "sale" ? "기물 판매" : "작업 기록"),
     cone: "",
-    finish: draft.kind === "sale" ? "판매 중" : "새 작업",
-    clayBody: "",
-    application: "",
-    recipe: [],
-    colorants: [],
-    curve: [{ minute: 0, temperatureC: 20 }, { minute: 1, temperatureC: 20 }],
+    finish: record?.finish || (draft.kind === "sale" ? "판매 중" : "새 작업"),
+    clayBody: record?.clayBody ?? "",
+    application: record?.application ?? "",
+    recipe: record?.recipe ?? [],
+    colorants: record?.colorants ?? [],
+    curve: record?.curve.length ? record.curve : [{ minute: 0, temperatureC: 20 }, { minute: 1, temperatureC: 20 }],
     memo: draft.description,
     publishedAt: "방금 전",
     kind: draft.kind,
@@ -85,7 +87,11 @@ export function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchClosing, setSearchClosing] = useState(false);
   const [createPostKind, setCreatePostKind] = useState<CreatePostKind | null>(null);
+  //: 작업기록으로 채운 게시 폼 — 기록 선택 화면(picker)이나 기록 상세(detail)에서 들어온다.
+  const [createPostRecord, setCreatePostRecord] = useState<{ seed: RecordPostSeed; from: "picker" | "detail" } | null>(null);
+  const [pickingRecord, setPickingRecord] = useState(false);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
@@ -430,12 +436,12 @@ export function App() {
   }
 
   return (
-    <AppShell navigation={createPostKind || showSearch || showWorkflow || recordDetailOpen || view === "followingFeed" || view === "bookmarks" || view === "profile" || view === "connections" || view === "conversation" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
+    <AppShell navigation={createPostKind || editingPostId || pickingRecord || showSearch || showWorkflow || recordDetailOpen || view === "followingFeed" || view === "bookmarks" || view === "profile" || view === "connections" || view === "conversation" || view === "post" || view === "notifications" || mySettingsOpen ? null : <BottomNavigation current={navigationView} items={navigation} onChange={changeNavigation} />}>
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen
             posts={feedPosts}
             onStartWork={openWorkflow}
-            onCreatePost={setCreatePostKind}
+            onCreatePost={(kind) => { if (kind === "work" && session) setPickingRecord(true); else setCreatePostKind(kind); }}
             onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
             onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
@@ -487,13 +493,44 @@ export function App() {
         {createPostKind && (
           <CreatePostScreen
             kind={createPostKind}
-            onBack={() => setCreatePostKind(null)}
+            record={createPostRecord?.seed}
+            onBack={() => {
+              if (createPostRecord?.from === "picker") setPickingRecord(true);
+              setCreatePostKind(null);
+              setCreatePostRecord(null);
+            }}
             onSubmit={(draft) => {
               setCreatedPosts((current) => [draftToFeedPost(draft), ...current]);
               setCreatePostKind(null);
+              setCreatePostRecord(null);
               setView("work");
             }}
           />
+        )}
+        {editingPostId && (
+          <CreatePostScreen
+            key={`edit-${selectedPost.id}`}
+            kind={selectedPost.kind === "sale" ? "sale" : "work"}
+            initial={{ image: selectedPost.image, title: selectedPost.glazeName, description: selectedPost.memo, price: selectedPost.price ?? null, priceNegotiable: Boolean(selectedPost.priceNegotiable) }}
+            onBack={() => setEditingPostId(null)}
+            onSubmit={(draft) => {
+              setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, image: draft.images[0], glazeName: draft.title, memo: draft.description, price: draft.price, priceNegotiable: draft.priceNegotiable } }));
+              setEditingPostId(null);
+            }}
+          />
+        )}
+        {pickingRecord && session && (
+          <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}>
+            <RecordPickerScreen
+              token={session.access_token}
+              onBack={() => setPickingRecord(false)}
+              onSelect={(record) => {
+                setPickingRecord(false);
+                setCreatePostRecord({ seed: workRecordToPostSeed(record.id, record.run), from: "picker" });
+                setCreatePostKind("work");
+              }}
+            />
+          </Suspense>
         )}
         {showSearch && (
           <SearchScreen
@@ -509,7 +546,7 @@ export function App() {
           />
         )}
         <section className="app-view app-utility-view" hidden={view !== "records"}>
-          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onStart={(run, origin, recipeRefId) => {
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onPublish={(record) => { setCreatePostRecord({ seed: workRecordToPostSeed(record.id, record.run), from: "detail" }); setCreatePostKind("work"); }} onStart={(run, origin, recipeRefId) => {
             setRecordDetailOpen(false);
             setRestoredRun(run);
             setRecordEntryOrigin(origin);
@@ -614,7 +651,7 @@ export function App() {
             shareRecipients={[...followedUserIds].map(findFeedUser)}
             onToggleFollow={() => toggleFollow(selectedPostUser.id)}
             onToggleSaved={() => toggleBookmark(selectedPost.id)}
-            onEdit={(changes) => setPostOverrides((current) => ({ ...current, [selectedPost.id]: { ...selectedPost, ...changes } }))}
+            onEdit={() => setEditingPostId(selectedPost.id)}
             onDelete={() => { setDeletedPostIds((current) => new Set(current).add(selectedPost.id)); setView(postReturnView); }}
             onImportRecipe={selectedPost.userId === "self" ? undefined : async () => {
               if (!session) throw new Error("로그인이 필요합니다.");

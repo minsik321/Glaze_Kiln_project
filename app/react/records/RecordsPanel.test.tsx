@@ -129,4 +129,19 @@ describe("작업 기록 상세", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("삭제 권한이 없습니다."));
     expect(screen.getByRole("heading", { name: "결과 관찰 기록" })).toBeTruthy();
   });
+
+  it("내 완료 기록 상세의 작업 게시 버튼이 그 기록을 전달한다", async () => {
+    const run = sampleAiceRun();
+    run.title = "게시할 유약";
+    run.status = "evaluated";
+    const record = { id: "run-9", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false, created_at: run.created_at, updated_at: run.updated_at };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const onPublish = vi.fn();
+
+    render(<RecordsPanel onPublish={onPublish} />);
+    fireEvent.click(await screen.findByRole("button", { name: "게시할 유약 작업기록 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "작업 게시" }));
+
+    expect(onPublish).toHaveBeenCalledWith(expect.objectContaining({ id: "run-9" }));
+  });
 });

@@ -10,9 +10,11 @@ type RecordSort = "newest" | "oldest" | "title-asc" | "title-desc";
 type Props = {
   token: string;
   onOpen?: (record: AiceRunRecord, origin: WorkRecordOrigin) => void;
+  //: 주어지면 그 출처의 기록만 보여 주고 출처 필터는 숨긴다(작업 게시용 선택 화면).
+  onlyOrigin?: WorkRecordOrigin;
 };
 
-export function AiceRecordsPanel({ token, onOpen }: Props) {
+export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
   const [items, setItems] = useState<AiceRunRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -47,7 +49,7 @@ export function AiceRecordsPanel({ token, onOpen }: Props) {
         if (page.items.length < PAGE_SIZE) break;
       }
 
-      setItems(records.filter((record) => isVisibleWorkRecord(record.run)));
+      setItems(records.filter((record) => isVisibleWorkRecord(record.run) && (!onlyOrigin || workRecordOrigin(record.run) === onlyOrigin)));
     } catch (failure) {
       setError(
         failure instanceof Error
@@ -57,7 +59,7 @@ export function AiceRecordsPanel({ token, onOpen }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, onlyOrigin]);
 
   useEffect(() => {
     void load();
@@ -69,7 +71,7 @@ export function AiceRecordsPanel({ token, onOpen }: Props) {
 
       {!loading && !error && items.length > 0 && (
         <div className="record-list-tools">
-          <div className="record-filter" role="group" aria-label="작업 기록 필터">
+          {!onlyOrigin && <div className="record-filter" role="group" aria-label="작업 기록 필터">
             {([
               ["all", "전체"],
               ["mine", "내 작업"],
@@ -82,7 +84,7 @@ export function AiceRecordsPanel({ token, onOpen }: Props) {
                 onClick={() => setFilter(value)}
               >{label}</button>
             ))}
-          </div>
+          </div>}
           <label className="record-sort">
             <span>정렬</span>
             <select aria-label="작업 기록 정렬" value={sort} onChange={(event) => setSort(event.target.value as RecordSort)}>

@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sampleAiceRun } from "../aice/contract";
+import { workRecordToPostSeed } from "../records/workRecords";
 import { CreatePostScreen } from "./CreatePostScreen";
 
 afterEach(cleanup);
@@ -33,5 +35,30 @@ describe("CreatePostScreen", () => {
     expect(screen.getByLabelText("작업 게시하기 화면")).toBeTruthy();
     expect(screen.getByPlaceholderText("작업 제목을 입력해 주세요")).toBeTruthy();
     expect(screen.queryByRole("spinbutton", { name: "판매 가격" })).toBeNull();
+  });
+
+  it("fills the form from a work record and lets only name, memo and photos change", async () => {
+    const run = sampleAiceRun();
+    const seed = workRecordToPostSeed("run-1", { ...run, recipe: { ...run.recipe, name: "해안 사틴 01", photo: { ...run.recipe.photo, data_url: "data:image/png;base64,Zm9v" } } });
+    const onSubmit = vi.fn();
+    render(<CreatePostScreen kind="work" record={seed} onBack={vi.fn()} onSubmit={onSubmit} />);
+
+    expect((screen.getByLabelText(/유약 이름/) as HTMLInputElement).value).toBe("해안 사틴 01");
+    expect(screen.getByLabelText("작업기록에서 불러온 내용").textContent).toContain("장석 40%");
+    await screen.findByAltText("선택한 사진 1");
+    fireEvent.change(screen.getByLabelText(/남길 메모/), { target: { value: "다음엔 더 얇게" } });
+    fireEvent.change(screen.getByLabelText(/유약 이름/), { target: { value: "내 해안 사틴" } });
+    fireEvent.click(screen.getByRole("button", { name: "게시하기" }));
+
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ title: "내 해안 사틴", description: "다음엔 더 얇게", record: { recordId: "run-1", details: { clayBody: "백색 석기 소지" } } });
+  });
+
+  it("prefills the form and saves changes in edit mode", () => {
+    const onSubmit = vi.fn();
+    render(<CreatePostScreen kind="work" initial={{ image: "data:image/png;base64,a", title: "원래 유약", description: "원래 설명", price: null, priceNegotiable: false }} onBack={vi.fn()} onSubmit={onSubmit} />);
+    expect(screen.getByRole("heading", { name: "게시물 수정" })).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue("원래 유약"), { target: { value: "고친 유약" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장하기" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ title: "고친 유약", description: "원래 설명", images: ["data:image/png;base64,a"] }));
   });
 });

@@ -1,4 +1,5 @@
 import { sampleAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
+import { CLAY_BODIES, WARE_CATALOG } from "../aice/catalog";
 import type { FeedPost, FeedUser } from "../home/feedData";
 
 export const FEED_IMPORT_SOURCE_REFERENCE = "aice-feed-post-import";
@@ -125,5 +126,49 @@ export function feedPostToWorkRecord(post: FeedPost, user: FeedUser, now = new D
     },
     created_at: now,
     updated_at: now,
+  };
+}
+
+const METHOD_LABELS: Record<AiceRun["application"]["method"], string> = { dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" };
+
+//: 작업기록에서 "작업 게시"로 넘어갈 때 폼에 미리 채워 넣는 값. 사용자가 고칠 수
+//: 있는 것은 `title`(유약 이름)·`memo`·사진뿐이고, 나머지(`details`)는 기록 그대로
+//: 읽기 전용으로 보여 주며 게시물에 실린다.
+export type RecordPostSeed = {
+  recordId: string;
+  title: string;
+  memo: string;
+  photo: AiceRun["recipe"]["photo"] | null;
+  details: {
+    ware: string;
+    clayBody: string;
+    application: string;
+    firing: string;
+    finish: string;
+    recipe: Array<{ name: string; amount: number }>;
+    colorants: Array<{ name: string; amount: number }>;
+    curve: Array<{ minute: number; temperatureC: number }>;
+  };
+};
+
+export function workRecordToPostSeed(recordId: string, run: AiceRun): RecordPostSeed {
+  const curve = run.curves.baseline.points.map((point) => ({ minute: point.minute, temperatureC: point.temperature_c }));
+  const peak = curve.length ? Math.max(...curve.map((point) => point.temperatureC)) : null;
+  const totalMinutes = curve.length ? Math.max(...curve.map((point) => point.minute)) : 0;
+  return {
+    recordId,
+    title: run.recipe.name,
+    memo: importedWorkMemo(run),
+    photo: run.result.photo?.storage_path || run.result.photo?.data_url ? run.result.photo : run.recipe.photo ?? null,
+    details: {
+      ware: WARE_CATALOG.find((ware) => ware.id === run.ware.preset)?.label ?? run.ware.preset,
+      clayBody: CLAY_BODIES.find((body) => body.id === run.ware.clay_body)?.label ?? run.ware.clay_body,
+      application: METHOD_LABELS[run.application.method],
+      firing: peak === null ? "소성 기록 없음" : `최고 ${peak}℃ · ${Math.floor(totalMinutes / 60)}시간 ${totalMinutes % 60}분`,
+      finish: run.result.gloss ?? "",
+      recipe: Object.entries(run.recipe.materials).map(([name, amount]) => ({ name, amount })),
+      colorants: Object.entries(run.recipe.colorants ?? {}).map(([name, amount]) => ({ name, amount })),
+      curve,
+    },
   };
 }

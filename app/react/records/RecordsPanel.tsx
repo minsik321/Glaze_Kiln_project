@@ -10,9 +10,11 @@ import "./records.css";
 type Props = {
   onStart?: (run: AiceRun, origin: WorkRecordOrigin, recipeRefId: string | null) => void;
   onDetailOpenChange?: (open: boolean) => void;
+  //: 내 완료 기록 상세의 "작업 게시" — 이 기록으로 채운 게시 폼으로 이어 준다.
+  onPublish?: (record: AiceRunRecord) => void;
 };
 
-export function RecordsPanel({ onStart, onDetailOpenChange }: Props) {
+export function RecordsPanel({ onStart, onDetailOpenChange, onPublish }: Props) {
   const { session } = useAuth();
   const [selected, setSelected] = useState<{ record: AiceRunRecord; origin: WorkRecordOrigin } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -78,6 +80,7 @@ export function RecordsPanel({ onStart, onDetailOpenChange }: Props) {
           <button type="button" className="record-detail-delete" onClick={() => { setDeleteError(""); setConfirmDelete(true); }}>작업기록 삭제</button>
         </header>
         <WorkRecordDetail run={selected.record.run} origin={selected.origin} nextTrial={nextTrial} />
+        {selected.origin === "mine" && onPublish && <button type="button" className="record-detail-publish" onClick={() => onPublish(selected.record)}>작업 게시</button>}
         <button type="button" className="record-detail-start" onClick={() => {
           onDetailOpenChange?.(false);
           onStart?.(selected.record.run, selected.origin, selected.record.recipe_ref_id ?? null);
