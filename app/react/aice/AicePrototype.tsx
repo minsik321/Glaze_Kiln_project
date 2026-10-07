@@ -136,7 +136,7 @@ function ChoiceCard({
 //: v9 후속(3페이지): 상시 노출 "왜/가정/다음행동" 드로어 대신, 두께 판단
 //: 결과에 따라 사용자가 직접 다음 행동을 고르는 문장+버튼 조합을 쓴다
 //: (아래 step===2 블록). 상태별 안내 제목만 여기 모아 둔다.
-export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin, recipeRefId = null, resumeStep, token = "", userId, onStartNew, onFinish, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; recordEntryOrigin?: WorkRecordOrigin; recipeRefId?: string | null; resumeStep?: number; token?: string; userId?: string; onStartNew?: () => void; onFinish?: () => void; onBackHome?: () => void }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin, recipeRefId = null, resumeStep, token = "", userId, userName = "", onStartNew, onFinish, onBackHome }: SimulatorProps & { userName?: string;restoredRun?: ReturnType<typeof sampleAiceRun>; recordEntryOrigin?: WorkRecordOrigin; recipeRefId?: string | null; resumeStep?: number; token?: string; userId?: string; onStartNew?: () => void; onFinish?: () => void; onBackHome?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(() => ({ ...initialState, runId: crypto.randomUUID() }));
   const selectedPhotoUrl = usePhotoUrl(state.llmCandidate?.photo);
@@ -737,6 +737,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
           {!token && <Alert tone="unavailable" title="로그인이 필요해요">계정 화면에서 로그인하면 AI 레시피 후보를 요청할 수 있습니다.</Alert>}
           <RecipeChatScreen
             token={token}
+            userName={userName}
             historyRevision={historyRevision}
             initialIntake={restoredRun?.intake ?? undefined}
             onSelect={(candidate, image) => {

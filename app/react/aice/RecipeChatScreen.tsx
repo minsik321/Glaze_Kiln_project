@@ -66,8 +66,11 @@ export function RecipeChatScreen({
   initialIntake,
   historyRevision = 0,
   disabled = false,
+  userName = "",
 }: {
   token: string;
+  //: 첫 화면 인사말에 쓰는 사용자 표시 이름. 비어 있으면 이름 없이 인사한다.
+  userName?: string;
   //: 9페이지(결과 기록)의 "목표" 사진이 이 후보의 자동 생성 이미지를 그대로
   //: 보여줄 수 있도록, 선택 시점에 그 후보의 이미지(있으면)도 함께 넘긴다.
   onSelect?: (candidate: RecipeCandidate, image?: { src: string }) => void;
@@ -454,7 +457,7 @@ export function RecipeChatScreen({
       )}
 
       <div className="recipe-chat-intro">
-        <p><strong>Chloe 님 안녕하세요,</strong><br />오늘은 어떤 실험을 해볼까요?</p>
+        <p><strong>{userName ? `${userName} 님 ` : ""}안녕하세요,</strong><br />오늘은 어떤 실험을 해볼까요?</p>
       </div>
       <form onSubmit={submit} className="recipe-prompt-form">
         <div className="recipe-prompt-pill">

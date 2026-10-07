@@ -230,9 +230,9 @@ export function App() {
     ?? session?.user.user_metadata.full_name
     ?? session?.user.email?.split("@")[0]
     ?? "Chloe.jung";
-  const displayName = profileIdentity?.displayName ?? session?.user.user_metadata.display_name
-    ?? session?.user.user_metadata.nickname
-    ?? "가마쟁이";
+  const displayName = profileIdentity?.displayName || session?.user.user_metadata.display_name
+    || session?.user.user_metadata.nickname
+    || "가마쟁이";
   const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
   const bio = profileIdentity?.bio ?? session?.user.user_metadata.bio ?? "";
   const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
@@ -459,7 +459,7 @@ export function App() {
                   setWorkflowClosing(false);
                 }}
               >
-                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} recipeRefId={restoredRecipeRefId} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onStartNew={() => {
+                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} recipeRefId={restoredRecipeRefId} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} userName={displayName} onStartNew={() => {
                   clearWorkProgress();
                   setRestoredRun(undefined);
                   setRecordEntryOrigin(undefined);
