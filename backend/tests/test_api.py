@@ -431,3 +431,129 @@ async def test_someone_elses_public_recipe_is_not_mine() -> None:
         response = await client.get(f"/api/v1/recipes/{RECIPE_ID}", headers={"Authorization": "Bearer valid-token"})
     assert response.json()["is_mine"] is False
     await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aice_run_update_changes_only_title_memo_and_result() -> None:
+    payload = sample_aice_run().to_dict()
+
+    def row(run: dict, title: str = "AICE sample") -> dict:
+        return {"id": str(RECORD_ID), "user_id": str(USER_ID), "title": title, "payload": run,
+                "schema_version": 3, "status": run["status"], "goal_gloss": run["goal"]["gloss"],
+                "goal_transparency": run["goal"]["transparency"], "recipe_id": run["recipe"]["id"],
+                "ware_preset": run["ware"]["preset"], "is_public": False, "created_at": NOW, "updated_at": NOW}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[row(payload)])
+        body = json.loads(request.content)
+        assert request.method == "PATCH" and request.url.path == "/rest/v1/aice_runs"
+        return httpx.Response(200, json=[row(body["payload"], body["title"])])
+
+    app, upstream = client_for(handler)
+    headers = {"Authorization": "Bearer valid-token"}
+    result = {**payload["result"], "color": "lighter", "gloss": "matte"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(f"/api/v1/aice-runs/{RECORD_ID}", headers=headers, json={"title": "  새 제목  ", "memo": "다음엔 얇게", "result": result})
+        blank = await client.patch(f"/api/v1/aice-runs/{RECORD_ID}", headers=headers, json={"title": "   "})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "새 제목"
+    assert body["run"]["memo"] == "다음엔 얇게"
+    assert body["run"]["result"]["color"] == "lighter"
+    assert body["run"]["recipe"]["materials"] == payload["recipe"]["materials"]
+    assert blank.status_code == 422
+    await upstream.aclose()
+
+
+def _evaluated_payload(gloss: str) -> dict:
+    payload = sample_aice_run().to_dict()
+    payload["status"] = "evaluated"
+    payload["result"] = {**payload["result"], "match": "close", "color": "close", "gloss": gloss, "texture": "smooth",
+                         "transparency": "opaque", "defects": [], "defects_reviewed": True}
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_editing_a_run_rebuilds_the_recipe_calibration_from_remaining_runs() -> None:
+    run_a = _evaluated_payload("satin")  # 처음에는 목표와 같은 광택 — 편향 0
+    run_b = _evaluated_payload("matte")  # 목표보다 한 단계 무광 — 오차 -1
+    stored = {"a": run_a, "b": run_b}
+    ids = {"a": RECORD_ID, "b": UUID("33333333-3333-3333-3333-333333333333")}
+    # 이전 수정 전 학습값: 낡은 firing 키와, 기록에서 파생되지 않는 k1.
+    coefficients = {"k1": 1.5, "firing": {"recipe_id": "x", "gloss_bias_level": 9.0, "calibration_runs": 5, "provenance_notes": []}}
+    commits: list[dict] = []
+
+    def row(key: str) -> dict:
+        run = stored[key]
+        return {"id": str(ids[key]), "user_id": str(USER_ID), "title": "t", "payload": run, "schema_version": 3,
+                "status": "evaluated", "goal_gloss": "satin", "goal_transparency": "opaque", "recipe_id": run["recipe"]["id"],
+                "ware_preset": "bowl", "is_public": False, "created_at": NOW, "updated_at": NOW, "feedback_status": "applied"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/rest/v1/personal_calibrations":
+            return httpx.Response(200, json=[{"coefficients": coefficients}])
+        if path == "/rest/v1/rpc/commit_aice_feedback":
+            commits.append(json.loads(request.content))
+            return httpx.Response(200, json=[{"applied": True}])
+        if path == "/rest/v1/aice_runs" and request.method == "PATCH":
+            body = json.loads(request.content)
+            stored["a"] = body["payload"]
+            return httpx.Response(200, json=[row("a")])
+        if path == "/rest/v1/aice_runs":
+            if "id" in request.url.params:
+                return httpx.Response(200, json=[row("a")])
+            return httpx.Response(200, json=[row("a"), row("b")])
+        return httpx.Response(200, json=[])
+
+    app, upstream = client_for(handler)
+    headers = {"Authorization": "Bearer valid-token"}
+    edited = {**run_a["result"], "gloss": "gloss"}  # 목표보다 두 단계 유광으로 정정 — 오차 +2
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(f"/api/v1/aice-runs/{RECORD_ID}", headers=headers, json={"result": edited})
+    assert response.status_code == 200
+    assert len(commits) == 1
+    commit = commits[0]
+    assert commit["p_run_id"] is None and commit["p_expected"] == coefficients
+    rebuilt = commit["p_coefficients"]
+    assert rebuilt["k1"] == 1.5  # 기록에서 파생되지 않는 계수는 그대로
+    firing = rebuilt["firing"]
+    assert firing["calibration_runs"] == 2  # 낡은 5회가 아니라 남은 기록 2건에서 다시 만든다
+    assert firing["gloss_bias_level"] == pytest.approx(0.5)  # (+2 → 평균 (2·1 + -1)/2)
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_run_removes_its_contribution_from_the_recipe_calibration() -> None:
+    run_b = _evaluated_payload("matte")  # 삭제 후 남는 유일한 기록 — 오차 -1
+    coefficients = {"k1": 1.5, "firing": {"recipe_id": "x", "gloss_bias_level": 0.5, "calibration_runs": 2, "provenance_notes": []}}
+    commits: list[dict] = []
+    deleted = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal deleted
+        path = request.url.path
+        if path == "/rest/v1/personal_calibrations":
+            return httpx.Response(200, json=[{"coefficients": coefficients}])
+        if path == "/rest/v1/rpc/commit_aice_feedback":
+            commits.append(json.loads(request.content))
+            return httpx.Response(200, json=[{"applied": True}])
+        if path == "/rest/v1/aice_runs" and request.method == "DELETE":
+            deleted = True
+            return httpx.Response(200, json=[{"id": str(RECORD_ID), "recipe_id": run_b["recipe"]["id"]}])
+        if path == "/rest/v1/aice_runs":
+            assert deleted  # 재계산은 삭제가 끝난 뒤에 남은 기록으로 한다
+            return httpx.Response(200, json=[{"id": str(RECORD_ID), "user_id": str(USER_ID), "title": "t", "payload": run_b, "schema_version": 3,
+                                              "status": "evaluated", "goal_gloss": "satin", "goal_transparency": "opaque", "recipe_id": run_b["recipe"]["id"],
+                                              "ware_preset": "bowl", "is_public": False, "created_at": NOW, "updated_at": NOW, "feedback_status": "applied"}])
+        return httpx.Response(200, json=[])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete(f"/api/v1/aice-runs/{RECORD_ID}", headers={"Authorization": "Bearer valid-token"})
+    assert response.status_code == 204
+    firing = commits[0]["p_coefficients"]["firing"]
+    assert firing["calibration_runs"] == 1 and firing["gloss_bias_level"] == pytest.approx(-1.0)
+    await upstream.aclose()
+

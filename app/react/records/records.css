@@ -42,6 +42,27 @@
 .record-detail-delete { padding: 8px 10px; border: 0; background: transparent; color: var(--danger); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .record-detail-panel .work-record-entry { padding: 12px 2px 92px; }
 
+.record-detail-edit-actions { display: flex; align-items: center; gap: 4px; }
+.record-detail-edit, .record-detail-cancel, .record-detail-save { padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--accent); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.record-detail-cancel { color: var(--text); }
+.record-detail-save { background: var(--accent); color: #fff; }
+.record-detail-save:disabled, .record-detail-cancel:disabled { opacity: .5; cursor: default; }
+
+.work-record-entry.is-editing input, .work-record-entry.is-editing select, .work-record-entry.is-editing textarea { width: 100%; box-sizing: border-box; min-height: 36px; padding: 6px 10px; border: 1px solid #cfe3ec; border-radius: 10px; background: #fff; color: #31383c; font: inherit; font-size: 11px; }
+.work-record-entry.is-editing .work-record-edit-title { margin-top: 4px; font-weight: 700; }
+.work-record-edit-photo { display: flex; gap: 6px; margin-top: 8px; }
+.work-record-edit-button { display: inline-grid; min-height: 30px; place-items: center; padding: 0 10px; border: 1px solid #cfe3ec; border-radius: 8px; background: #fff; color: #31383c; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.work-record-edit-button input { display: none; }
+.work-record-edit-memo { display: grid; gap: 6px; margin-top: 13px; color: #9aa4a9; font-size: 10px; }
+.work-record-edit-memo textarea { min-height: 84px; resize: vertical; }
+.work-record-entry.is-editing .work-record-edit-chips .choice-chip { min-height: 30px; padding: 0 10px; font-size: 11px; }
+.work-record-facts-edit dd { font-weight: 400; }
+.work-record-facts-edit .wide { grid-column: 1 / -1; }
+.work-record-edit-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.work-record-edit-severity { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; color: #4d5a60; font-size: 11px; }
+.work-record-edit-hint { margin: 12px 0 0; color: #69767c; font-size: 11px; line-height: 1.5; }
+.work-record-edit-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
+
 .record-delete-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 33, 43, .45); }
 .record-delete-dialog { width: min(100%, 360px); padding: 24px; border-radius: 20px; background: #fff; box-shadow: 0 20px 70px rgba(17, 33, 43, .2); }
 .record-delete-dialog h3 { margin: 0 0 10px; font-size: 17px; }
@@ -71,27 +92,6 @@
   cursor: pointer;
 }
 
-.record-detail-start:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
-
-.records-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.record-list-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
-}
 .record-detail-publish {
   position: fixed;
   z-index: 12;
@@ -117,6 +117,27 @@
 .record-picker-body { flex: 1; min-height: 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); overflow-y: auto; }
 .record-picker-hint { margin: 4px 2px 12px; color: #69767c; font-size: 12px; line-height: 1.5; }
 
+.record-detail-start:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+
+.records-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.record-list-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
 
 .record-filter {
   display: flex;

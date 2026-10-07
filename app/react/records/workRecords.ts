@@ -1,5 +1,7 @@
 import { sampleAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
 import { CLAY_BODIES, WARE_CATALOG } from "../aice/catalog";
+import { compareGlossObservation, compareTextureObservation, compareTransparencyObservation, resolveGlossObservation, resolveTextureObservation, resolveTransparencyObservation, type RelativeObservation } from "../aice/feedback";
+import { normalizeGlossLevel, normalizeTransparencyLevel } from "../aice/targetCoordinate";
 import type { FeedPost, FeedUser } from "../home/feedData";
 
 export const FEED_IMPORT_SOURCE_REFERENCE = "aice-feed-post-import";
@@ -24,6 +26,11 @@ export function isChatGenerationRecord(run: AiceRun) {
 
 export function importedWorkMemo(run: AiceRun) {
   return run.sources.find((source) => source.reference === FEED_IMPORT_SOURCE_REFERENCE)?.interpretation ?? "";
+}
+
+//: 기록에 보이는 메모 — 내가 남긴 메모가 있으면 그것, 없으면 가져온 게시물의 원 메모.
+export function workRecordMemo(run: AiceRun) {
+  return run.memo ?? importedWorkMemo(run);
 }
 
 function applicationMethod(value: string): AiceRun["application"]["method"] {
@@ -169,6 +176,63 @@ export function workRecordToPostSeed(recordId: string, run: AiceRun): RecordPost
       recipe: Object.entries(run.recipe.materials).map(([name, amount]) => ({ name, amount })),
       colorants: Object.entries(run.recipe.colorants ?? {}).map(([name, amount]) => ({ name, amount })),
       curve,
+    },
+  };
+}
+
+//: 작업 기록 상세에서 고칠 수 있는 값 — 제목·메모·사진과 결과 관찰. 레시피·소성 계획은 바꾸지 않는다.
+export type RecordEditDraft = {
+  title: string;
+  memo: string;
+  photo: AiceRun["result"]["photo"];
+  match: AiceRun["result"]["match"];
+  color: string | null;
+  gloss: RelativeObservation | null;
+  texture: RelativeObservation | null;
+  transparency: RelativeObservation | null;
+  defects: string[];
+  defectSeverities: Record<string, number>;
+};
+
+export function recordEditDraftFromRun(run: AiceRun): RecordEditDraft {
+  const goalGloss = normalizeGlossLevel(run.goal.gloss);
+  const goalTransparency = normalizeTransparencyLevel(run.goal.transparency);
+  return {
+    title: run.title,
+    memo: run.memo ?? "",
+    photo: run.result.photo,
+    match: run.result.match ?? null,
+    color: run.result.color,
+    gloss: run.result.gloss_comparison ?? (goalGloss ? compareGlossObservation(goalGloss, run.result.gloss) : null),
+    texture: run.result.texture_comparison ?? compareTextureObservation(run.goal.texture, run.result.texture),
+    transparency: run.result.transparency_comparison ?? (goalTransparency ? compareTransparencyObservation(goalTransparency, run.result.transparency) : null),
+    defects: [...run.result.defects],
+    defectSeverities: { ...(run.result.defect_severities ?? {}) },
+  };
+}
+
+//: 수정한 값을 저장용 `result`로 되돌린다. 비교값(목표 대비)에서 실제 광택·질감·투명도를
+//: 다시 계산하는 규칙은 새 작업 평가(AicePrototype)와 같다.
+export function applyRecordEdit(run: AiceRun, draft: RecordEditDraft): { title: string; memo: string; result: AiceRun["result"] } {
+  const goalGloss = normalizeGlossLevel(run.goal.gloss);
+  const goalTransparency = normalizeTransparencyLevel(run.goal.transparency);
+  const defectSeverities = Object.fromEntries(draft.defects.map((defect) => [defect, draft.defectSeverities[defect] ?? 1]));
+  return {
+    title: draft.title.trim(),
+    memo: draft.memo.trim(),
+    result: {
+      ...run.result,
+      photo: draft.photo,
+      match: draft.match,
+      color: draft.color,
+      gloss: goalGloss ? resolveGlossObservation(goalGloss, draft.gloss) ?? run.result.gloss : run.result.gloss,
+      texture: resolveTextureObservation(run.goal.texture, draft.texture) ?? run.result.texture,
+      transparency: goalTransparency ? resolveTransparencyObservation(goalTransparency, draft.transparency) ?? run.result.transparency : run.result.transparency,
+      defects: draft.defects,
+      defect_severities: defectSeverities,
+      gloss_comparison: draft.gloss,
+      texture_comparison: draft.texture,
+      transparency_comparison: draft.transparency,
     },
   };
 }

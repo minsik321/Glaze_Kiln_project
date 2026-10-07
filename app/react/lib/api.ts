@@ -319,6 +319,14 @@ export const aiceRunsApi = {
       method: "POST", body: JSON.stringify({ ...input, run, is_public: input.is_public ?? false }),
     }));
   },
+  //: 작업 기록 수정 — 제목·메모·결과 관찰만 바뀐다(백엔드 PATCH). 새 결과 사진은 먼저 저장소에 올린다.
+  update: async (token: string, id: string, input: { run: AiceRun; title?: string; memo?: string; result?: AiceRun["result"] }) => {
+    const { run, ...changes } = input;
+    const result = changes.result ? (await persistRunPhotos({ ...run, result: changes.result })).result : undefined;
+    return migrateStoredRunPhotos(validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token, {
+      method: "PATCH", body: JSON.stringify({ ...changes, result }),
+    })));
+  },
   nextTrial: (token: string, id: string) => request<NextTrialSuggestion | null>(`/aice-runs/${id}/next-trial`, token),
   retryFeedback: async (token: string, id: string) =>
     validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/feedback/retry`, token, { method: "POST" })),

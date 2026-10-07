@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
 import { RecordsPanel } from "./RecordsPanel";
 
+//: 실제 AuthProvider처럼 세션 객체는 렌더 사이에 같은 참조를 유지한다.
+const SESSION = { access_token: "token" };
 vi.mock("../auth/AuthProvider", () => ({
-  useAuth: () => ({ session: { access_token: "token" } }),
+  useAuth: () => ({ session: SESSION }),
 }));
 
 afterEach(() => {
@@ -143,5 +145,45 @@ describe("작업 기록 상세", () => {
     fireEvent.click(screen.getByRole("button", { name: "작업 게시" }));
 
     expect(onPublish).toHaveBeenCalledWith(expect.objectContaining({ id: "run-9" }));
+  });
+
+  it("상세 폼에서 바로 제목·메모·결과 관찰을 고쳐 저장하고 다음 시도 제안을 다시 불러온다", async () => {
+    const run = sampleAiceRun();
+    run.title = "수정할 작업";
+    run.status = "evaluated";
+    run.result = { ...run.result, match: "close", color: "close", gloss: "satin", texture: "smooth", transparency: "opaque", defects: [], defects_reviewed: true, gloss_comparison: "match", texture_comparison: "match", transparency_comparison: "match" };
+    const record = { id: "run-edit", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false, created_at: run.created_at, updated_at: run.updated_at };
+    let patchBody: { title?: string; memo?: string; result?: { texture_comparison?: string; defects?: string[] } } | null = null;
+    let nextTrialCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === "PATCH") {
+        patchBody = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ ...record, title: patchBody!.title, run: { ...run, title: patchBody!.title, memo: patchBody!.memo, result: { ...run.result, ...patchBody!.result } } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/next-trial")) {
+        nextTrialCalls += 1;
+        return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    render(<RecordsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "수정할 작업 작업기록 열기" }));
+    await waitFor(() => expect(nextTrialCalls).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.change(screen.getByLabelText("작업 제목"), { target: { value: "고친 제목" } });
+    fireEvent.change(screen.getByLabelText("메모"), { target: { value: "다음엔 얇게" } });
+    fireEvent.change(screen.getByLabelText("질감"), { target: { value: "more" } });
+    fireEvent.click(screen.getByRole("button", { name: "핀홀" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(screen.getByText("고친 제목")).toBeTruthy());
+    expect(patchBody).toMatchObject({ title: "고친 제목", memo: "다음엔 얇게", result: { texture_comparison: "more", defects: ["pinholes"] } });
+    expect(fetchMock.mock.calls.some(([input, init]) => init?.method === "PATCH" && String(input).includes("/aice-runs/run-edit"))).toBe(true);
+    await waitFor(() => expect(nextTrialCalls).toBe(2));
+    expect(screen.getByText("다음엔 얇게")).toBeTruthy();
   });
 });

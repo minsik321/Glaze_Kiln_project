@@ -39,7 +39,9 @@ from .dependencies import (
     get_vectorstore,
 )
 from .models import (
+    validate_run_payload,
     AiceRunCreate,
+    AiceRunUpdate,
     AicePublishConsent,
     AiceRunPage,
     AiceRunResponse,
@@ -218,6 +220,44 @@ async def get_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway)
     )
 
 
+@router.patch("/aice-runs/{run_id}", response_model=AiceRunResponse)
+async def update_aice_run(run_id: UUID, body: AiceRunUpdate, token: Token, user: User, gateway: Gateway, vectorstore: VectorStore) -> BaseModel:
+    """작업 기록 수정 — 제목·메모·결과 관찰만 바꾼다.
+
+    다음 시도 제안은 저장된 평가에서 매번 다시 계산되므로(`get_run_next_trial`),
+    여기서 결과를 고치면 제안도 자동으로 따라 바뀐다. 개인 보정값은 누적 경로 의존이라
+    한 회차만 빼고 더할 수 없으므로, 그 레시피의 기록 파생 보정을 현재 기록으로 처음부터
+    다시 만든다(`_rebuild_recipe_feedback`).
+    """
+    try:
+        rows = await gateway.select("aice_runs", token, {"select": AICE_COLUMNS, "id": f"eq.{run_id}", "user_id": f"eq.{user.id}", "limit": 1})
+        record = _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+        run = dict(record.run)
+        title = body.title or record.title
+        run["title"] = title
+        if body.memo is not None:
+            memo = body.memo.strip()
+            if memo:
+                run["memo"] = memo
+            else:
+                run.pop("memo", None)
+        if body.result is not None:
+            run["result"] = body.result
+        run["updated_at"] = datetime.now(UTC).isoformat()
+        try:
+            run = validate_run_payload(run)
+        except ValueError as exc:
+            raise HTTPException(422, detail=error_detail("aice_run_invalid", str(exc))) from exc
+        updated = await gateway.update("aice_runs", token, {"title": title, "payload": run}, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    result = _one(updated, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+    if result.status == "evaluated":
+        await _rebuild_recipe_feedback_best_effort(gateway, token, user, result.recipe_id)
+    await _index_personal_recipe_best_effort(vectorstore, token, user, result)
+    return result
+
+
 @router.get("/aice-runs/{run_id}/next-trial", response_model=NextTrialSuggestionOut | None)
 async def get_run_next_trial(run_id: UUID, token: Token, user: User, gateway: Gateway) -> NextTrialSuggestionOut | None:
     """작업 기록 상세용 — 그 기록의 평가에서 나온 다음 시도 제안을 다시 계산한다.
@@ -311,6 +351,10 @@ async def delete_aice_run(run_id: UUID, token: Token, user: User, gateway: Gatew
         _raise_supabase(exc)
     if not rows:
         raise HTTPException(404, detail=error_detail("aice_run_not_found", "AICE 실행을 찾을 수 없습니다."))
+    # 삭제된 기록의 기여분이 개인 보정값에 남지 않도록 그 레시피 보정을 남은 기록으로 다시 만든다.
+    recipe_id = rows[0].get("recipe_id")
+    if recipe_id:
+        await _rebuild_recipe_feedback_best_effort(gateway, token, user, recipe_id)
     # aice_vector_documents.run_id cascades with this deletion.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -664,6 +708,48 @@ async def retry_run_feedback(run_id: UUID, token: Token, user: User, gateway: Ga
     result = _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
     await _index_personal_recipe_best_effort(vectorstore, token, user, result)
     return await _apply_run_feedback(gateway, token, user, result)
+
+
+#: 평가 기록에서 만들어지는 보정 키. 같은 jsonb 행의 다른 키(k1 등 별도 캘리브레이션
+#: 경로의 값)는 기록에서 파생되지 않으므로 다시 만들 때 건드리지 않는다.
+_RUN_DERIVED_COEFFICIENT_KEYS = ("firing", "density")
+
+
+async def _rebuild_recipe_feedback(gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str) -> None:
+    """한 레시피의 기록 파생 보정값(소성 편향·비중/두께 제안)을 현재 기록으로 처음부터 다시 만든다.
+
+    보정은 회차마다 누적되는 경로 의존 값(가중 평균·clamp·최초 관측 anchor)이라 한 회차의
+    기여분만 빼는 것이 불가능하다. 기록을 수정·삭제하면 이미 반영된 평가 완료 기록을
+    생성 순서대로 같은 규칙(`_feedback_coefficients`)에 다시 통과시켜 결과를 일관되게 맞춘다.
+    아직 반영 전(pending)인 기록은 건너뛴다 — 나중에 `_apply_run_feedback`이 그 위에 얹는다.
+    동시 갱신은 `commit_aice_feedback`의 expected 비교로 막고, 경합하면 다시 시도한다.
+    """
+    rows = await gateway.select("aice_runs", token, {
+        "select": AICE_FEEDBACK_COLUMNS, "user_id": f"eq.{user.id}", "recipe_id": f"eq.{recipe_id}",
+        "feedback_status": "eq.applied", "order": "created_at.asc", "limit": 1000,
+    })
+    runs = [_validate(AiceRunResponse, row) for row in rows]
+    for _ in range(5):
+        raw = await _select_calibration_row(gateway, token, user, recipe_id)
+        rebuilt = {key: value for key, value in raw.items() if key not in _RUN_DERIVED_COEFFICIENT_KEYS}
+        for record in runs:
+            rebuilt, _notes = _feedback_coefficients(recipe_id, rebuilt, record.run)
+        if rebuilt == raw:
+            return
+        committed = await gateway.rpc("commit_aice_feedback", token, {
+            "p_recipe_id": recipe_id, "p_expected": raw, "p_coefficients": rebuilt, "p_run_id": None,
+        })
+        if committed and committed[0].get("applied"):
+            return
+    logger.warning("Calibration rebuild contention; left unchanged for recipe %s", recipe_id)
+
+
+async def _rebuild_recipe_feedback_best_effort(gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str) -> None:
+    # 기록 수정·삭제 자체는 이미 성공했다 — 보정 재계산이 실패해도 요청을 되돌리지 않는다.
+    try:
+        await _rebuild_recipe_feedback(gateway, token, user, recipe_id)
+    except (SupabaseError, ValueError, TypeError) as exc:
+        logger.warning("Calibration rebuild failed for recipe %s: %s", recipe_id, exc)
 
 
 async def _retry_pending_feedback(gateway: SupabaseGateway, token: str, user: AuthUser, recipe_id: str) -> None:

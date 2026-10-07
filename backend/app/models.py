@@ -74,6 +74,37 @@ def normalize_evaluated_run(value: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def validate_run_payload(value: dict[str, Any]) -> dict[str, Any]:
+    """생성·수정이 공유하는 검증 — 완료 기록은 관찰 입력이 모두 있어야 한다."""
+    value = normalize_evaluated_run(value)
+    if value.get("status") == "evaluated":
+        result = value.get("result") or {}
+        if result.get("gloss") not in {"dry", "matte", "satin", "semi_gloss", "gloss"} or result.get("transparency") not in {"opaque", "semi_opaque", "translucent", "transparent"}:
+            raise ValueError("평가 완료에는 실제 광택과 투명도 입력이 필요합니다.")
+        if result.get("defects_reviewed") is not True or result.get("match") not in {"close", "different"}:
+            raise ValueError("평가 완료에는 목표 비교와 결함 확인이 필요합니다.")
+    return validate_aice_payload(value)
+
+
+class AiceRunUpdate(ApiModel):
+    """작업 기록 수정 — 제목·메모·결과 관찰만 바꿀 수 있다(레시피·소성 계획은 불변)."""
+
+    title: str | None = Field(default=None, max_length=200)
+    #: 빈 문자열이면 메모를 지운다.
+    memo: str | None = Field(default=None, max_length=1000)
+    result: dict[str, Any] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("title must not be blank")
+        return value
+
+
 class AiceRunCreate(ApiModel):
     request_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
@@ -95,14 +126,7 @@ class AiceRunCreate(ApiModel):
     @field_validator("run")
     @classmethod
     def validate_run(cls, value: dict[str, Any]) -> dict[str, Any]:
-        value = normalize_evaluated_run(value)
-        if value.get("status") == "evaluated":
-            result = value.get("result") or {}
-            if result.get("gloss") not in {"dry", "matte", "satin", "semi_gloss", "gloss"} or result.get("transparency") not in {"opaque", "semi_opaque", "translucent", "transparent"}:
-                raise ValueError("평가 완료에는 실제 광택과 투명도 입력이 필요합니다.")
-            if result.get("defects_reviewed") is not True or result.get("match") not in {"close", "different"}:
-                raise ValueError("평가 완료에는 목표 비교와 결함 확인이 필요합니다.")
-        return validate_aice_payload(value)
+        return validate_run_payload(value)
 
     @model_validator(mode="after")
     def require_public_consent(self) -> "AiceRunCreate":

@@ -187,6 +187,8 @@ export type AiceRun = {
   };
   //: 화면 1(LLM 채팅) 입력·출력 기록. 채팅에서 시작하지 않은 실행은 null (Phase 1).
   intake: ChatIntake | null;
+  //: 작업 기록에서 사용자가 남긴 메모(선택). 가져온 기록의 원 게시물 메모는 sources에 있다.
+  memo?: string;
   created_at: string;
   updated_at: string;
 };
