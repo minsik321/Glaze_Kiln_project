@@ -79,7 +79,7 @@ export function KilnFiringScreen({
   simulationCompleted: boolean;
   onSimulationStart: () => void;
 }) {
-  const [minute, setMinute] = useState(320);
+  const [minute, setMinute] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [scenario, setScenario] = useState<KilnScenario>("normal");
 
