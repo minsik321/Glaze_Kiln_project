@@ -1903,6 +1903,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .work-record-facts dd { margin: 0; overflow-wrap: anywhere; color: #4d5a60; font-size: 9px; font-weight: 700; }
 .work-record-observation-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 13px; }
 .work-record-entry-card blockquote { margin: 13px 0 0; padding: 11px 12px; border-left: 3px solid #75d0f3; border-radius: 0 10px 10px 0; background: #f2fafd; color: #59676d; font-size: 9px; line-height: 1.6; }
+.work-record-entry-card .next-trial-suggestion strong { font-size: 9px; }
+.work-record-entry-card .next-trial-suggestion p { font-size: 9px; line-height: 1.6; }
 .work-record-entry-guide { margin: 14px 4px 0; color: #69767c; font-size: 10px; line-height: 1.55; }
 
 /* 두 번째 단계도 레시피 후보 화면과 같은 모바일 작업 디자인을 사용한다. */
