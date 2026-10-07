@@ -107,3 +107,14 @@ async def test_embedding_api_failure_becomes_vector_store_unavailable() -> None:
             doc_id=f"run-{RUN_ID}", text="관찰",
             metadata={"source_type": SOURCE_PERSONAL_RECIPE, "user_id": str(USER_ID)},
         )])
+
+
+@pytest.mark.asyncio
+async def test_search_failure_is_logged_not_raised(caplog) -> None:
+    async def failing_embed(texts):
+        raise RuntimeError("aimlapi down")
+
+    store = AiceVectorStore(AsyncMock(), embed_fn=failing_embed)
+    with caplog.at_level("WARNING", logger="backend.app.vectorstore"):
+        assert await store.search("token", "사틴") == []
+    assert "RAG 검색 실패" in caplog.text

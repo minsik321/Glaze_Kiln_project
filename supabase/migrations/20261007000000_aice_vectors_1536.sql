@@ -1,18 +1,29 @@
 -- Embeddings now come from aimlapi.com (text-embedding-3-small, 1536 dims)
 -- instead of local fastembed (384 dims). Vectors from different models are not
--- comparable, so every stored vector is dropped and must be re-indexed:
+-- comparable, so a database still on vector(384) drops its vectors and must be
+-- re-indexed afterwards:
 --   * reference corpus: python -m backend.scripts.ingest_corpus --output-sql <file>, then run that SQL
---   * personal recipes: re-embedded from saved runs (or lazily when runs are saved again)
-drop index if exists public.aice_vector_documents_embedding;
-delete from public.aice_vector_documents;
-
-alter table public.aice_vector_documents
-  alter column embedding type extensions.vector(1536);
-
-create index aice_vector_documents_embedding on public.aice_vector_documents
-  using hnsw (embedding extensions.vector_cosine_ops);
-
-drop function if exists public.match_aice_vector_documents(extensions.vector, integer, text[], uuid);
+--   * personal recipes: re-embedded when their runs are saved again
+--
+-- Idempotent: a database already on vector(1536) is left untouched. The hosted
+-- project (glaze-kiln-dev) was converted by hand on 2026-10-07 instead: a new
+-- 1536-dim table was filled and verified first, then swapped in under the
+-- original name. The end state is the same except for the primary-key index
+-- name (aice_vector_documents_next_pkey), which is cosmetic.
+do $$
+begin
+  if (select format_type(a.atttypid, a.atttypmod)
+        from pg_attribute a
+       where a.attrelid = 'public.aice_vector_documents'::regclass
+         and a.attname = 'embedding') <> 'vector(1536)' then
+    drop index if exists public.aice_vector_documents_embedding;
+    delete from public.aice_vector_documents;
+    alter table public.aice_vector_documents
+      alter column embedding type extensions.vector(1536);
+    create index aice_vector_documents_embedding on public.aice_vector_documents
+      using hnsw (embedding extensions.vector_cosine_ops);
+  end if;
+end $$;
 
 create or replace function public.match_aice_vector_documents(
   query_embedding extensions.vector(1536),

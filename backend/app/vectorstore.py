@@ -7,12 +7,15 @@ enforces owner access through RLS, and performs cosine similarity search.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Sequence
 from uuid import UUID
 
 from .supabase import SupabaseError, SupabaseGateway
+
+logger = logging.getLogger(__name__)
 
 #: text-embedding-3-small의 출력 차원. DB의 vector(1536) 컬럼과 같아야 한다.
 VECTOR_SIZE = 1536
@@ -109,7 +112,10 @@ class AiceVectorStore:
                 "match_source_types": list(source_types) if source_types else None,
                 "match_user_id": user_id,
             })
-        except (SupabaseError, VectorStoreUnavailable):
+        except (SupabaseError, VectorStoreUnavailable) as exc:
+            # RAG는 있으면 더 좋은 계층이라 추천을 막지 않지만, 조용히 비면
+            # 임베딩·RPC 실패를 알 수 없으므로 원인은 남긴다.
+            logger.warning("RAG 검색 실패(빈 결과로 계속 진행): %s", exc)
             return []
         return [
             RetrievedDocument(
