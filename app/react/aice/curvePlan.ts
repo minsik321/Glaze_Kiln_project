@@ -97,7 +97,9 @@ function buildBaselinePoints(recipeFiringRangeC: readonly [number, number] | nul
 
 const DISTURBANCE_UNITS: Record<keyof Required<KilnDisturbance>, string> = {
   supply_voltage_pct: "%", element_aging_pct: "%", thermocouple_noise_c: "℃",
-  thermocouple_lag_s: "s", load_mismatch_pct: "%", wall_lag_s: "s", seed: "",
+  thermocouple_lag_s: "s", load_mismatch_pct: "%", wall_lag_s: "s",
+  //: 서버(kiln.aice.contract.SourcedValue)가 빈 unit을 거부하므로 무단위 값도 비워 두지 않는다.
+  seed: "seed",
 };
 
 function control(scenario: KilnScenario, disturbance: KilnDisturbance): ControlPlan {
@@ -107,7 +109,7 @@ function control(scenario: KilnScenario, disturbance: KilnDisturbance): ControlP
   });
   const parameters: Record<string, SourcedValue<number>> = {};
   for (const [key, value] of Object.entries(disturbance)) {
-    parameters[key] = sourced(value as number, DISTURBANCE_UNITS[key as keyof KilnDisturbance] ?? "");
+    parameters[key] = sourced(value as number, DISTURBANCE_UNITS[key as keyof KilnDisturbance] || "-");
   }
   return {
     scenario, controllerKind: "feedforward_p", disturbance, parameters,
@@ -149,6 +151,8 @@ export function buildCurveComparison(
   //: 예측 입력(레시피·기물·이력)이 없는 호출부(예: 테스트)도 그대로 동작한다.
   nextHoldDeltaC = -3,
   nextReason = "합성 추종오차를 줄이기 위한 미승인 제안",
+  //: 지난 평가의 "유지시간 ±N분" 제안 — 유지 구간(360~400분) 끝 이후 점을 N분 밀어 반영한다.
+  holdExtensionMin = 0,
 ): CurveSeries[] {
   const base = buildBaselinePoints(recipeFiringRangeC);
   const baselineSourceType: SourceType = recipeFiringRangeC ? "inferred" : "synthetic";
@@ -157,12 +161,15 @@ export function buildCurveComparison(
   const reason = coating === "thick" ? "두꺼운 형상 기반 분포를 반영해 최고 구간을 낮추고 완만하게 만든 합성 후보" : coating === "thin" ? "얇은 형상 기반 분포를 반영해 유지 구간을 줄인 합성 후보" : "목표 근처 도포의 불확실성을 반영한 완만한 합성 후보";
   const adjusted = base.map((point) => point.minute >= 300 && point.minute <= 400 ? { ...point, temperatureC: point.temperatureC + adjustedDelta } : point);
   const actual = adjusted.map((point, index) => ({ ...point, temperatureC: round(point.temperatureC + (index % 2 ? -7 : 3)) }));
-  const next = adjusted.map((point) => point.minute === 360 || point.minute === 400 ? { ...point, temperatureC: point.temperatureC + nextHoldDeltaC } : point);
+  const next = adjusted
+    .map((point) => point.minute === 360 || point.minute === 400 ? { ...point, temperatureC: point.temperatureC + nextHoldDeltaC } : point)
+    .map((point) => holdExtensionMin !== 0 && point.minute >= 400 ? { ...point, minute: point.minute + holdExtensionMin } : point);
+  const nextReasonText = holdExtensionMin !== 0 ? `${nextReason} · 유지시간 ${holdExtensionMin > 0 ? "+" : ""}${holdExtensionMin}분(지난 평가)` : nextReason;
   return [
     { id: "baseline-v1", role: "baseline", label: "기준 계획", sourceType: baselineSourceType, points: base, reason: baselineReason },
     { id: `thickness-${coating}-v1`, role: "adjusted", label: "두께 반영 수정 계획", sourceType: "synthetic", points: adjusted, reason, annotation: { minute: 340, temperatureC: 1100 + adjustedDelta, text: reason } },
     { id: `actual-${coating}-v1`, role: "actual", label: "시뮬레이션 실제", sourceType: "synthetic", points: actual, reason: "합성 센서 응답으로 재현한 실행선" },
-    { id: `next-${coating}-v1`, role: "next", label: "다음 실행 제안", sourceType: "inferred", points: next, reason: nextReason },
+    { id: `next-${coating}-v1`, role: "next", label: "다음 실행 제안", sourceType: "inferred", points: next, reason: nextReasonText },
   ];
 }
 

@@ -128,8 +128,9 @@ async def test_submit_calibration_run_upserts_and_returns_updated_table() -> Non
         assert body["recipe_id"] == "coastal-satin"
         assert body["user_id"] == str(USER_ID)
         assert body["coefficients"]["calibration_runs"] == 1
-        assert request.url.params.get("on_conflict") == "user_id,recipe_id,version"
-        return httpx.Response(200, json=[{**body, "id": "row-1"}])
+        assert request.url.params.get("on_conflict") == "user_id,recipe_id"
+        assert set(body) == {"user_id", "recipe_id", "coefficients"}
+        return httpx.Response(200, json=[body])
 
     app, upstream = client_for(handler)
     async with httpx.AsyncClient(

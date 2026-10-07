@@ -240,9 +240,6 @@ describe("Account persistence requests", () => {
         {
           id: "user-1",
           kiln_sensor_plan: "single",
-          kiln_capacity_l: null,
-          kiln_shelf_count: null,
-          kiln_power_kw: null,
         },
         { onConflict: "id" },
       ),

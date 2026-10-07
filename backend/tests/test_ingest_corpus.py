@@ -1,6 +1,6 @@
 """backend/scripts/ingest_corpus.py 테스트 — 코퍼스가 코드 안 실제 값과
 빠짐없이 1:1로 대응하는지 확인한다(새 수치를 지어내지 않는다는 약속의
-검증판). Qdrant·네트워크는 필요 없다 — 문서 빌더 함수만 부른다."""
+검증판). Supabase·네트워크는 필요 없다 — 문서 빌더 함수만 부른다."""
 
 from __future__ import annotations
 

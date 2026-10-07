@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
 import { RecordsPanel } from "./RecordsPanel";
@@ -67,6 +67,66 @@ describe("작업 기록 상세", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "이 기록으로 작업 시작" }));
     expect(onDetailOpenChange).toHaveBeenCalledWith(false);
-    expect(onStart).toHaveBeenCalledWith(run, "mine");
+    expect(onStart).toHaveBeenCalledWith(run, "mine", null);
+  });
+
+  it("확인 후 본인 작업기록을 삭제하고 목록을 갱신한다", async () => {
+    const run = sampleAiceRun();
+    run.title = "삭제할 작업";
+    run.status = "evaluated";
+    const record = {
+      id: "run-to-delete", title: run.title, run, schema_version: 3, status: run.status,
+      goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency,
+      recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false,
+      created_at: run.created_at, updated_at: run.updated_at,
+    };
+    let deleted = false;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method === "DELETE") {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      }
+      return new Response(JSON.stringify({ items: deleted ? [] : [record], limit: 20, offset: 0 }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    render(<RecordsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "삭제할 작업 작업기록 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "작업기록 삭제" }));
+    expect(screen.getByRole("dialog", { name: "작업기록을 삭제할까요?" })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "작업기록 삭제" }));
+    fireEvent.click(screen.getByRole("button", { name: /^삭제$/ }));
+
+    await screen.findByText("아직 완료하거나 가져온 작업이 없습니다.");
+    const deletion = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+    expect(deletion?.[0]).toContain("/aice-runs/run-to-delete");
+    expect(new Headers(deletion?.[1]?.headers).get("Authorization")).toBe("Bearer token");
+  });
+
+  it("삭제 요청이 실패하면 확인 창에 오류를 보여주고 기록을 유지한다", async () => {
+    const run = sampleAiceRun();
+    run.title = "보존할 작업";
+    run.status = "evaluated";
+    const record = {
+      id: "run-keep", title: run.title, run, schema_version: 3, status: run.status,
+      goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency,
+      recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false,
+      created_at: run.created_at, updated_at: run.updated_at,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => init?.method === "DELETE"
+      ? new Response(JSON.stringify({ detail: { message: "삭제 권한이 없습니다." } }), { status: 403, headers: { "Content-Type": "application/json" } })
+      : new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    render(<RecordsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "보존할 작업 작업기록 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "작업기록 삭제" }));
+    fireEvent.click(screen.getByRole("button", { name: /^삭제$/ }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("삭제 권한이 없습니다."));
+    expect(screen.getByRole("heading", { name: "결과 관찰 기록" })).toBeTruthy();
   });
 });

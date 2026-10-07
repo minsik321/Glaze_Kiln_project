@@ -7,7 +7,7 @@ from uuid import UUID, uuid5
 import asyncio
 import base64
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ValidationError
@@ -47,6 +47,7 @@ from .models import (
     CalibrationRunRequest,
     CalibrationRunResponse,
     CoefficientTableOut,
+    NextTrialSuggestionOut,
     DipTimeRequest,
     DipTimeResponse,
     KilnControlSample,
@@ -54,6 +55,8 @@ from .models import (
     KilnSimulateResponse,
     ProfileResponse,
     ProfileUpdate,
+    RecipePage,
+    RecipeResponse,
     RecipeImageRequest,
     RecipeImageResponse,
     RecipeSuggestRequest,
@@ -61,10 +64,6 @@ from .models import (
     ThicknessComputeRequest,
     ThicknessComputeResponse,
     ThicknessPointOut,
-    WorkRecordCreate,
-    WorkRecordPage,
-    WorkRecordResponse,
-    WorkRecordUpdate,
 )
 from .supabase import SupabaseError, SupabaseGateway
 from .vectorstore import (
@@ -74,7 +73,6 @@ from .vectorstore import (
     SOURCE_MATERIAL_CHEMISTRY,
     SOURCE_PERSONAL_RECIPE,
     VectorDocument,
-    VectorStoreUnavailable,
     format_retrieved_context,
 )
 
@@ -88,8 +86,8 @@ Llm = Annotated[AimlapiClient, Depends(get_llm)]
 VectorStore = Annotated["AiceVectorStore | None", Depends(get_vectorstore)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
-RECORD_COLUMNS = "id,title,payload,schema_version,is_public,created_at,updated_at"
-AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,ware_preset,is_public,created_at,updated_at"
+AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,recipe_ref_id,ware_preset,is_public,created_at,updated_at"
+RECIPE_COLUMNS = "id,owner_id,forked_from_id,name,materials,colorants,composition_key,is_public,created_at,updated_at"
 AICE_FEEDBACK_COLUMNS = f"{AICE_COLUMNS},request_id,feedback_status"
 _LEGACY_AICE_RPC_CODES = {"PGRST202", "42883"}
 
@@ -167,6 +165,7 @@ async def create_aice_run(
         "recipe_id": run["recipe"]["id"],
         "ware_preset": run["ware"]["preset"],
         "is_public": body.is_public,
+        "recipe_ref_id": str(body.recipe_ref_id) if body.recipe_ref_id else None,
     }
     try:
         rows = await gateway.rpc("save_aice_run", token, {
@@ -182,7 +181,8 @@ async def create_aice_run(
         if exc.code not in _LEGACY_AICE_RPC_CODES:
             _raise_supabase(exc)
         try:
-            rows = await gateway.insert("aice_runs", token, values)
+            # Without the RPC there is no recipe resolution; leave the link empty.
+            rows = await gateway.insert("aice_runs", token, {**values, "recipe_ref_id": None})
         except SupabaseError as fallback_exc:
             _raise_supabase(fallback_exc)
     result = _one(
@@ -191,7 +191,7 @@ async def create_aice_run(
         "aice_run_not_saved",
         "AICE 실행을 저장하지 못했습니다.",
     )
-    _index_personal_recipe_best_effort(vectorstore, user, result)
+    await _index_personal_recipe_best_effort(vectorstore, token, user, result)
     return await _apply_run_feedback(gateway, token, user, result)
 
 
@@ -216,6 +216,42 @@ async def get_aice_run(run_id: UUID, token: Token, user: User, gateway: Gateway)
         "aice_run_not_found",
         "AICE 실행을 찾을 수 없습니다.",
     )
+
+
+@router.get("/aice-runs/{run_id}/next-trial", response_model=NextTrialSuggestionOut | None)
+async def get_run_next_trial(run_id: UUID, token: Token, user: User, gateway: Gateway) -> NextTrialSuggestionOut | None:
+    """작업 기록 상세용 — 그 기록의 평가에서 나온 다음 시도 제안을 다시 계산한다.
+
+    제안은 평가 결과의 순수 함수라 저장해 둔 payload만으로 재현된다. 두께 기준은
+    그 기록 당시 평균 두께로 고정해, 이후 학습값이 바뀌어도 기록의 문구가 흔들리지 않는다.
+    """
+    try:
+        rows = await gateway.select("aice_runs", token, {
+            "select": AICE_COLUMNS, "id": f"eq.{run_id}", "user_id": f"eq.{user.id}", "limit": 1,
+        })
+        found = _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
+        raw = await _select_calibration_row(gateway, token, user, found.recipe_id)
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    run = found.run
+    result = run.get("result") or {}
+    try:
+        suggestion = kiln_bridge.suggest_next_trial(
+            kiln_bridge.density_coefficient_table_from_dict(found.recipe_id, None),
+            overall=result.get("match"),
+            defects=tuple(result.get("defects") or ()),
+            defects_reviewed=result.get("defects_reviewed") is True,
+            gloss_comparison=result.get("gloss_comparison"),
+            transparency_comparison=result.get("transparency_comparison"),
+            texture_comparison=result.get("texture_comparison"),
+            color=result.get("color"),
+            mean_thickness_mm=((run.get("thickness") or {}).get("mean") or {}).get("value"),
+            safe_thickness_mm=kiln_bridge.coefficient_table_from_dict(found.recipe_id, raw).safe_thickness_mm,
+        )
+    except (ValueError, TypeError) as exc:
+        logger.warning("Next-trial recompute failed for run %s: %s", run_id, exc)
+        return None
+    return NextTrialSuggestionOut(**asdict(suggestion)) if suggestion is not None else None
 
 
 @router.get("/public/aice-runs", response_model=AiceRunPage)
@@ -243,8 +279,9 @@ async def publish_aice_run(run_id: UUID, body: AicePublishConsent, token: Token,
         record = _one(current, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
         run = dict(record.run)
         run["consent"] = {"share_allowed": True, "photo_rights_confirmed": body.photo_rights_confirmed, "pii_reviewed": body.pii_reviewed, "location_removed": body.location_removed, "withdrawn_at": None}
-        await gateway.insert("aice_consents", token, {"run_id": str(run_id), "user_id": str(user.id), "share_allowed": True, "photo_rights_confirmed": body.photo_rights_confirmed, "pii_reviewed": body.pii_reviewed, "location_removed": body.location_removed, "withdrawn_at": None}, upsert=True, conflict="run_id")
+        await gateway.insert("aice_consents", token, {"run_id": str(run_id), "user_id": str(user.id), "share_allowed": True, "photo_rights_confirmed": body.photo_rights_confirmed, "pii_reviewed": body.pii_reviewed, "location_removed": body.location_removed, "granted_at": datetime.now(UTC).isoformat(), "withdrawn_at": None}, upsert=True, conflict="run_id")
         rows = await gateway.update("aice_runs", token, {"payload": run, "is_public": True}, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+        await _sync_recipe_visibility(gateway, token, user, record.recipe_ref_id)
     except SupabaseError as exc:
         _raise_supabase(exc)
     return _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
@@ -260,6 +297,7 @@ async def withdraw_aice_run(run_id: UUID, token: Token, user: User, gateway: Gat
         run["consent"] = {**run["consent"], "share_allowed": False, "withdrawn_at": withdrawn_at}
         await gateway.update("aice_consents", token, {"share_allowed": False, "withdrawn_at": withdrawn_at}, {"run_id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
         rows = await gateway.update("aice_runs", token, {"payload": run, "is_public": False}, {"id": f"eq.{run_id}", "user_id": f"eq.{user.id}"})
+        await _sync_recipe_visibility(gateway, token, user, record.recipe_ref_id)
     except SupabaseError as exc:
         _raise_supabase(exc)
     return _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
@@ -273,7 +311,66 @@ async def delete_aice_run(run_id: UUID, token: Token, user: User, gateway: Gatew
         _raise_supabase(exc)
     if not rows:
         raise HTTPException(404, detail=error_detail("aice_run_not_found", "AICE 실행을 찾을 수 없습니다."))
+    # aice_vector_documents.run_id cascades with this deletion.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _sync_recipe_visibility(
+    gateway: SupabaseGateway, token: str, user: AuthUser, recipe_ref_id: UUID | None
+) -> None:
+    """A recipe is public exactly while one of its owner's runs using it is public.
+
+    Only the owner's row changes (RLS); a run that points at someone else's
+    recipe never alters that recipe's visibility.
+    """
+    if recipe_ref_id is None:
+        return
+    public_runs = await gateway.select("aice_runs", token, {
+        "select": "id", "user_id": f"eq.{user.id}", "recipe_ref_id": f"eq.{recipe_ref_id}",
+        "is_public": "eq.true", "limit": 1,
+    })
+    await gateway.update(
+        "recipes", token, {"is_public": bool(public_runs)},
+        {"id": f"eq.{recipe_ref_id}", "owner_id": f"eq.{user.id}"},
+    )
+
+
+def _recipe_out(row: dict, user: AuthUser, parent: dict | None = None) -> RecipeResponse:
+    data = {key: value for key, value in row.items() if key != "owner_id"}
+    data["is_mine"] = str(row.get("owner_id")) == str(user.id)
+    if parent is not None:
+        data["forked_from"] = {"id": parent["id"], "name": parent["name"]}
+    return _validate(RecipeResponse, data)
+
+
+@router.get("/recipes", response_model=RecipePage)
+async def list_my_recipes(token: Token, user: User, gateway: Gateway) -> RecipePage:
+    """My own recipes, newest first (written by me, or forked by me)."""
+    try:
+        rows = await gateway.select("recipes", token, {
+            "select": RECIPE_COLUMNS, "owner_id": f"eq.{user.id}", "order": "created_at.desc", "limit": 200,
+        })
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return RecipePage(items=[_recipe_out(row, user) for row in rows])
+
+
+@router.get("/recipes/{recipe_id}", response_model=RecipeResponse)
+async def get_recipe(recipe_id: UUID, token: Token, user: User, gateway: Gateway) -> RecipeResponse:
+    """One recipe I can see (mine or public), with the recipe it was forked from when visible."""
+    try:
+        rows = await gateway.select("recipes", token, {"select": RECIPE_COLUMNS, "id": f"eq.{recipe_id}", "limit": 1})
+        if not rows:
+            raise HTTPException(404, detail=error_detail("recipe_not_found", "레시피를 찾을 수 없습니다."))
+        parent = None
+        if rows[0].get("forked_from_id"):
+            parents = await gateway.select("recipes", token, {
+                "select": "id,name", "id": f"eq.{rows[0]['forked_from_id']}", "limit": 1,
+            })
+            parent = parents[0] if parents else None
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return _recipe_out(rows[0], user, parent)
 
 
 @router.get("/me/profile", response_model=ProfileResponse)
@@ -306,163 +403,10 @@ async def upsert_profile(
         )
     except SupabaseError as exc:
         _raise_supabase(exc)
+    # The upsert returns every profile column (bio, avatar_url, kiln settings);
+    # this endpoint only exposes the identity fields.
+    rows = [{key: row.get(key) for key in ("id", "display_name", "created_at")} for row in rows]
     return _one(rows, ProfileResponse, "profile_not_saved", "프로필을 저장하지 못했습니다.")
-
-
-@router.get("/work-records", response_model=WorkRecordPage)
-async def list_records(
-    token: Token,
-    user: User,
-    gateway: Gateway,
-    limit: Limit = 20,
-    offset: Offset = 0,
-) -> WorkRecordPage:
-    try:
-        rows = await gateway.select(
-            "work_records",
-            token,
-            {
-                "select": RECORD_COLUMNS,
-                "user_id": f"eq.{user.id}",
-                "order": "created_at.desc",
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return WorkRecordPage(
-        items=[_validate(WorkRecordResponse, row) for row in rows],
-        limit=limit,
-        offset=offset,
-    )
-
-
-@router.post(
-    "/work-records",
-    response_model=WorkRecordResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_record(
-    body: WorkRecordCreate, token: Token, user: User, gateway: Gateway
-) -> BaseModel:
-    values = body.model_dump(mode="json")
-    values["user_id"] = str(user.id)
-    try:
-        rows = await gateway.insert("work_records", token, values)
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return _one(rows, WorkRecordResponse, "record_not_saved", "작업 기록을 저장하지 못했습니다.")
-
-
-@router.get("/work-records/{record_id}", response_model=WorkRecordResponse)
-async def get_record(
-    record_id: UUID, token: Token, user: User, gateway: Gateway
-) -> BaseModel:
-    try:
-        rows = await gateway.select(
-            "work_records",
-            token,
-            {
-                "select": RECORD_COLUMNS,
-                "id": f"eq.{record_id}",
-                "user_id": f"eq.{user.id}",
-                "limit": 1,
-            },
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return _one(rows, WorkRecordResponse, "record_not_found", "작업 기록을 찾을 수 없습니다.")
-
-
-@router.patch("/work-records/{record_id}", response_model=WorkRecordResponse)
-async def update_record(
-    record_id: UUID,
-    body: WorkRecordUpdate,
-    token: Token,
-    user: User,
-    gateway: Gateway,
-) -> BaseModel:
-    try:
-        rows = await gateway.update(
-            "work_records",
-            token,
-            body.model_dump(mode="json", exclude_unset=True),
-            {"id": f"eq.{record_id}", "user_id": f"eq.{user.id}"},
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return _one(rows, WorkRecordResponse, "record_not_found", "작업 기록을 찾을 수 없습니다.")
-
-
-@router.delete("/work-records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_record(
-    record_id: UUID, token: Token, user: User, gateway: Gateway
-) -> Response:
-    try:
-        rows = await gateway.delete(
-            "work_records",
-            token,
-            {"id": f"eq.{record_id}", "user_id": f"eq.{user.id}"},
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    if not rows:
-        raise HTTPException(
-            404, detail=error_detail("record_not_found", "작업 기록을 찾을 수 없습니다.")
-        )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get("/public/work-records", response_model=WorkRecordPage)
-async def list_public_records(
-    token: Token,
-    _user: User,
-    gateway: Gateway,
-    limit: Limit = 20,
-    offset: Offset = 0,
-) -> WorkRecordPage:
-    try:
-        rows = await gateway.select(
-            "work_records",
-            token,
-            {
-                "select": RECORD_COLUMNS,
-                "is_public": "eq.true",
-                "order": "created_at.desc",
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return WorkRecordPage(
-        items=[_validate(WorkRecordResponse, row) for row in rows],
-        limit=limit,
-        offset=offset,
-    )
-
-
-@router.get("/public/work-records/{record_id}", response_model=WorkRecordResponse)
-async def get_public_record(
-    record_id: UUID, token: Token, _user: User, gateway: Gateway
-) -> BaseModel:
-    try:
-        rows = await gateway.select(
-            "work_records",
-            token,
-            {
-                "select": RECORD_COLUMNS,
-                "id": f"eq.{record_id}",
-                "is_public": "eq.true",
-                "limit": 1,
-            },
-        )
-    except SupabaseError as exc:
-        _raise_supabase(exc)
-    return _one(
-        rows, WorkRecordResponse, "record_not_found", "공개 작업 기록을 찾을 수 없습니다."
-    )
 
 
 #: ResultFeedback.tsx의 결함 칩 id — 하나라도 기록돼 있으면 그 회차는
@@ -580,8 +524,8 @@ def _personal_search_history(
     return history
 
 
-def _index_personal_recipe_best_effort(
-    vectorstore: AiceVectorStore | None, user: AuthUser, result: AiceRunResponse
+async def _index_personal_recipe_best_effort(
+    vectorstore: AiceVectorStore | None, token: str, user: AuthUser, result: AiceRunResponse
 ) -> None:
     """저장된 회차를 그 사용자의 개인 레시피 RAG 코퍼스에 색인한다.
 
@@ -595,7 +539,7 @@ def _index_personal_recipe_best_effort(
     적혀 있어 LLM이 이 회차를 "그 목표를 달성한 사례"로 오해하기 쉬웠다.
 
     회차 저장은 이미 끝난 뒤 호출되므로, 이 함수는 절대 예외를 밖으로
-    던지지 않는다 — Qdrant가 꺼져 있어도 사용자의 저장 요청 자체는
+    던지지 않는다 — 벡터 검색이 실패해도 사용자의 저장 요청 자체는
     이미 성공했어야 한다(부록 D와 같은 "판단 주체가 아니다" 원칙의
     운영적 형태: RAG 색인 실패가 핵심 기능을 막지 않는다).
     """
@@ -616,7 +560,7 @@ def _index_personal_recipe_best_effort(
         "(결함 기록 없음 · 이상치 아님)."
     )
     try:
-        vectorstore.upsert_documents([
+        await vectorstore.upsert_documents(token, [
             VectorDocument(
                 doc_id=f"run-{result.id}",
                 text=text,
@@ -657,12 +601,31 @@ def _feedback_coefficients(recipe_id: str, raw: dict, run: dict) -> tuple[dict, 
         result_gloss=result.get("gloss"), result_transparency=result.get("transparency"),
         overall=result.get("match"), defects=defects, defects_reviewed=result.get("defects_reviewed") is True,
     )
-    if update.applied:
+    # 다음 시도 제안(추정) — 학습값 갱신 여부와 무관하게 평가가 완전하면 매번 새로
+    # 계산해 덮어쓴다("차이가 있어요" 한 번만으로도 시험 조건을 보여 주기 위함).
+    # 학습값(update.table)은 그대로 보수적으로 움직이고, 제안은 따로 얹는다.
+    density_table = update.table if update.applied else density
+    suggestion = kiln_bridge.suggest_next_trial(
+        density_table,
+        overall=result.get("match"),
+        defects=defects,
+        defects_reviewed=result.get("defects_reviewed") is True,
+        gloss_comparison=result.get("gloss_comparison"),
+        transparency_comparison=result.get("transparency_comparison"),
+        texture_comparison=result.get("texture_comparison"),
+        color=result.get("color"),
+        mean_thickness_mm=((run.get("thickness") or {}).get("mean") or {}).get("value"),
+        safe_thickness_mm=kiln_bridge.coefficient_table_from_dict(recipe_id, raw).safe_thickness_mm,
+    )
+    if update.applied or suggestion is not None:
         # Nested under "density", never the top-level "safe_thickness_mm" key —
         # that key is kiln.domain.models.CoefficientTable's 08절 risk-safety
         # boundary. This value is a personal next-attempt suggestion, not a
         # safety threshold, and must not silently replace it.
-        new["density"] = kiln_bridge.density_coefficient_table_to_dict(update.table)
+        new["density"] = kiln_bridge.density_coefficient_table_to_dict(
+            replace(density_table, suggestion=suggestion)
+        )
+    if update.applied:
         notes.extend(update.notes)
     return new, notes
 
@@ -679,7 +642,7 @@ async def _apply_run_feedback(
             updated, notes = _feedback_coefficients(result.recipe_id, raw, result.run)
             rows = await gateway.rpc("commit_aice_feedback", token, {
                 "p_recipe_id": result.recipe_id, "p_expected": raw,
-                "p_coefficients": updated, "p_notes": notes, "p_run_id": str(result.id),
+                "p_coefficients": updated, "p_run_id": str(result.id),
             })
             if rows and rows[0].get("applied"):
                 return result.model_copy(update={"feedback_status": "applied"})
@@ -699,7 +662,7 @@ async def retry_run_feedback(run_id: UUID, token: Token, user: User, gateway: Ga
     except SupabaseError as exc:
         _raise_supabase(exc)
     result = _one(rows, AiceRunResponse, "aice_run_not_found", "AICE 실행을 찾을 수 없습니다.")
-    _index_personal_recipe_best_effort(vectorstore, user, result)
+    await _index_personal_recipe_best_effort(vectorstore, token, user, result)
     return await _apply_run_feedback(gateway, token, user, result)
 
 
@@ -743,7 +706,7 @@ async def suggest_recipe_candidates(
     대체한다 — 개인화는 있으면 좋은 것이지 없다고 기능이 죽으면 안 된다.
 
     **지연 개선(2026-09-18)**: 1차 LLM 호출(목표 분류)은 이력 조회
-    (Supabase)·RAG 검색(Qdrant)과 서로 값을 주고받지 않으므로
+    (Supabase)·RAG 검색(Supabase pgvector)과 서로 값을 주고받지 않으므로
     ``asyncio.gather``로 동시에 실행한다 — 세 개를 순서대로 기다리던 것을
     "가장 느린 하나"만 기다리는 것으로 바꾼다. 또한 1차 호출은 두 필드
     분류만 하면 되므로 2차 호출(배합 서술, RAG 컨텍스트까지 포함해 더
@@ -770,14 +733,14 @@ async def suggest_recipe_candidates(
     async def _fetch_retrieved_context() -> str:
         #: RAG(수정 사항 정리 3번) — 원료 화학·성분 상관관계(전역)와 본인의
         #: 과거 레시피(개인, user_id로 좁힘)를 검색해 2차 LLM 호출의 참고
-        #: 자료로 덧붙인다. vectorstore가 없거나(Qdrant 미설정) 검색이
+        #: 자료로 덧붙인다. vectorstore가 없거나 검색이
         #: 실패해도(search()는 예외를 던지지 않고 빈 리스트를 반환한다)
         #: retrieved_context는 그냥 빈 문자열이 되고, 추천 자체는 막히지 않는다.
         if vectorstore is None:
             return ""
         general_docs, personal_docs = await asyncio.gather(
-            asyncio.to_thread(
-                vectorstore.search,
+            vectorstore.search(
+                token,
                 body.prompt_text,
                 limit=4,
                 #: 착색 산화물 참고표(SOURCE_COLORANT_REFERENCE,
@@ -786,8 +749,8 @@ async def suggest_recipe_candidates(
                 #: (예: "청색 계열")이 담긴 프롬프트일 때 관련 산화물이 걸린다.
                 source_types=(SOURCE_MATERIAL_CHEMISTRY, SOURCE_CORRELATION_NOTE, SOURCE_COLORANT_REFERENCE),
             ),
-            asyncio.to_thread(
-                vectorstore.search,
+            vectorstore.search(
+                token,
                 body.prompt_text,
                 limit=3,
                 source_types=(SOURCE_PERSONAL_RECIPE,),
@@ -1080,7 +1043,6 @@ async def _select_calibration_row(
             "select": "coefficients",
             "user_id": f"eq.{user.id}",
             "recipe_id": f"eq.{recipe_id}",
-            "version": "eq.1",
             "limit": 1,
         },
     )
@@ -1113,6 +1075,9 @@ def _coefficient_table_out(table, firing_table, density_table) -> CoefficientTab
         firing_calibration_runs=firing_table.calibration_runs,
         specific_gravity_range=density_table.specific_gravity_range,
         next_trial_thickness_mm=density_table.next_trial_thickness_mm,
+        next_trial_suggestion=(
+            NextTrialSuggestionOut(**asdict(density_table.suggestion)) if density_table.suggestion else None
+        ),
         density_calibration_runs=density_table.calibration_runs,
     )
 
@@ -1180,15 +1145,11 @@ async def submit_calibration_run(
     values = {
         "user_id": str(user.id),
         "recipe_id": recipe_id,
-        "kiln_profile_id": "aice-default",
-        "clay_body": body.ware_preset,
         "coefficients": new_coefficients,
-        "provenance": list(result.notes),
-        "version": 1,
     }
     try:
         await gateway.insert(
-            "personal_calibrations", token, values, upsert=True, conflict="user_id,recipe_id,version"
+            "personal_calibrations", token, values, upsert=True, conflict="user_id,recipe_id"
         )
     except SupabaseError as exc:
         _raise_supabase(exc)

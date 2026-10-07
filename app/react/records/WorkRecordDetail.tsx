@@ -1,19 +1,23 @@
 import type { AiceRun } from "../aice/contract";
+import type { NextTrialSuggestion } from "../lib/api";
+import { usePhotoUrl } from "../aice/photoStorage";
 import { importedWorkMemo, type WorkRecordOrigin } from "./workRecords";
 
 type Props = {
   run: AiceRun;
   origin: WorkRecordOrigin;
+  nextTrial?: NextTrialSuggestion | null;
 };
 
-export function WorkRecordDetail({ run, origin }: Props) {
+export function WorkRecordDetail({ run, origin, nextTrial }: Props) {
   const peak = Math.max(...run.curves.baseline.points.map((point) => point.temperature_c));
   const totalMinutes = Math.max(...run.curves.baseline.points.map((point) => point.minute));
   const method = ({ dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" } as const)[run.application.method];
   const source = run.sources.find((item) => item.reference === "aice-feed-post-import");
   const memo = importedWorkMemo(run);
-  const photo = run.recipe.photo.data_url ?? source?.conversion;
-  const resultPhoto = run.result.photo?.data_url;
+  const storedRecipePhoto = usePhotoUrl(run.recipe.photo);
+  const photo = storedRecipePhoto ?? source?.conversion;
+  const resultPhoto = usePhotoUrl(run.result.photo);
   const workDate = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(run.created_at));
   const overallLabel = ({ close: "목표에 가까워요", different: "목표와 차이가 있어요" } as Record<string, string>)[run.result.match ?? ""] ?? "기록 없음";
   const colorLabel = ({ close: "목표와 가까움", lighter: "목표보다 밝음", darker: "목표보다 어두움", different: "다른 색" } as Record<string, string>)[run.result.color ?? ""] ?? "기록 없음";
@@ -77,6 +81,10 @@ export function WorkRecordDetail({ run, origin }: Props) {
           <div><dt>투명도</dt><dd>{relativeLabel[run.result.transparency_comparison ?? ""] ?? run.result.transparency ?? "기록 없음"}</dd></div>
           <div><dt>보이는 결함</dt><dd>{run.result.defects.length ? run.result.defects.map((defect) => `${defectLabels[defect] ?? defect} ${run.result.defect_severities?.[defect] ?? 1}단계`).join(" · ") : "선택한 결함 없음"}</dd></div>
         </dl>
+        {origin === "mine" && nextTrial && nextTrial.variable !== "none" && <div className="next-trial-suggestion" role="note" aria-label="다음 시도 제안">
+          <strong>다음 시도 제안</strong>
+          <p>{nextTrial.message}</p>
+        </div>}
       </section>
 
       <p className="work-record-entry-guide">이 기록의 레시피와 소성 계획을 기준으로 새 작업을 시작합니다. 다음 단계에서 기물과 실제 작업 조건을 확인해 주세요.</p>

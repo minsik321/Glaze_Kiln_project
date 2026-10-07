@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatListScreen, ConversationScreen } from "./ChatScreen";
 import type { ChatThread } from "./chatStore";
@@ -24,13 +24,23 @@ describe("chat", () => {
     expect(onOpen).toHaveBeenCalledWith("mira");
   });
 
-  it("sends a typed message and clears the composer", () => {
+  it("sends a typed message and clears the composer after it is saved", async () => {
     const onSend = vi.fn();
     render(<ConversationScreen thread={thread} onBack={vi.fn()} onSend={onSend} />);
     const input = screen.getByRole("textbox", { name: "메시지 입력" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "안녕하세요!" } });
     fireEvent.click(screen.getByRole("button", { name: "메시지 보내기" }));
     expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ body: "안녕하세요!", sender: "me" }));
-    expect(input.value).toBe("");
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("keeps a message available to retry when saving fails", async () => {
+    const onSend = vi.fn().mockRejectedValue(new Error("저장 실패"));
+    render(<ConversationScreen thread={thread} onBack={vi.fn()} onSend={onSend} />);
+    const input = screen.getByRole("textbox", { name: "메시지 입력" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "다시 보내기" } });
+    fireEvent.click(screen.getByRole("button", { name: "메시지 보내기" }));
+    await screen.findByRole("alert");
+    expect(input.value).toBe("다시 보내기");
   });
 });

@@ -1,42 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
-import { ApiError, aiceRunsApi, recipeCandidatesApi, recordsApi } from "./api";
+import { ApiError, aiceRunsApi, recipeCandidatesApi, recipesApi } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("records API client", () => {
-  it("sends the user bearer token and versioned snapshot", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "record-1",
-          title: "첫 소성",
-          payload: { run: 1 },
-          schema_version: 1,
-          is_public: false,
-          created_at: "2026-01-01T00:00:00Z",
-          updated_at: "2026-01-01T00:00:00Z",
-        }),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-
-    await recordsApi.create("user-token", {
-      title: "첫 소성",
-      payload: { run: 1 },
-      is_public: false,
-    });
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(new Headers(init?.headers).get("Authorization")).toBe(
-      "Bearer user-token",
-    );
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      schema_version: 1,
-      is_public: false,
-    });
-  });
-
+describe("API client errors", () => {
   it("surfaces the backend's stable error message", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -50,7 +18,7 @@ describe("records API client", () => {
       ),
     );
 
-    const failure = await recordsApi
+    const failure = await aiceRunsApi
       .listMine("expired")
       .catch((error) => error);
     expect(failure).toBeInstanceOf(ApiError);
@@ -152,5 +120,24 @@ describe("recipe candidates API client", () => {
       status: 502,
       code: "aimlapi_unavailable",
     });
+  });
+});
+
+describe("recipe links", () => {
+  it("forwards the recipe a run started from", async () => {
+    const run = sampleAiceRun();
+    const response = { id: "run-1", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, recipe_ref_id: "recipe-mine", ware_preset: run.ware.preset, is_public: false, created_at: run.created_at, updated_at: run.updated_at };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(response), { status: 201, headers: { "Content-Type": "application/json" } }));
+    const saved = await aiceRunsApi.create("token", { title: run.title, run, recipe_ref_id: "recipe-original" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).recipe_ref_id).toBe("recipe-original");
+    expect(saved.recipe_ref_id).toBe("recipe-mine");
+  });
+
+  it("reads a recipe with its fork parent", async () => {
+    const recipe = { id: "r2", name: "내 변형", materials: { 장석: 45 }, colorants: {}, composition_key: "glaze-v1-x", forked_from_id: "r1", forked_from: { id: "r1", name: "원본" }, is_public: false, is_mine: true, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(recipe), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const got = await recipesApi.get("token", "r2");
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/recipes\/r2$/);
+    expect(got.forked_from?.name).toBe("원본");
   });
 });

@@ -12,7 +12,7 @@ from backend.app.aimlapi import AimlapiClient, AimlapiSettings
 from backend.app.config import Settings
 from backend.app.main import create_app
 from backend.app.supabase import SupabaseGateway
-from backend.app.vectorstore import AiceVectorStore, SOURCE_MATERIAL_CHEMISTRY, VectorDocument
+from backend.app.vectorstore import RetrievedDocument, SOURCE_MATERIAL_CHEMISTRY, SOURCE_PERSONAL_RECIPE, VectorDocument
 from kiln.aice import sample_aice_run
 
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")
@@ -20,24 +20,22 @@ RUN_ID = UUID("33333333-3333-3333-3333-333333333333")
 NOW = datetime(2026, 9, 17, tzinfo=timezone.utc).isoformat()
 
 
-def _fake_embed(texts):
-    """curvePlan/predictionModel 테스트와 같은 태도: 실제 임베딩 의미가
-    아니라 AiceVectorStore 배선(주입 → 검색에 쓰임)만 검증하면 되므로,
-    fastembed 모델 다운로드(네트워크 필요) 없이 결정적 가짜로 대체한다."""
-    vectors = []
-    for text in texts:
-        vec = [0.0] * 16
-        for ch in text:
-            vec[ord(ch) % 16] += 1.0
-        norm = sum(v * v for v in vec) ** 0.5 or 1.0
-        vectors.append([v / norm for v in vec])
-    return vectors
+class _MemoryVectorStore:
+    def __init__(self) -> None:
+        self.docs: dict[str, VectorDocument] = {}
+
+    async def upsert_documents(self, _token: str, docs: list[VectorDocument]) -> None:
+        self.docs.update({doc.doc_id: doc for doc in docs})
+
+    async def search(self, _token: str, _query: str, *, limit: int = 4, source_types=None, user_id=None) -> list[RetrievedDocument]:
+        matching = [doc for doc in self.docs.values()
+                    if (not source_types or doc.metadata.get("source_type") in source_types)
+                    and (user_id is None or doc.metadata.get("user_id") == user_id)]
+        return [RetrievedDocument(doc.text, str(doc.metadata.get("source_type")), 1.0, doc.metadata) for doc in matching[:limit]]
 
 
-def _memory_vectorstore() -> AiceVectorStore:
-    from qdrant_client import QdrantClient
-
-    return AiceVectorStore(url="", collection="aice-route-test", client=QdrantClient(":memory:"), embed_fn=_fake_embed)
+def _memory_vectorstore() -> _MemoryVectorStore:
+    return _MemoryVectorStore()
 
 
 def make_settings() -> Settings:
@@ -57,7 +55,7 @@ def _auth_response(request: httpx.Request) -> httpx.Response | None:
     return httpx.Response(200, json={"id": str(USER_ID)})
 
 
-def _app_with_llm(llm_handler, aice_runs: list[dict] | None = None, vectorstore: AiceVectorStore | None = None):
+def _app_with_llm(llm_handler, aice_runs: list[dict] | None = None, vectorstore: _MemoryVectorStore | None = None):
     def supabase_handler(request: httpx.Request) -> httpx.Response:
         response = _auth_response(request)
         if response is not None:
@@ -383,16 +381,26 @@ async def test_suggest_recipe_candidates_uses_personal_history_and_ignores_outli
 
 
 @pytest.mark.asyncio
-async def test_suggest_recipe_candidates_includes_rag_context_from_material_chemistry() -> None:
+async def test_suggest_recipe_candidates_includes_material_and_own_recipe_rag_context() -> None:
     """수정 사항 정리 3번: RAG로 찾은 원료 화학 문서가 2차 LLM 호출(서술
     요청) 프롬프트에 참고 자료로 실려 나가야 한다 — "실제 rag를 사용"."""
     store = _memory_vectorstore()
-    store.upsert_documents([
+    await store.upsert_documents("token", [
         VectorDocument(
             doc_id="material-규석",
             text="규석은 순수 실리카(SiO2 100%)이며 알루미나 공급이 없다.",
             metadata={"source_type": SOURCE_MATERIAL_CHEMISTRY, "name": "규석"},
-        )
+        ),
+        VectorDocument(
+            doc_id="run-own",
+            text="내 이전 사틴 레시피는 장석 40%에서 무광 결과였다.",
+            metadata={"source_type": SOURCE_PERSONAL_RECIPE, "user_id": str(USER_ID)},
+        ),
+        VectorDocument(
+            doc_id="run-other",
+            text="다른 사용자의 비공개 레시피 내용",
+            metadata={"source_type": SOURCE_PERSONAL_RECIPE, "user_id": "another-user"},
+        ),
     ])
 
     description_json = {"candidates": [{"id": "cand-1", "name": "후보 1"}]}
@@ -420,13 +428,15 @@ async def test_suggest_recipe_candidates_includes_rag_context_from_material_chem
     assert response.status_code == 200, response.text
     assert "참고 자료" in captured["system"]
     assert "규석은 순수 실리카" in captured["system"]
+    assert "내 이전 사틴 레시피" in captured["system"]
+    assert "다른 사용자의 비공개 레시피" not in captured["system"]
     await auth_upstream.aclose()
     await llm_upstream.aclose()
 
 
 @pytest.mark.asyncio
 async def test_suggest_recipe_candidates_without_vectorstore_has_no_rag_block() -> None:
-    """Qdrant가 설정되지 않은 기본 상태(vectorstore=None)에서는 기존과
+    """벡터 조회 결과가 없는 상태에서는 기존과
     동일하게 참고 자료 블록이 전혀 붙지 않는다 — 하위호환 회귀 테스트."""
     description_json = {"candidates": [{"id": "cand-1", "name": "후보 1"}]}
     captured: dict[str, str] = {}
@@ -482,8 +492,8 @@ async def test_create_aice_run_indexes_evaluated_run_into_personal_rag_corpus() 
 
     from backend.app.vectorstore import SOURCE_PERSONAL_RECIPE
 
-    results = store.search(
-        "해안 사틴", limit=5, source_types=(SOURCE_PERSONAL_RECIPE,), user_id=str(USER_ID)
+    results = await store.search(
+        "token", "해안 사틴", limit=5, source_types=(SOURCE_PERSONAL_RECIPE,), user_id=str(USER_ID)
     )
     assert len(results) == 1
     assert "장석 40.0%" in results[0].text
@@ -509,6 +519,6 @@ async def test_create_aice_run_does_not_index_draft_or_outlier_runs() -> None:
             json={"title": "초안", "run": draft_payload},
         )
     assert response.status_code == 201, response.text
-    assert store.search("사틴", limit=5) == []
+    assert await store.search("token", "사틴", limit=5) == []
     await auth_upstream.aclose()
     await llm_upstream.aclose()

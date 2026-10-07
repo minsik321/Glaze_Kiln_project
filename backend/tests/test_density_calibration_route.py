@@ -136,7 +136,61 @@ async def test_create_aice_run_skips_density_update_without_measurement() -> Non
             json={"title": "비중 미기록", "run": _evaluated_payload(specific_gravity=None)},
         )
     assert response.status_code == 201, response.text
-    assert not any("density" in body.get("p_coefficients", {}) for body in calibration_upserts)
+    # 비중이 없으면 학습값(권장 비중·두께 범위, 회차 수)은 쓰지 않는다. 다음 시도
+    # 제안(추정)은 평가가 완전하면 따로 저장될 수 있다.
+    for body in calibration_upserts:
+        density = body.get("p_coefficients", {}).get("density") or {}
+        assert density.get("specific_gravity_range") is None
+        assert density.get("calibration_runs", 0) == 0
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_aice_run_stores_next_trial_suggestion_for_single_different() -> None:
+    """"차이가 있어요" 한 번만으로 다음 시도 제안이 저장된다(학습값은 그대로)."""
+    calibration_upserts: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/v1/rpc/save_aice_run" and request.method == "POST":
+            body = json.loads(request.content)
+            values = body["p_values"]
+            return httpx.Response(201, json=[{
+                "id": "33333333-3333-3333-3333-333333333333", **values,
+                "request_id": body["p_request_id"], "feedback_status": "pending",
+                "created_at": NOW, "updated_at": NOW,
+            }])
+        if request.url.path == "/rest/v1/personal_calibrations" and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/rest/v1/rpc/commit_aice_feedback" and request.method == "POST":
+            calibration_upserts.append(json.loads(request.content))
+            return httpx.Response(200, json=[{"applied": True}])
+        return httpx.Response(500)
+
+    async def dispatch(request: httpx.Request) -> httpx.Response:
+        auth = _auth_response(request)
+        return auth if auth is not None else handler(request)
+
+    upstream = httpx.AsyncClient(transport=httpx.MockTransport(dispatch))
+    gateway = SupabaseGateway(make_settings(), client=upstream)
+    app = create_app(make_settings(), gateway)
+
+    payload = _evaluated_payload(specific_gravity=1.46)
+    payload["result"]["match"] = "different"
+    payload["result"]["gloss_comparison"] = "less"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/aice-runs",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"title": "차이 있음 1회", "run": payload},
+        )
+    assert response.status_code == 201, response.text
+    density = calibration_upserts[-1]["p_coefficients"]["density"]
+    suggestion = density["suggestion"]
+    assert (suggestion["trigger"], suggestion["variable"], suggestion["magnitude"]) == ("gloss", "hold", "full")
+    assert suggestion["hold_delta_min"] == 10 and suggestion["estimated"] is True
+    # 학습값은 "차이가 있어요" 한 번으로 움직이지 않는다(결함 없음).
+    assert density["specific_gravity_range"] is None
+    assert density["successful_runs"] == 0
     await upstream.aclose()
 
 

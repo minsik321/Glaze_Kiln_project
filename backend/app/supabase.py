@@ -70,7 +70,7 @@ class SupabaseGateway:
         return self._list_json(response)
 
     async def insert(
-        self, table: str, token: str, body: dict[str, Any], *, upsert: bool = False,
+        self, table: str, token: str, body: dict[str, Any] | list[dict[str, Any]], *, upsert: bool = False,
         conflict: str = "id",
     ) -> list[dict[str, Any]]:
         prefer, params = "return=representation", {}

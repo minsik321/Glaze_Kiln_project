@@ -24,9 +24,7 @@ def get_llm(request: Request) -> AimlapiClient:
 
 
 def get_vectorstore(request: Request) -> AiceVectorStore | None:
-    """RAG 벡터 DB(있으면). Qdrant가 설정되지 않았거나 라이브러리가 없으면
-    ``None`` — 호출부(``routes.py``)는 ``None``이면 조용히 RAG를 건너뛴다
-    (수정 사항 정리 3번: RAG는 판단 주체가 아니라 있으면 좋은 보강)."""
+    """Return the Supabase vector store when Supabase is configured."""
     return getattr(request.app.state, "vectorstore", None)
 
 

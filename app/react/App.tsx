@@ -19,7 +19,7 @@ import { aiceRunsApi } from "./lib/api";
 import { feedPostToWorkRecord, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
 import { ChatListScreen, ConversationScreen } from "./chat/ChatScreen";
-import { loadChatThreads, saveChatThreads, type ChatMessage, type ChatThread } from "./chat/chatStore";
+import { loadChatThreads, saveChatMessage, saveChatThread, type ChatMessage, type ChatThread } from "./chat/chatStore";
 import { ConnectionsScreen, type ConnectionTab } from "./profile/ConnectionsScreen";
 import { SearchScreen } from "./home/SearchScreen";
 import { FeedCollectionScreen } from "./home/FeedCollectionScreen";
@@ -109,10 +109,15 @@ export function App() {
   const [selectedPostId, setSelectedPostId] = useState("chloe-1");
   const [postReturnView, setPostReturnView] = useState<"work" | "followingFeed" | "bookmarks" | "my" | "profile">("work");
   const [postComments, setPostComments] = useState<Record<string, PostComment[]>>(DEMO_POST_COMMENTS);
-  const [chatThreads, setChatThreads] = useState<ChatThread[]>(loadChatThreads);
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
   const [activeChatUserId, setActiveChatUserId] = useState<string>();
   const [restoredRun, setRestoredRun] = useState<AiceRun>();
   const [recordEntryOrigin, setRecordEntryOrigin] = useState<WorkRecordOrigin>();
+  //: recipes.id of the record a new run starts from — the backend links to it
+  //: unchanged, or records it as forked_from when the composition is edited.
+  const [restoredRecipeRefId, setRestoredRecipeRefId] = useState<string | null>(null);
   const [recordDetailOpen, setRecordDetailOpen] = useState(false);
   const [resumeStep, setResumeStep] = useState<number>();
   const [resumePrompt, setResumePrompt] = useState<SavedWorkProgress | null>(null);
@@ -144,7 +149,23 @@ export function App() {
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
-  useEffect(() => saveChatThreads(chatThreads), [chatThreads]);
+  useEffect(() => {
+    const ownerId = session?.user.id;
+    setChatThreads([]);
+    setActiveChatUserId(undefined);
+    setChatError("");
+    if (!ownerId) return;
+    let active = true;
+    setChatLoading(true);
+    void loadChatThreads(ownerId).then((threads) => {
+      if (active) setChatThreads(threads);
+    }).catch((error: unknown) => {
+      if (active) setChatError(error instanceof Error ? error.message : "채팅 기록을 불러오지 못했습니다.");
+    }).finally(() => {
+      if (active) setChatLoading(false);
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
 
   useEffect(() => {
     if (!followToast) return;
@@ -229,18 +250,39 @@ export function App() {
     : findFeedUser(selectedPost.userId);
   const activeChat = chatThreads.find((thread) => thread.userId === activeChatUserId);
 
-  function openConversation(user: { id: string; username: string; displayName: string; avatarTone: number }) {
+  async function openConversation(user: { id: string; username: string; displayName: string; avatarTone: number }) {
+    if (!session?.user.id) return;
     const openedAt = new Date().toISOString();
+    const thread: ChatThread = { userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: openedAt, messages: [] };
+    try {
+      await saveChatThread(session.user.id, thread);
+      setChatError("");
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "대화를 시작하지 못했습니다.");
+      setView("chat");
+      return;
+    }
     setChatThreads((current) => current.some((thread) => thread.userId === user.id)
       ? current
-      : [{ userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: openedAt, messages: [] }, ...current]);
+      : [thread, ...current]);
     setActiveChatUserId(user.id);
     setView("conversation");
   }
 
-  function sharePostInChat(user: { id: string; username: string; displayName: string; avatarTone: number }, body: string) {
+  async function sharePostInChat(user: { id: string; username: string; displayName: string; avatarTone: number }, body: string) {
+    if (!session?.user.id) return;
     const sentAt = new Date().toISOString();
     const message: ChatMessage = { id: crypto.randomUUID(), body, sentAt, sender: "me" };
+    const thread: ChatThread = { userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: sentAt, messages: [] };
+    try {
+      await saveChatThread(session.user.id, thread);
+      await saveChatMessage(session.user.id, user.id, message);
+      setChatError("");
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "게시물을 채팅으로 보내지 못했습니다.");
+      setView("chat");
+      return;
+    }
     setChatThreads((current) => {
       const existing = current.find((thread) => thread.userId === user.id);
       if (!existing) return [{ userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: sentAt, messages: [message] }, ...current];
@@ -252,7 +294,9 @@ export function App() {
     setView("conversation");
   }
 
-  function sendChatMessage(message: ChatMessage) {
+  async function sendChatMessage(message: ChatMessage) {
+    if (!session?.user.id || !activeChatUserId) throw new Error("로그인한 채팅을 찾을 수 없습니다.");
+    await saveChatMessage(session.user.id, activeChatUserId, message);
     setChatThreads((current) => current.map((thread) => thread.userId === activeChatUserId
       ? { ...thread, updatedAt: message.sentAt, messages: [...thread.messages, message] }
       : thread));
@@ -337,6 +381,7 @@ export function App() {
     setRestoredRun(run);
     setResumeStep(step);
     setRecordEntryOrigin(undefined);
+    setRestoredRecipeRefId(null);
     setView("work");
     setWorkflowClosing(false);
     setWorkflowDragX(0);
@@ -414,10 +459,11 @@ export function App() {
                   setWorkflowClosing(false);
                 }}
               >
-                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onStartNew={() => {
+                <AicePrototype onSnapshotReady={connectSnapshot} restoredRun={restoredRun} recordEntryOrigin={recordEntryOrigin} recipeRefId={restoredRecipeRefId} resumeStep={resumeStep} token={session?.access_token} userId={session?.user.id} onStartNew={() => {
                   clearWorkProgress();
                   setRestoredRun(undefined);
                   setRecordEntryOrigin(undefined);
+                  setRestoredRecipeRefId(null);
                   setResumeStep(undefined);
                 }} onFinish={() => {
                   clearWorkProgress();
@@ -463,10 +509,11 @@ export function App() {
           />
         )}
         <section className="app-view app-utility-view" hidden={view !== "records"}>
-          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onStart={(run, origin) => {
+          {view === "records" && <Suspense fallback={<p role="status">기록 화면을 불러오는 중…</p>}><RecordsPanel onDetailOpenChange={setRecordDetailOpen} onStart={(run, origin, recipeRefId) => {
             setRecordDetailOpen(false);
             setRestoredRun(run);
             setRecordEntryOrigin(origin);
+            setRestoredRecipeRefId(recipeRefId);
             setResumeStep(1);
             setView("work");
             setWorkflowClosing(false);
@@ -475,7 +522,8 @@ export function App() {
           }} /></Suspense>}
         </section>
         <section className="app-view app-utility-view" hidden={view !== "chat"}>
-          <ChatListScreen threads={chatThreads} onOpen={(userId) => { setActiveChatUserId(userId); setView("conversation"); }} />
+          {chatError && <p role="alert">{chatError}</p>}
+          {chatLoading ? <p role="status">채팅 기록을 불러오는 중…</p> : <ChatListScreen threads={chatThreads} onOpen={(userId) => { setActiveChatUserId(userId); setView("conversation"); }} />}
         </section>
         <section className="app-view" hidden={view !== "conversation"}>
           {activeChat && <ConversationScreen thread={activeChat} onBack={() => setView("chat")} onSend={sendChatMessage} />}

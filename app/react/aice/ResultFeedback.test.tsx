@@ -6,7 +6,7 @@ import type { ResultEvaluation } from "./feedback";
 
 afterEach(cleanup);
 const initial: ResultEvaluation = { match: null, color: null, gloss: null, texture: null, transparency: null, defects: [], defectSeverities: {}, scope: "personal", resultPhoto: null };
-function Harness({ targetPhoto }: { targetPhoto?: { base64: string; mediaType: string } | null }) {
+function Harness({ targetPhoto }: { targetPhoto?: { src: string } | null }) {
   const [value, setValue] = useState(initial);
   return <ResultFeedback value={value} onChange={setValue} targetPhoto={targetPhoto} />;
 }
@@ -19,10 +19,11 @@ describe("result feedback", () => {
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(screen.getByAltText("첨부한 관찰 사진")).toBeTruthy());
     expect(screen.getByText("result.png")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "이 사진을 저장할 권리가 있습니다." })).toBeNull();
   });
 
   it("shows the selected recipe's generated image as the target photo when one is available", () => {
-    render(<Harness targetPhoto={{ base64: "Zm9v", mediaType: "image/png" }} />);
+    render(<Harness targetPhoto={{ src: "data:image/png;base64,Zm9v" }} />);
     fireEvent.click(screen.getByRole("button", { name: "나중에 입력" }));
     const img = screen.getByAltText(/목표 레시피의 AI 예상 이미지/) as HTMLImageElement;
     expect(img.src).toContain("data:image/png;base64,Zm9v");

@@ -15,7 +15,7 @@ from .dependencies import error_detail
 from .models import HealthResponse, ReadinessResponse
 from .routes import router
 from .supabase import SupabaseGateway
-from .vectorstore import AiceVectorStore, VectorStoreUnavailable
+from .vectorstore import AiceVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +34,8 @@ def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
     )
 
 
-def _vectorstore(settings: Settings) -> AiceVectorStore | None:
-    """RAG(수정 사항 정리 3번) — QDRANT_URL이 비어 있거나 qdrant-client가
-    설치되지 않았으면 ``None``. 앱 기동 자체를 막지 않는다(aimlapi_configured
-    와 같은 콜드스타트 태도) — ``QdrantClient(url=...)`` 생성자는 즉시
-    연결하지 않으므로, Docker가 아직 안 떠 있어도 여기서는 실패하지 않고
-    첫 검색/색인 호출에서만 ``VectorStoreUnavailable``이 난다."""
-    if not settings.qdrant_configured:
-        return None
-    try:
-        return AiceVectorStore(url=settings.qdrant_url, collection=settings.qdrant_collection)
-    except VectorStoreUnavailable:
-        return None
+def _vectorstore(settings: Settings, gateway: SupabaseGateway) -> AiceVectorStore | None:
+    return AiceVectorStore(gateway) if settings.configured else None
 
 
 def create_app(
@@ -57,7 +47,7 @@ def create_app(
     resolved_settings = settings or get_settings()
     resolved_gateway = gateway or SupabaseGateway(resolved_settings)
     resolved_llm = llm or AimlapiClient(_aimlapi_settings(resolved_settings))
-    resolved_vectorstore = vectorstore or _vectorstore(resolved_settings)
+    resolved_vectorstore = vectorstore or _vectorstore(resolved_settings, resolved_gateway)
     owns_gateway = gateway is None
     owns_llm = llm is None
 

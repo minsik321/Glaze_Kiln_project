@@ -12,7 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from math import isfinite
 
-__all__ = ["DensityCoefficientTable", "DensityRunUpdate", "update_after_evaluated_run"]
+__all__ = [
+    "DensityCoefficientTable", "DensityRunUpdate", "NextTrialSuggestion",
+    "suggest_next_trial", "update_after_evaluated_run",
+]
 
 _GLOSS = {"matte", "satin", "gloss"}
 _TRANSPARENCY = {"opaque", "translucent", "transparent"}
@@ -20,6 +23,35 @@ _DEFECTS = {"pinholes", "crawling", "crazing", "running"}
 _DENSITY_MARGIN = 0.03
 _DENSITY_STEP = 0.01
 _THICKNESS_FACTOR = 0.90
+#: 시험 제안의 변화 폭 — 실측으로 정한 값이 아니라 MVP 시작값(시뮬레이터 가정)이다.
+#: "차이가 있어요"는 전체 폭, "목표에 가까워요"인데 일부 항목만 어긋나면 절반 폭.
+_TRIAL_THICKNESS_PCT = 10.0
+_TRIAL_HOLD_MIN = 10
+_RELATIVE_LESS = {"much_less", "less"}
+_RELATIVE_MORE = {"much_more", "more"}
+_DEFAULT_SAFE_THICKNESS_MM = (0.8, 1.3)
+
+
+@dataclass(frozen=True, slots=True)
+class NextTrialSuggestion:
+    """한 번의 평가에서 나온 "다음 시도 제안" 1건 (추정, 학습값 아님).
+
+    학습값(`specific_gravity_range`, `next_trial_thickness_mm`)과 따로 저장한다 —
+    "차이가 있어요" 한 번만으로 학습값이 흔들리지 않게 하면서도, 사용자가 바로
+    시험해 볼 조건은 보여 주기 위해서다. 평가할 때마다 새로 계산해 덮어쓴다.
+
+    ``variable``은 한 번에 하나만 바꾼다: ``"thickness"``(건조층 두께, ``change_pct``와
+    ``thickness_mm``), ``"hold"``(소성 유지시간, ``hold_delta_min``), ``"none"``.
+    """
+
+    trigger: str  # defect | gloss | transparency | texture | color | none
+    variable: str  # thickness | hold | none
+    magnitude: str  # full | half | none
+    message: str
+    change_pct: float | None = None
+    thickness_mm: float | None = None
+    hold_delta_min: int | None = None
+    estimated: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +73,7 @@ class DensityCoefficientTable:
     failed_runs: int = 0
     anchor_specific_gravity: float | None = None
     anchor_thickness_mm: float | None = None
+    suggestion: NextTrialSuggestion | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,3 +188,86 @@ def update_after_evaluated_run(
         provenance_notes=tuple(notes),
     )
     return DensityRunUpdate(table=updated, applied=True, notes=tuple(notes))
+
+
+def suggest_next_trial(
+    table: DensityCoefficientTable,
+    *,
+    overall: str | None,
+    defects: tuple[str, ...] = (),
+    defects_reviewed: bool = False,
+    gloss_comparison: str | None = None,
+    transparency_comparison: str | None = None,
+    texture_comparison: str | None = None,
+    color: str | None = None,
+    mean_thickness_mm: float | None = None,
+    safe_thickness_mm: tuple[float, float] | None = None,
+) -> NextTrialSuggestion | None:
+    """평가 1건에서 "다음 시도 제안" 1건을 만든다. 평가가 완전하지 않으면 ``None``.
+
+    어긋난 항목 중 우선순위(결함 > 광택 > 투명도 > 질감 > 색상)가 가장 높은 것
+    하나만, 변수 하나만 바꾼다 — 한 번에 여러 변수를 바꾸면 원인을 분리할 수 없다.
+    원인은 확정할 수 없으므로 모든 제안은 추정이며 조성은 자동으로 바꾸지 않는다.
+    두께 제안은 위험 판정 안전 범위 안으로 제한한다.
+    """
+    if not defects_reviewed or overall not in {"close", "different"}:
+        return None
+    known_defects = tuple(d for d in defects if d in _DEFECTS)
+    full = overall == "different"
+    scale = 1.0 if full else 0.5
+    magnitude = "full" if full else "half"
+    lo, hi = safe_thickness_mm or _DEFAULT_SAFE_THICKNESS_MM
+
+    # 두께 제안의 기준값: 이 레시피의 다음 시도 중심 → 이번 관측 두께 → 없음
+    base = _center(table.next_trial_thickness_mm, mean_thickness_mm) if (
+        table.next_trial_thickness_mm or _valid(mean_thickness_mm, 0.05, 5.0)
+    ) else None
+
+    def thickness(trigger: str, sign: int, reason: str) -> NextTrialSuggestion:
+        pct = sign * _TRIAL_THICKNESS_PCT * scale
+        target = None
+        if base is not None:
+            target = round(_clamp(base * (1 + pct / 100), lo, hi), 3)
+        where = f" · 약 {target:.2f}mm" if target is not None else ""
+        arrow = "+" if sign > 0 else "−"
+        return NextTrialSuggestion(
+            trigger=trigger, variable="thickness", magnitude=magnitude, change_pct=pct,
+            thickness_mm=target,
+            message=f"{reason} → 두께 {arrow}{abs(pct):g}%{where} (추정)",
+        )
+
+    def hold(trigger: str, sign: int, reason: str) -> NextTrialSuggestion:
+        minutes = int(round(sign * _TRIAL_HOLD_MIN * scale))
+        arrow = "+" if sign > 0 else "−"
+        return NextTrialSuggestion(
+            trigger=trigger, variable="hold", magnitude=magnitude, hold_delta_min=minutes,
+            message=f"{reason} → 유지시간 {arrow}{abs(minutes)}분 (추정)",
+        )
+
+    if known_defects:
+        names = {"pinholes": "핀홀", "crawling": "기어감", "crazing": "잔금", "running": "흘러내림"}
+        label = "·".join(names[d] for d in known_defects)
+        return thickness("defect", -1, label)
+    if gloss_comparison in _RELATIVE_LESS:
+        return hold("gloss", +1, "광택 덜함")
+    if gloss_comparison in _RELATIVE_MORE:
+        return hold("gloss", -1, "광택 강함")
+    if transparency_comparison in _RELATIVE_LESS:
+        return thickness("transparency", -1, "너무 불투명")
+    if transparency_comparison in _RELATIVE_MORE:
+        return thickness("transparency", +1, "너무 투명")
+    if texture_comparison in _RELATIVE_MORE:
+        return hold("texture", +1, "질감 거침")
+    if color == "lighter":
+        return thickness("color", +1, "색 밝음")
+    if color == "darker":
+        return thickness("color", -1, "색 어두움")
+    if color == "different":
+        return NextTrialSuggestion(
+            trigger="color", variable="none", magnitude="none",
+            message="다른 색 → 조정 없음 (기록만 남김)",
+        )
+    return NextTrialSuggestion(
+        trigger="none", variable="none", magnitude="none",
+        message=("어긋난 항목 없음 → 조정 없음" if full else "목표와 일치 → 현재 조건 유지"),
+    )

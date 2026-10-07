@@ -1,53 +1,13 @@
-"""backend/scripts/ingest_corpus.py — RAG 코퍼스 시딩(수정 사항 정리 3번).
+"""Generate reproducible Supabase pgvector seed SQL for reference documents.
 
-Docker로 띄운 Qdrant(루트 docker-compose.yml)에 최초 1회 실행한다:
-
-    docker compose up -d
-    pip install -e ".[backend-dev]"   # qdrant-client[fastembed] 포함
-    python backend/scripts/ingest_corpus.py
-
-(레포 루트에서 실행한다고 가정한다. 다른 위치에서 실행해도 아래
-``sys.path`` 보정으로 동작하지만, ``backend/.env``는 항상
-``backend/app/config.py`` 기준 경로에서 읽으므로 실행 위치와 무관하다.)
-
-여기서는 세 코퍼스를 채운다(모두 코드에 이미 있는 값을 그대로 문서화할
-뿐이다 — 새 수치를 지어내지 않는다):
-
-  1. **원료 화학** — ``kiln.chem.materials.MATERIALS``(05-1절). 원료별
-     산화물 조성표.
-  2. **성분 상관관계** — ``kiln.chem.stull.StullZone``의 문헌 추정 초기값
-     (부록 C, Stull 경계표. ``StullZone`` 전 항목을 빠짐없이 다룬다 —
-     테스트가 이걸 강제한다)과 ``docs/kiln-plan-v7.md`` 09절의 냉각-결정화
-     관계를 그대로 옮긴 요약.
-  3. **착색 산화물 참고 색상표** — ``kiln.chem.colorants.COLORANTS``
-     (4-4-a절). 6종 착색 산화물의 문헌 참고 색상·통상 첨가량.
-
-전부 "문헌 추정 초기값/참고값"이며 이 프로젝트가 실측 검증한 값이
-아니다 — 각 문서의 ``citation`` 메타데이터에 정확한 출처 모듈/절을
-남긴다.
-
-**세 번째 코퍼스인 "과거 레시피"는 이 스크립트가 다루지 않는다.** 이유:
-
-  - 사용자별 Supabase RLS 경계를 우회할 서비스 롤 키가 이 프로젝트에는
-    없다(``backend/app/config.py``는 publishable/anon 키만 다룬다) — 이
-    스크립트가 전체 사용자의 과거 회차를 한 번에 긁어올 방법이 없다.
-  - 그보다 근본적으로, 사용자 요구사항 "데이터를 저장하면 벡터 db에
-    저장되는 방식"은 저장 시점 인덱싱을 가리킨다. 그래서 개인 레시피
-    코퍼스는 ``backend/app/routes.py``의 ``create_aice_run`` 라우트가
-    평가 완료(evaluated)된 회차를 저장할 때마다
-    ``_index_personal_recipe_best_effort``로 자동 색인한다(이상치는
-    ``_personal_search_history``와 같은 기준으로 제외). 이 스크립트를
-    다시 실행해도 원료 화학·상관관계 문서만 갱신될 뿐, 개인 레시피
-    문서는 건드리지 않는다.
-
-색인은 idempotent하다(``AiceVectorStore``가 문서 id를 결정적 UUID로
-해싱한다) — 이 스크립트를 여러 번 실행해도 중복이 쌓이지 않고 갱신만
-된다.
+The source text comes from the project's chemistry and Stull tables. Private
+run documents are indexed when those runs are saved, and are not written here.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -62,14 +22,13 @@ from kiln.chem.colorants import COLORANTS  # noqa: E402
 from kiln.chem.materials import MATERIALS  # noqa: E402
 from kiln.chem.stull import StullZone  # noqa: E402
 
-from backend.app.config import get_settings  # noqa: E402
 from backend.app.vectorstore import (  # noqa: E402
-    AiceVectorStore,
+    VECTOR_SIZE,
+    _default_embed_fn,
     SOURCE_COLORANT_REFERENCE,
     SOURCE_CORRELATION_NOTE,
     SOURCE_MATERIAL_CHEMISTRY,
     VectorDocument,
-    VectorStoreUnavailable,
 )
 
 #: 원료 역할 한 줄 설명 — kiln.chem.materials 모듈의 기존 주석에서 그대로
@@ -223,42 +182,39 @@ def _colorant_documents() -> list[VectorDocument]:
     return docs
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.parse_args(argv)
+def _quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
-    settings = get_settings()
-    if not settings.qdrant_configured:
-        print(
-            "QDRANT_URL이 설정되지 않았습니다 — backend/.env에 QDRANT_URL을 채우세요"
-            "(기본값은 http://localhost:6333, docker-compose.yml 참고).",
-            file=sys.stderr,
-        )
-        return 1
 
-    material_docs = _material_documents()
-    correlation_docs = _correlation_documents()
-    colorant_docs = _colorant_documents()
-
-    try:
-        store = AiceVectorStore(url=settings.qdrant_url, collection=settings.qdrant_collection)
-        store.upsert_documents(material_docs + correlation_docs + colorant_docs)
-    except VectorStoreUnavailable as exc:
-        print(f"Qdrant 색인에 실패했습니다: {exc}", file=sys.stderr)
-        print(
-            "Docker가 떠 있는지(docker compose up -d) 그리고 인터넷 연결이 되는지"
-            "(fastembed가 최초 1회 임베딩 모델을 내려받는다) 확인하세요.",
-            file=sys.stderr,
-        )
-        return 1
-
-    total = len(material_docs) + len(correlation_docs) + len(colorant_docs)
-    print(
-        f"원료 화학 {len(material_docs)}건, 성분 상관관계 {len(correlation_docs)}건, "
-        f"착색 산화물 참고표 {len(colorant_docs)}건(총 {total}건)을 "
-        f"'{settings.qdrant_collection}' 컬렉션({settings.qdrant_url})에 색인했습니다."
+def build_seed_sql() -> str:
+    docs = _material_documents() + _correlation_documents() + _colorant_documents()
+    vectors = _default_embed_fn()([doc.text for doc in docs])
+    if len(vectors) != len(docs) or any(len(vector) != VECTOR_SIZE for vector in vectors):
+        raise ValueError(f"참고 문서 임베딩은 {VECTOR_SIZE}차원이어야 합니다.")
+    rows = []
+    for doc, vector in zip(docs, vectors):
+        embedding = "[" + ",".join(format(float(value), ".9g") for value in vector) + "]"
+        rows.append("(" + ", ".join((
+            _quote(doc.doc_id), _quote(doc.metadata["source_type"]), _quote(doc.text),
+            _quote(json.dumps(doc.metadata, ensure_ascii=False, separators=(",", ":"))) + "::jsonb",
+            _quote(embedding) + "::extensions.vector",
+        )) + ")")
+    return (
+        "-- Generated from backend/scripts/ingest_corpus.py with " + _default_embed_fn.__module__ + ".\n"
+        "insert into public.aice_vector_documents (doc_id, source_type, content, metadata, embedding) values\n"
+        + ",\n".join(rows) + "\n"
+        "on conflict (doc_id) do update set content = excluded.content, "
+        "metadata = excluded.metadata, embedding = excluded.embedding, updated_at = now();\n"
     )
-    print("(과거 레시피 코퍼스는 회차를 저장할 때마다 자동으로 색인됩니다 — 이 스크립트가 다루는 범위가 아닙니다.)")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-sql", type=Path, required=True)
+    args = parser.parse_args(argv)
+    sql = build_seed_sql()
+    args.output_sql.write_text(sql, encoding="utf-8")
+    print(f"Supabase 참고 문서 SQL을 작성했습니다: {args.output_sql}")
     return 0
 
 

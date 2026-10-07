@@ -26,6 +26,8 @@ from kiln.batch.dip_time import DipRecommendation, recommend_dip_time as _recomm
 from kiln.calibration.density import (
     DensityCoefficientTable,
     DensityRunUpdate,
+    NextTrialSuggestion,
+    suggest_next_trial as _suggest_next_trial,
     update_after_evaluated_run as _apply_density_calibration_update,
 )
 from kiln.calibration.firing import (
@@ -65,6 +67,7 @@ __all__ = [
     "density_coefficient_table_to_dict",
     "density_coefficient_table_from_dict",
     "apply_density_calibration_update",
+    "suggest_next_trial",
 ]
 
 #: 8개 AICE `WarePreset`의 대표 형태 — 굽(z=0)에서 구연부까지 (z, r) [mm].
@@ -443,6 +446,7 @@ def density_coefficient_table_to_dict(table: DensityCoefficientTable) -> dict:
     if data["next_trial_thickness_mm"] is not None:
         data["next_trial_thickness_mm"] = list(data["next_trial_thickness_mm"])
     data["provenance_notes"] = list(data["provenance_notes"])
+    # `suggestion`은 asdict가 이미 사전으로 바꿨다(없으면 None).
     return data
 
 
@@ -455,6 +459,13 @@ def density_coefficient_table_from_dict(recipe_id: str, data: dict | None) -> De
         return DensityCoefficientTable(recipe_id=recipe_id)
     range_raw = data.get("specific_gravity_range")
     thickness_raw = data.get("next_trial_thickness_mm")
+    suggestion_raw = data.get("suggestion")
+    suggestion = None
+    if isinstance(suggestion_raw, dict):
+        try:
+            suggestion = NextTrialSuggestion(**suggestion_raw)
+        except TypeError:
+            suggestion = None  # 알 수 없는 필드가 있는 옛/깨진 제안은 버린다 — 다음 평가가 덮어쓴다.
     return DensityCoefficientTable(
         recipe_id=recipe_id,
         specific_gravity_range=tuple(range_raw) if range_raw else None,
@@ -465,6 +476,29 @@ def density_coefficient_table_from_dict(recipe_id: str, data: dict | None) -> De
         failed_runs=data.get("failed_runs", 0),
         anchor_specific_gravity=data.get("anchor_specific_gravity"),
         anchor_thickness_mm=data.get("anchor_thickness_mm"),
+        suggestion=suggestion,
+    )
+
+
+def suggest_next_trial(
+    table: DensityCoefficientTable,
+    *,
+    overall: str | None,
+    defects: tuple[str, ...] = (),
+    defects_reviewed: bool = False,
+    gloss_comparison: str | None = None,
+    transparency_comparison: str | None = None,
+    texture_comparison: str | None = None,
+    color: str | None = None,
+    mean_thickness_mm: float | None = None,
+    safe_thickness_mm: tuple[float, float] | None = None,
+) -> NextTrialSuggestion | None:
+    """평가 1건에서 다음 시도 제안 1건 — `kiln.calibration.density.suggest_next_trial` 그대로."""
+    return _suggest_next_trial(
+        table, overall=overall, defects=defects, defects_reviewed=defects_reviewed,
+        gloss_comparison=gloss_comparison, transparency_comparison=transparency_comparison,
+        texture_comparison=texture_comparison, color=color,
+        mean_thickness_mm=mean_thickness_mm, safe_thickness_mm=safe_thickness_mm,
     )
 
 

@@ -71,6 +71,18 @@ def test_synthetic_svg_photo_survives_json_roundtrip() -> None:
     assert restored.recipe.photo.data_url == data["recipe"]["photo"]["data_url"]
 
 
+def test_private_observation_storage_path_needs_no_rights_confirmation() -> None:
+    data = sample_aice_run().to_dict()
+    data["result"]["photo"] = {
+        "id": "observation", "kind": "result", "storage_path": "owner/observation.png",
+        "data_url": None, "placeholder": False, "source_type": "observed",
+        "rights_confirmed": False, "alt": "관찰.png",
+    }
+    restored = AiceRun.from_dict(json.loads(json.dumps(data)))
+    assert restored.result.photo.storage_path == "owner/observation.png"
+    assert restored.result.photo.rights_confirmed is False
+
+
 def test_legacy_run_does_not_invent_review_or_drying_confirmation() -> None:
     data = sample_aice_run().to_dict()
     del data["application"]["drying_complete"]

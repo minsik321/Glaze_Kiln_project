@@ -45,60 +45,6 @@ class ProfileResponse(ApiModel):
     created_at: datetime
 
 
-class WorkRecordCreate(ApiModel):
-    title: str = Field(min_length=1, max_length=200)
-    payload: dict[str, Any] = Field(default_factory=dict)
-    schema_version: int = Field(default=1, gt=0)
-    is_public: bool = False
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("title must not be blank")
-        return value
-
-
-class WorkRecordUpdate(ApiModel):
-    title: str | None = Field(default=None, min_length=1, max_length=200)
-    payload: dict[str, Any] | None = None
-    schema_version: int | None = Field(default=None, gt=0)
-    is_public: bool | None = None
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("title must not be blank")
-        return value
-
-    @model_validator(mode="after")
-    def require_change(self) -> "WorkRecordUpdate":
-        if not self.model_fields_set:
-            raise ValueError("at least one field is required")
-        return self
-
-
-class WorkRecordResponse(ApiModel):
-    id: UUID
-    title: str
-    payload: dict[str, Any]
-    schema_version: int
-    is_public: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-class WorkRecordPage(ApiModel):
-    items: list[WorkRecordResponse]
-    limit: int
-    offset: int
-
-
 def validate_aice_payload(value: dict[str, Any]) -> dict[str, Any]:
     """공유 Python 계약으로 AiceRun payload를 검증한다."""
     value = normalize_run_recipe(value)
@@ -133,6 +79,10 @@ class AiceRunCreate(ApiModel):
     title: str = Field(min_length=1, max_length=200)
     run: dict[str, Any]
     is_public: bool = False
+    #: The recipe row this run started from (mine or a public one). Same
+    #: composition -> the run points at it; changed composition -> the DB
+    #: creates the caller's own recipe with forked_from_id = this id.
+    recipe_ref_id: UUID | None = None
 
     @field_validator("title")
     @classmethod
@@ -174,6 +124,7 @@ class AiceRunResponse(ApiModel):
     goal_gloss: str
     goal_transparency: str
     recipe_id: str
+    recipe_ref_id: UUID | None = None
     ware_preset: str
     is_public: bool
     created_at: datetime
@@ -393,6 +344,19 @@ class DipTimeResponse(ApiModel):
 # ─── 10-2절 캘리브레이션 배선 ───────────────────────────────────────────────
 
 
+class NextTrialSuggestionOut(ApiModel):
+    """한 번의 평가에서 나온 다음 시도 제안(추정) — 학습값·안전 경계가 아니다."""
+
+    trigger: str
+    variable: str
+    magnitude: str
+    message: str
+    change_pct: float | None = None
+    thickness_mm: float | None = None
+    hold_delta_min: int | None = None
+    estimated: bool = True
+
+
 class CoefficientTableOut(ApiModel):
     recipe_id: str
     k1: float | None
@@ -420,6 +384,8 @@ class CoefficientTableOut(ApiModel):
     #: 캘리브레이션 출처)과 이름·의미가 다르다 — 절대 같은 값으로 합치지
     #: 않는다. None이면 아직 관측이 없다.
     next_trial_thickness_mm: tuple[float, float] | None = None
+    #: 가장 최근 평가에서 나온 다음 시도 제안 1건(추정). 평가마다 덮어쓴다.
+    next_trial_suggestion: NextTrialSuggestionOut | None = None
 
 
 class CalibrationRunRequest(ApiModel):
@@ -443,3 +409,28 @@ class CalibrationRunResponse(ApiModel):
     #: 이 회차 단독의 k1 추정치. 기여하지 못했으면 None.
     k1_estimate: float | None
     notes: list[str]
+
+
+class RecipeSummary(ApiModel):
+    id: UUID
+    name: str
+
+
+class RecipeResponse(ApiModel):
+    """A recipe row. owner_id is never exposed; is_mine says whose it is."""
+
+    id: UUID
+    name: str
+    materials: dict[str, float]
+    colorants: dict[str, float]
+    composition_key: str
+    forked_from_id: UUID | None = None
+    forked_from: RecipeSummary | None = None
+    is_public: bool
+    is_mine: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class RecipePage(ApiModel):
+    items: list[RecipeResponse]

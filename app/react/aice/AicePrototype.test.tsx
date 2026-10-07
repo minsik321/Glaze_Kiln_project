@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AicePrototype } from "./AicePrototype";
 import { sampleAiceRun, type RecipeCandidate } from "./contract";
 
+vi.mock("./photoStorage", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./photoStorage")>();
+  return { ...original, persistRunPhotos: vi.fn(async (run) => run) };
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -164,7 +169,7 @@ describe("AICE guided prototype", () => {
     const saveDialog = screen.getByRole("alertdialog", { name: "진행사항을 저장하시겠습니까?" });
     fireEvent.click(within(saveDialog).getByRole("button", { name: "예" }));
 
-    expect(onBackHome).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onBackHome).toHaveBeenCalledTimes(1));
     expect(JSON.parse(String(localStorage.getItem("aice-kiln:work-progress:v1"))).step).toBe(1);
   });
 

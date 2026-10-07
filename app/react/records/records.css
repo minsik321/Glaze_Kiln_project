@@ -18,11 +18,12 @@
 .record-detail-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   width: min(100%, 402px);
   margin: 0 auto;
 }
 
-.record-detail-header button {
+.record-detail-header .record-detail-back {
   display: grid;
   width: 42px;
   height: 42px;
@@ -35,10 +36,21 @@
   cursor: pointer;
 }
 
-.record-detail-header button:hover { background: rgba(30, 173, 255, .08); }
+.record-detail-header .record-detail-back:hover { background: rgba(30, 173, 255, .08); }
 .record-detail-header button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .record-detail-header svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.record-detail-delete { padding: 8px 10px; border: 0; background: transparent; color: var(--danger); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .record-detail-panel .work-record-entry { padding: 12px 2px 92px; }
+
+.record-delete-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 33, 43, .45); }
+.record-delete-dialog { width: min(100%, 360px); padding: 24px; border-radius: 20px; background: #fff; box-shadow: 0 20px 70px rgba(17, 33, 43, .2); }
+.record-delete-dialog h3 { margin: 0 0 10px; font-size: 17px; }
+.record-delete-dialog p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.record-delete-dialog .record-delete-error { margin-top: 10px; color: var(--danger); }
+.record-delete-actions { display: flex; gap: 8px; margin-top: 22px; }
+.record-delete-actions button { flex: 1; min-height: 44px; border: 0; border-radius: 10px; background: #eef3f5; color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.record-delete-actions button:last-child { background: var(--danger); color: #fff; }
+.record-delete-actions button:disabled { opacity: .6; cursor: wait; }
 
 .record-detail-start {
   position: fixed;

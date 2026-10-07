@@ -68,9 +68,9 @@ async def test_missing_and_invalid_tokens_are_consistent() -> None:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        missing = await client.get("/api/v1/work-records")
+        missing = await client.get("/api/v1/aice-runs")
         invalid = await client.get(
-            "/api/v1/work-records", headers={"Authorization": "Bearer expired"}
+            "/api/v1/aice-runs", headers={"Authorization": "Bearer expired"}
         )
     assert missing.status_code == 401
     assert missing.json()["detail"]["code"] == "authentication_required"
@@ -80,46 +80,31 @@ async def test_missing_and_invalid_tokens_are_consistent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_record_forwards_token_and_verified_user() -> None:
+async def test_delete_aice_run_is_scoped_to_owner() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/rest/v1/work_records"
-        assert request.method == "POST"
-        assert request.headers["apikey"] == "sb_publishable_test"
-        assert request.headers["authorization"] == "Bearer valid-token"
-        body = json.loads(request.content)
-        assert body["user_id"] == str(USER_ID)
-        assert body["title"] == "첫 소성"
-        return httpx.Response(
-            201,
-            json=[{
-                "id": str(RECORD_ID),
-                "title": body["title"],
-                "payload": body["payload"],
-                "schema_version": 1,
-                "is_public": False,
-                "created_at": NOW,
-                "updated_at": NOW,
-            }],
-        )
+        assert request.method == "DELETE"
+        assert request.url.path == "/rest/v1/aice_runs"
+        assert request.url.params["id"] == f"eq.{RECORD_ID}"
+        assert request.url.params["user_id"] == f"eq.{USER_ID}"
+        return httpx.Response(200, json=[{"id": str(RECORD_ID)}])
 
     app, upstream = client_for(handler)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/api/v1/work-records",
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.delete(
+            f"/api/v1/aice-runs/{RECORD_ID}",
             headers={"Authorization": "Bearer valid-token"},
-            json={"title": "  첫 소성  ", "payload": {"cone": 6}},
         )
-    assert response.status_code == 201
-    assert response.json()["title"] == "첫 소성"
-    assert "user_id" not in response.json()
+
+    assert response.status_code == 204
     await upstream.aclose()
 
 
 @pytest.mark.asyncio
-async def test_owner_list_is_scoped_and_paginated() -> None:
+async def test_owner_list_forwards_token_and_is_scoped_and_paginated() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/aice_runs"
+        assert request.headers["apikey"] == "sb_publishable_test"
+        assert request.headers["authorization"] == "Bearer valid-token"
         assert request.url.params["user_id"] == f"eq.{USER_ID}"
         assert request.url.params["limit"] == "10"
         assert request.url.params["offset"] == "5"
@@ -130,7 +115,7 @@ async def test_owner_list_is_scoped_and_paginated() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/api/v1/work-records?limit=10&offset=5",
+            "/api/v1/aice-runs?limit=10&offset=5",
             headers={"Authorization": "Bearer valid-token"},
         )
     assert response.json() == {"items": [], "limit": 10, "offset": 5}
@@ -142,47 +127,30 @@ async def test_public_feed_filters_public_without_exposing_owner() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["is_public"] == "eq.true"
         assert "user_id" not in request.url.params["select"]
-        return httpx.Response(
-            200,
-            json=[{
-                "id": str(RECORD_ID),
-                "title": "공개 기록",
-                "payload": {},
-                "schema_version": 1,
-                "is_public": True,
-                "created_at": NOW,
-                "updated_at": NOW,
-            }],
-        )
+        return httpx.Response(200, json=[])
 
     app, upstream = client_for(handler)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/api/v1/public/work-records",
+            "/api/v1/public/aice-runs",
             headers={"Authorization": "Bearer valid-token"},
         )
     assert response.status_code == 200
-    assert "user_id" not in response.json()["items"][0]
+    assert response.json()["items"] == []
     await upstream.aclose()
 
 
 @pytest.mark.asyncio
-async def test_validation_rejects_blank_title_and_large_page() -> None:
+async def test_validation_rejects_large_page() -> None:
     app, upstream = client_for(lambda _: httpx.Response(500))
-    headers = {"Authorization": "Bearer valid-token"}
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        blank = await client.post(
-            "/api/v1/work-records",
-            headers=headers,
-            json={"title": "  ", "payload": {}},
+        page = await client.get(
+            "/api/v1/aice-runs?limit=101", headers={"Authorization": "Bearer valid-token"}
         )
-        page = await client.get("/api/v1/work-records?limit=101", headers=headers)
-    assert blank.status_code == 422
-    assert blank.json()["detail"]["code"] == "validation_error"
     assert page.status_code == 422
     await upstream.aclose()
 
@@ -293,6 +261,8 @@ async def test_aice_publish_requires_all_consent_and_withdraws_from_public_read(
         if request.url.path == "/rest/v1/aice_consents":
             assert request.url.params["on_conflict"] == "run_id"
             assert body["photo_rights_confirmed"] and body["pii_reviewed"] and body["location_removed"]
+            # aice_consents CHECK: share_allowed requires granted_at.
+            assert body["share_allowed"] is True and body["granted_at"]
             return httpx.Response(201, json=[body])
         assert request.url.path == "/rest/v1/aice_runs"
         assert body["is_public"] is True
@@ -342,4 +312,122 @@ async def test_aice_withdraw_sets_timestamp_before_private_transition() -> None:
     assert withdrawn.status_code == 200
     assert withdrawn.json()["is_public"] is False
     assert withdrawn.json()["run"]["consent"]["share_allowed"] is False
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_profile_upsert_ignores_extra_profile_columns() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/profiles"
+        body = json.loads(request.content)
+        return httpx.Response(200, json=[{**body, "created_at": NOW, "avatar_url": None, "bio": "", "kiln_sensor_plan": "three"}])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.put(
+            "/api/v1/me/profile", headers={"Authorization": "Bearer valid-token"}, json={"display_name": " 도예가 "}
+        )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert set(data) == {"id", "display_name", "created_at"}
+    assert data["display_name"] == "도예가"
+    await upstream.aclose()
+
+
+RECIPE_ID = UUID("33333333-3333-3333-3333-333333333333")
+PARENT_ID = UUID("44444444-4444-4444-4444-444444444444")
+OTHER_USER = "55555555-5555-5555-5555-555555555555"
+
+
+def recipe_row(recipe_id: UUID, owner: str, **extra) -> dict:
+    return {"id": str(recipe_id), "owner_id": owner, "forked_from_id": None, "name": "해안 사틴",
+            "materials": {"장석": 40, "규석": 60}, "colorants": {}, "composition_key": "glaze-v1-abc",
+            "is_public": True, "created_at": NOW, "updated_at": NOW, **extra}
+
+
+@pytest.mark.asyncio
+async def test_create_run_forwards_recipe_reference_to_rpc() -> None:
+    payload = sample_aice_run().to_dict()
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/v1/rpc/save_aice_run":
+            values = json.loads(request.content)["p_values"]
+            seen.update(values)
+            return httpx.Response(200, json=[{
+                "id": str(RECORD_ID), "title": values["title"], "payload": values["payload"], "schema_version": 3,
+                "status": values["status"], "goal_gloss": values["goal_gloss"], "goal_transparency": values["goal_transparency"],
+                "recipe_id": values["recipe_id"], "recipe_ref_id": str(RECIPE_ID), "ware_preset": values["ware_preset"],
+                "is_public": False, "created_at": NOW, "updated_at": NOW, "feedback_status": "skipped",
+            }])
+        return httpx.Response(200, json=[])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/aice-runs", headers={"Authorization": "Bearer valid-token"},
+                                     json={"title": "남의 레시피로", "run": payload, "recipe_ref_id": str(PARENT_ID)})
+    assert response.status_code == 201, response.text
+    assert seen["recipe_ref_id"] == str(PARENT_ID)
+    assert response.json()["recipe_ref_id"] == str(RECIPE_ID)
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_publish_makes_the_owners_recipe_public() -> None:
+    payload = sample_aice_run().to_dict()
+    updates: list[tuple[str, dict, dict]] = []
+
+    def run_row(is_public: bool) -> dict:
+        return {"id": str(RECORD_ID), "title": "t", "payload": payload, "schema_version": 3, "status": payload["status"],
+                "goal_gloss": "satin", "goal_transparency": "opaque", "recipe_id": payload["recipe"]["id"],
+                "recipe_ref_id": str(RECIPE_ID), "ware_preset": "bowl", "is_public": is_public,
+                "created_at": NOW, "updated_at": NOW}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "GET":
+            if request.url.params.get("is_public") == "eq.true":
+                return httpx.Response(200, json=[{"id": str(RECORD_ID)}])
+            return httpx.Response(200, json=[run_row(False)])
+        body = json.loads(request.content)
+        if request.method == "PATCH":
+            updates.append((path, body, dict(request.url.params)))
+        if path == "/rest/v1/aice_runs":
+            return httpx.Response(200, json=[run_row(True)])
+        return httpx.Response(200, json=[body])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(f"/api/v1/aice-runs/{RECORD_ID}/publish", headers={"Authorization": "Bearer valid-token"},
+                                     json={"photo_rights_confirmed": True, "pii_reviewed": True, "location_removed": True, "withdrawal_understood": True})
+    assert response.status_code == 200, response.text
+    recipe_updates = [u for u in updates if u[0] == "/rest/v1/recipes"]
+    assert recipe_updates == [("/rest/v1/recipes", {"is_public": True}, {"id": f"eq.{RECIPE_ID}", "owner_id": f"eq.{USER_ID}"})]
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_get_recipe_hides_owner_and_shows_fork_parent() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/recipes"
+        if request.url.params["id"] == f"eq.{RECIPE_ID}":
+            return httpx.Response(200, json=[recipe_row(RECIPE_ID, str(USER_ID), forked_from_id=str(PARENT_ID))])
+        return httpx.Response(200, json=[{"id": str(PARENT_ID), "name": "원본 레시피"}])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/v1/recipes/{RECIPE_ID}", headers={"Authorization": "Bearer valid-token"})
+    data = response.json()
+    assert response.status_code == 200, response.text
+    assert "owner_id" not in data and data["is_mine"] is True
+    assert data["forked_from"] == {"id": str(PARENT_ID), "name": "원본 레시피"}
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_someone_elses_public_recipe_is_not_mine() -> None:
+    app, upstream = client_for(lambda r: httpx.Response(200, json=[recipe_row(RECIPE_ID, OTHER_USER)]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/v1/recipes/{RECIPE_ID}", headers={"Authorization": "Bearer valid-token"})
+    assert response.json()["is_mine"] is False
     await upstream.aclose()

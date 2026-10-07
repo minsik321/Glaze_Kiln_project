@@ -201,7 +201,7 @@ describe("RecipeChatScreen (화면 1)", () => {
     fireEvent.click(screen.getByText("이 후보 선택"));
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ id: "cand-1" }),
-      { base64: "Zm9v", mediaType: "image/png" },
+      { src: "data:image/png;base64,Zm9v" },
     );
   });
 

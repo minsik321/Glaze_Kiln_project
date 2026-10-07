@@ -13,7 +13,7 @@ if (!url || !key) {
   if (!valid) {
     fail("브라우저용 publishable 또는 legacy anon 키만 사용할 수 있습니다.");
   } else {
-    for (const endpoint of ["/auth/v1/settings", "/rest/v1/profiles?select=id&limit=0", "/rest/v1/work_records?select=id&limit=0", "/rest/v1/aice_runs?select=id,payload&limit=0"]) {
+    for (const endpoint of ["/auth/v1/settings", "/rest/v1/profiles?select=id&limit=0", "/rest/v1/personal_calibrations?select=recipe_id&limit=0", "/rest/v1/aice_runs?select=id,payload&limit=0"]) {
       const label = endpoint.split("?")[0];
       try {
         const response = await fetch(new URL(endpoint, url), { headers: { apikey: key }, signal: AbortSignal.timeout(15000) });

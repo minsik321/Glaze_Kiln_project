@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from "react";
 import type { RelativeObservation, ResultEvaluation } from "./feedback";
 import { Alert } from "./ui";
+import { usePhotoUrl } from "./photoStorage";
 
 function ChipGroup<T extends string>({ label, value, options, onChange }: { label: string; value: T | null; options: Array<{ id: T; label: string }>; onChange: (value: T) => void }) {
   return <fieldset className="feedback-chip-group"><legend>{label}</legend><div className="choice-chip-row">{options.map((option) => <button type="button" className="choice-chip" aria-pressed={value === option.id} key={option.id} onClick={() => onChange(option.id)}>{option.label}</button>)}</div></fieldset>;
@@ -15,7 +16,7 @@ export function ResultFeedback({
   onChange: (value: ResultEvaluation) => void;
   //: 화면 1에서 선택한 레시피 후보의 자동 생성 이미지 — "목표" 자리에
   //: 그대로 보여준다. AI 생성/플레이스홀더이며 실물 사진이 아니다.
-  targetPhoto?: { base64: string; mediaType: string } | null;
+  targetPhoto?: { src: string } | null;
 }) {
   const update = <K extends keyof ResultEvaluation>(key: K, next: ResultEvaluation[K]) => onChange({ ...value, [key]: next });
   const toggleDefect = (defect: string) => {
@@ -37,6 +38,10 @@ export function ResultFeedback({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoDeferred, setPhotoDeferred] = useState(() => Boolean(value.match || value.color || value.gloss || value.texture || value.transparency));
   const photoStepComplete = Boolean(value.resultPhoto || photoDeferred);
+  const observedUrl = usePhotoUrl(value.resultPhoto ? {
+    kind: "result", storage_path: value.resultPhoto.storagePath ?? null,
+    data_url: value.resultPhoto.dataUrl ?? null,
+  } : null);
 
   function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -63,13 +68,13 @@ export function ResultFeedback({
     {photoStepComplete && <div className="prototype-result-compare progressive-feedback-field">
       <div>
         {targetPhoto
-          ? <img className="result-photo" src={`data:${targetPhoto.mediaType};base64,${targetPhoto.base64}`} alt="목표 레시피의 AI 예상 이미지 — 실물 사진 아님" />
+          ? <img className="result-photo" src={targetPhoto.src} alt="목표 레시피의 AI 예상 이미지 — 실물 사진 아님" />
           : <span className="result-swatch target" />}
         <strong>목표</strong><small>{targetPhoto ? "선택한 레시피의 예상 이미지" : "선택한 목표 스와치"}</small>
       </div>
       <div>
-        {value.resultPhoto
-          ? <img className="result-photo" src={value.resultPhoto.dataUrl} alt="첨부한 관찰 사진" />
+        {observedUrl
+          ? <img className="result-photo" src={observedUrl} alt="첨부한 관찰 사진" />
           : <span className="result-swatch simulated" />}
         <strong>관찰 결과</strong><small>{value.resultPhoto ? value.resultPhoto.name : "사진 미등록 · 선택 평가"}</small>
       </div>

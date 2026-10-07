@@ -47,20 +47,30 @@ export function ChatListScreen({ threads, onOpen }: { threads: readonly ChatThre
   );
 }
 
-export function ConversationScreen({ thread, onBack, onSend }: { thread: ChatThread; onBack: () => void; onSend: (message: ChatMessage) => void }) {
+export function ConversationScreen({ thread, onBack, onSend }: { thread: ChatThread; onBack: () => void; onSend: (message: ChatMessage) => Promise<void> | void }) {
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });
   }, [thread.messages.length]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = draft.trim();
-    if (!body) return;
-    onSend({ id: crypto.randomUUID(), body, sentAt: new Date().toISOString(), sender: "me" });
-    setDraft("");
+    if (!body || sending) return;
+    setSending(true);
+    setSendError("");
+    try {
+      await onSend({ id: crypto.randomUUID(), body, sentAt: new Date().toISOString(), sender: "me" });
+      setDraft("");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "메시지를 저장하지 못했습니다. 다시 시도해 주세요.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -79,11 +89,11 @@ export function ConversationScreen({ thread, onBack, onSend }: { thread: ChatThr
         ))}
         <div ref={endRef} />
       </div>
+      {sendError && <p role="alert">{sendError}</p>}
       <form className="message-composer" onSubmit={submit}>
         <input value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="메시지 입력" placeholder="메시지를 입력하세요" autoComplete="off" />
-        <button type="submit" aria-label="메시지 보내기" disabled={!draft.trim()}><SendIcon /></button>
+        <button type="submit" aria-label="메시지 보내기" disabled={!draft.trim() || sending}><SendIcon /></button>
       </form>
     </section>
   );
 }
-

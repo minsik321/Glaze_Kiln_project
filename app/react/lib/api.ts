@@ -1,24 +1,10 @@
 import { assertAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
+import { persistRunPhotos } from "../aice/photoStorage";
+import { requireSupabase } from "./supabase";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
-
-export type WorkRecord = {
-  id: string;
-  title: string;
-  payload: Record<string, unknown>;
-  schema_version: number;
-  is_public: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-export type WorkRecordPage = {
-  items: WorkRecord[];
-  limit: number;
-  offset: number;
-};
 
 export type AiceRunRecord = {
   request_id?: string | null;
@@ -31,8 +17,25 @@ export type AiceRunRecord = {
   goal_gloss: string;
   goal_transparency: string;
   recipe_id: string;
+  /** recipes.id this run used (mine, or someone else's public recipe). */
+  recipe_ref_id?: string | null;
   ware_preset: string;
   is_public: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A recipe row. The author is never exposed; is_mine says whose it is. */
+export type Recipe = {
+  id: string;
+  name: string;
+  materials: Record<string, number>;
+  colorants: Record<string, number>;
+  composition_key: string;
+  forked_from_id: string | null;
+  forked_from: { id: string; name: string } | null;
+  is_public: boolean;
+  is_mine: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -92,39 +95,25 @@ async function requestPublic<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export const recordsApi = {
-  listMine: (token: string, offset = 0) =>
-    request<WorkRecordPage>(`/work-records?limit=20&offset=${offset}`, token),
-  listPublic: (token: string, offset = 0) =>
-    request<WorkRecordPage>(
-      `/public/work-records?limit=20&offset=${offset}`,
-      token,
-    ),
-  create: (
-    token: string,
-    input: Pick<WorkRecord, "title" | "payload" | "is_public">,
-  ) =>
-    request<WorkRecord>("/work-records", token, {
-      method: "POST",
-      body: JSON.stringify({ ...input, schema_version: 1 }),
-    }),
-  update: (
-    token: string,
-    id: string,
-    input: Partial<Pick<WorkRecord, "title" | "payload" | "is_public">>,
-  ) =>
-    request<WorkRecord>(`/work-records/${id}`, token, {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    }),
-  remove: (token: string, id: string) =>
-    request<void>(`/work-records/${id}`, token, { method: "DELETE" }),
-};
-
 function validateAiceRecord(record: AiceRunRecord): AiceRunRecord {
   assertAiceRun(record.run);
   if (record.schema_version !== 3) throw new Error("AiceRun record schema_version must be 3");
   return record;
+}
+
+async function migrateStoredRunPhotos(record: AiceRunRecord): Promise<AiceRunRecord> {
+  try {
+    const run = await persistRunPhotos(record.run);
+    if (run === record.run) return record;
+    const { data, error } = await requireSupabase().from("aice_runs")
+      .update({ payload: run }).eq("id", record.id).select("id").single();
+    if (error || !data) throw error ?? new Error("사진이 포함된 기록을 갱신하지 못했습니다.");
+    return { ...record, run };
+  } catch (error) {
+    // Old inline photos remain readable; the next owner visit retries migration.
+    console.warn("이전 사진을 Supabase Storage로 옮기지 못했습니다.", error);
+    return record;
+  }
 }
 
 export type RecipeSuggestResponse = {
@@ -267,6 +256,19 @@ export type CoefficientTableOut = {
   //: 같은 보정(kiln.calibration.density)의 개인 다음-시도 두께 제안 —
   //: 위 safe_thickness_mm(위험 판정 경계)과 절대 같은 값이 아니다.
   next_trial_thickness_mm: [number, number] | null;
+  //: 가장 최근 평가 1건에서 나온 "다음 시도 제안"(추정) — 학습값·안전 경계가
+  //: 아니다. 평가할 때마다 덮어쓰며, 없으면 null/undefined.
+  next_trial_suggestion?: NextTrialSuggestion | null;
+};
+export type NextTrialSuggestion = {
+  trigger: "defect" | "gloss" | "transparency" | "texture" | "color" | "none";
+  variable: "thickness" | "hold" | "none";
+  magnitude: "full" | "half" | "none";
+  message: string;
+  change_pct: number | null;
+  thickness_mm: number | null;
+  hold_delta_min: number | null;
+  estimated: boolean;
 };
 export type CalibrationRunInput = {
   ware_preset: string;
@@ -303,20 +305,32 @@ export const calibrationApi = {
 export const aiceRunsApi = {
   listMine: async (token: string, offset = 0) => {
     const page = await request<AiceRunPage>(`/aice-runs?limit=20&offset=${offset}`, token);
-    return { ...page, items: page.items.map(validateAiceRecord) };
+    return { ...page, items: await Promise.all(page.items.map((item) => migrateStoredRunPhotos(validateAiceRecord(item)))) };
   },
-  get: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token)),
+  get: async (token: string, id: string) => migrateStoredRunPhotos(validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token))),
   listPublic: async (token: string, offset = 0) => {
     const page = await request<AiceRunPage>(`/public/aice-runs?limit=20&offset=${offset}`, token);
     return { ...page, items: page.items.map(validateAiceRecord) };
   },
   getPublic: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/public/aice-runs/${id}`, token)),
-  create: async (token: string, input: { title: string; run: AiceRun; request_id?: string; is_public?: boolean }) =>
-    validateAiceRecord(await request<AiceRunRecord>("/aice-runs", token, { method: "POST", body: JSON.stringify({ ...input, is_public: input.is_public ?? false }) })),
+  create: async (token: string, input: { title: string; run: AiceRun; request_id?: string; is_public?: boolean; recipe_ref_id?: string | null }) => {
+    const run = await persistRunPhotos(input.run);
+    return validateAiceRecord(await request<AiceRunRecord>("/aice-runs", token, {
+      method: "POST", body: JSON.stringify({ ...input, run, is_public: input.is_public ?? false }),
+    }));
+  },
+  nextTrial: (token: string, id: string) => request<NextTrialSuggestion | null>(`/aice-runs/${id}/next-trial`, token),
   retryFeedback: async (token: string, id: string) =>
     validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/feedback/retry`, token, { method: "POST" })),
   publish: async (token: string, id: string, consent: { photo_rights_confirmed: boolean; pii_reviewed: boolean; location_removed: boolean; withdrawal_understood: boolean }) =>
     validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publish`, token, { method: "POST", body: JSON.stringify(consent) })),
   withdraw: async (token: string, id: string) => validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}/publication`, token, { method: "DELETE" })),
   remove: (token: string, id: string) => request<void>(`/aice-runs/${id}`, token, { method: "DELETE" }),
+};
+
+export const recipesApi = {
+  //: Recipes split out of runs: my own list, and one recipe (mine or public)
+  //: with the recipe it was forked from.
+  listMine: (token: string) => request<{ items: Recipe[] }>("/recipes", token),
+  get: (token: string, id: string) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, token),
 };

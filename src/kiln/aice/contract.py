@@ -70,8 +70,6 @@ class PhotoAsset:
 
     def __post_init__(self) -> None:
         _source(self.source_type)
-        if self.storage_path and not self.rights_confirmed:
-            raise ValueError("사진 파일은 권리 확인 없이 연결할 수 없습니다")
         if self.data_url is not None:
             match = re.fullmatch(r"data:image/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)", self.data_url)
             if not match or len(self.data_url) > 8_000_000:

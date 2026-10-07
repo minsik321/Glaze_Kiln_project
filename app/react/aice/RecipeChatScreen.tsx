@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "../lib/api";
 import { isChatGenerationRecord } from "../records/workRecords";
+import { signedPhotoUrl } from "./photoStorage";
 import type { ChatIntake, RecipeCandidate } from "./contract";
 import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer } from "./ui";
@@ -69,7 +70,7 @@ export function RecipeChatScreen({
   token: string;
   //: 9페이지(결과 기록)의 "목표" 사진이 이 후보의 자동 생성 이미지를 그대로
   //: 보여줄 수 있도록, 선택 시점에 그 후보의 이미지(있으면)도 함께 넘긴다.
-  onSelect?: (candidate: RecipeCandidate, image?: { base64: string; mediaType: string }) => void;
+  onSelect?: (candidate: RecipeCandidate, image?: { src: string }) => void;
   //: 부모(AicePrototype)의 `intakePrompt`/`intakeCandidates`를 최신 상태로
   //: 맞추기 위한 콜백 — 새로 생성했을 때도, 이력에서 복원했을 때도 부른다.
   onIntake?: (promptText: string, candidates: RecipeCandidate[]) => void;
@@ -87,7 +88,7 @@ export function RecipeChatScreen({
   const [candidates, setCandidates] = useState<RecipeCandidate[]>([]);
   const [dropped, setDropped] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [images, setImages] = useState<Record<string, { base64: string; mediaType: string; sourceType: "ai" | "fallback" }>>({});
+  const [images, setImages] = useState<Record<string, { src: string; sourceType: "ai" | "fallback" }>>({});
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
   const [imageErrors, setImageErrors] = useState<Record<string, string>>({});
   const [historyMatches, setHistoryMatches] = useState<HistoryMatch[]>([]);
@@ -162,11 +163,21 @@ export function RecipeChatScreen({
       setImages((prev) => ({
         ...prev,
         [candidate.id]: {
-          base64: savedImage[2],
-          mediaType: savedImage[1],
+          src: candidate.photo.data_url!,
           sourceType: savedImage[1] === "image/svg+xml" ? "fallback" : "ai",
         },
       }));
+      return candidate;
+    }
+    if (candidate.photo.storage_path) {
+      try {
+        const src = await signedPhotoUrl(candidate.photo);
+        if (src) setImages((prev) => ({ ...prev, [candidate.id]: {
+          src, sourceType: candidate.photo.alt.includes("로컬 합성") ? "fallback" : "ai",
+        } }));
+      } catch (err) {
+        setImageErrors((prev) => ({ ...prev, [candidate.id]: err instanceof Error ? err.message : "저장된 이미지를 불러오지 못했습니다." }));
+      }
       return candidate;
     }
     setImageLoading((prev) => ({ ...prev, [candidate.id]: true }));
@@ -185,8 +196,7 @@ export function RecipeChatScreen({
       setImages((prev) => ({
         ...prev,
         [candidate.id]: {
-          base64: result.image_base64,
-          mediaType: result.media_type,
+          src: `data:${result.media_type};base64,${result.image_base64}`,
           sourceType: result.source_type ?? "ai",
         },
       }));
@@ -248,7 +258,7 @@ export function RecipeChatScreen({
   function selectCandidate(candidate: RecipeCandidate) {
     setSelectedId(candidate.id);
     const image = images[candidate.id];
-    onSelect?.(candidate, image ? { base64: image.base64, mediaType: image.mediaType } : undefined);
+    onSelect?.(candidate, image ? { src: image.src } : undefined);
   }
 
   async function restoreFromHistory(record: AiceRunRecord) {
@@ -525,7 +535,7 @@ export function RecipeChatScreen({
                 <div className="recipe-card-image-wrap" aria-busy={imageLoading[candidate.id] || undefined}>
                   {images[candidate.id] ? (
                   <img
-                    src={`data:${images[candidate.id].mediaType};base64,${images[candidate.id].base64}`}
+                    src={images[candidate.id].src}
                     alt={images[candidate.id].sourceType === "fallback"
                       ? `${candidate.name} 로컬 합성 유약 프리뷰 — 실물 사진 아님`
                       : `${candidate.name} AI 예상 이미지 — 실물 사진 아님`}
@@ -577,7 +587,7 @@ export function RecipeChatScreen({
                   </header>
                   <div className="recipe-detail-photo">
                     {images[detailCandidate.id]
-                      ? <img src={`data:${images[detailCandidate.id].mediaType};base64,${images[detailCandidate.id].base64}`} alt={`${detailCandidate.name} AI 예상 이미지 — 실물 사진 아님`} />
+                      ? <img src={images[detailCandidate.id].src} alt={`${detailCandidate.name} AI 예상 이미지 — 실물 사진 아님`} />
                       : <span>예상 이미지 준비 중</span>}
                     <small>AI 예상 이미지 · 실제 발색과 다를 수 있음</small>
                   </div>

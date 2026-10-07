@@ -55,9 +55,7 @@ export type ResultEvaluation = {
   defects: string[];
   defectSeverities: Record<string, number>;
   scope: "personal" | "common_candidate";
-  //: 9페이지 — 첨부한 관찰 사진(파일 첨부, 로컬 데이터URL). 클라우드
-  //: 스토리지 연동 없이 작업기록 payload(jsonb)에 그대로 실려 저장된다.
-  resultPhoto: { dataUrl: string; name: string } | null;
+  resultPhoto: { dataUrl?: string; storagePath?: string; name: string } | null;
 };
 
 export function evaluationComplete(value: ResultEvaluation): boolean {
@@ -71,9 +69,12 @@ export function canPublish(consent: ShareConsent) {
 }
 
 export function feedbackTrace(evaluation: ResultEvaluation) {
+  //: 실제 동작과 일치시킨다 — 서버가 평가 저장 시 학습값(비중·두께 범위, 광택 편향)을
+  //: 보수적으로 갱신하고, 어긋난 항목 하나를 골라 "다음 시도 제안"(추정)을 만든다.
+  //: ("차이가 있어요"여도 학습값은 결함이 없으면 그대로이며 제안만 생긴다.)
   const effects = evaluation.match === "different"
-    ? ["개인 기록 검색에서 유사 실패 사례의 가중치를 높임", "다음 레시피·곡선 후보 재비교 요청"]
-    : ["개인 기록에서 현재 후보를 가까운 사례로 표시"];
+    ? ["개인 기록에 목표와 다른 결과로 저장", "어긋난 항목 하나를 골라 다음 시도 제안(추정) 생성"]
+    : ["개인 기록에서 현재 후보를 가까운 사례로 저장", "일부 항목이 어긋났다면 절반 폭의 미세 조정 제안(추정) 생성"];
   if (evaluation.scope === "common_candidate") effects.push("공통 모델에 자동 반영하지 않고 익명화·품질 검토 대기열에만 등록");
   return { sourceType: "observed" as SourceType, scope: evaluation.scope, effects, automaticCommonUpdate: false };
 }

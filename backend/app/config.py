@@ -38,11 +38,6 @@ class Settings(BaseModel):
     aimlapi_max_retries: int = Field(default=2, ge=0, le=5)
     aimlapi_retry_backoff_seconds: float = Field(default=1.0, gt=0, le=10)
 
-    #: RAG(TODO Phase 3 후속) — Docker로 띄운 Qdrant 벡터 DB(vectorstore.py).
-    #: 비어 있으면(기본값) RAG는 조용히 꺼진다 — 레시피 추천 자체는 그대로
-    #: 동작한다(콜드스타트와 같은 태도, aimlapi_configured와 대칭).
-    qdrant_url: str = ""
-    qdrant_collection: str = "aice_knowledge"
 
     @field_validator("supabase_url", "supabase_publishable_key")
     @classmethod
@@ -56,10 +51,6 @@ class Settings(BaseModel):
     @property
     def aimlapi_configured(self) -> bool:
         return bool(self.aimlapi_api_key and self.aimlapi_text_model)
-
-    @property
-    def qdrant_configured(self) -> bool:
-        return bool(self.qdrant_url)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -91,8 +82,6 @@ class Settings(BaseModel):
             aimlapi_retry_backoff_seconds=float(
                 os.getenv("AIMLAPI_RETRY_BACKOFF_SECONDS", "1.0")
             ),
-            qdrant_url=os.getenv("QDRANT_URL", ""),
-            qdrant_collection=os.getenv("QDRANT_COLLECTION", "aice_knowledge"),
         )
 
 

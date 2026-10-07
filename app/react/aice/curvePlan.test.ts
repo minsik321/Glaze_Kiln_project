@@ -31,6 +31,14 @@ describe("curve comparison and real controller wiring", () => {
     expect(curveSummary(curves)).toMatch(/실제 에너지 차이는 판정 불가/);
   });
 
+  it("shifts the next-run curve after the hold by the suggested hold extension", () => {
+    const plain = buildCurveComparison("target")[3];
+    const extended = buildCurveComparison("target", null, -3, "r", 10)[3];
+    const last = (c: typeof plain) => c.points[c.points.length - 1].minute;
+    expect(last(extended)).toBe(last(plain) + 10);
+    expect(extended.reason).toMatch(/유지시간 \+10분/);
+  });
+
   it("calls kiln.firing.simulate and maps the response into synchronized control samples", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => mockSimulateResponse());
     const adjusted = buildCurveComparison("target")[1];

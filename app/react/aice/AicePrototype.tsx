@@ -8,7 +8,7 @@ import { DensityCheck } from "./DensityCheck";
 import { WeightInputs } from "./WeightInputs";
 import { arealDensityFromProfile } from "./arealDensity";
 import { buildThicknessView, DEFAULT_SAFE_RANGE_MM, type CoatingPreset } from "./thicknessView";
-import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type ThicknessComputeResponse } from "../lib/api";
+import { kilnThicknessApi, calibrationApi, aiceRunsApi, ApiError, type NextTrialSuggestion, type ThicknessComputeResponse } from "../lib/api";
 import { KilnFiringScreen } from "./KilnFiringScreen";
 import { sensorPreset, simulateKilnFrame, type SensorPlacement, type SensorPlan } from "./kilnSimulation";
 import { buildCurveComparison, toFiringCurve, type CurveSeries, type ControllerSample } from "./curvePlan";
@@ -20,6 +20,7 @@ import { RecipeChatScreen } from "./RecipeChatScreen";
 import type { WorkRecordOrigin } from "../records/workRecords";
 import { clearWorkProgress, saveWorkProgress } from "./workProgress";
 import { normalizeGlossLevel, normalizeTransparencyLevel } from "./targetCoordinate";
+import { persistRunPhotos, usePhotoUrl } from "./photoStorage";
 
 type PrototypeState = {
   runId: string;
@@ -29,7 +30,7 @@ type PrototypeState = {
   llmCandidate?: RecipeCandidate;
   //: 9페이지 "목표" 사진 — 화면 1에서 후보를 선택할 때 그 후보의 자동
   //: 생성 이미지가 있었다면 함께 받아둔다(RecipeChatScreen.tsx onSelect).
-  llmCandidateImage?: { base64: string; mediaType: string };
+  llmCandidateImage?: { src: string };
   intakePrompt?: string;
   intakeCandidates: RecipeCandidate[];
   ware?: WarePreset;
@@ -135,9 +136,10 @@ function ChoiceCard({
 //: v9 후속(3페이지): 상시 노출 "왜/가정/다음행동" 드로어 대신, 두께 판단
 //: 결과에 따라 사용자가 직접 다음 행동을 고르는 문장+버튼 조합을 쓴다
 //: (아래 step===2 블록). 상태별 안내 제목만 여기 모아 둔다.
-export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin, resumeStep, token = "", userId, onStartNew, onFinish, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; recordEntryOrigin?: WorkRecordOrigin; resumeStep?: number; token?: string; userId?: string; onStartNew?: () => void; onFinish?: () => void; onBackHome?: () => void }) {
+export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin, recipeRefId = null, resumeStep, token = "", userId, onStartNew, onFinish, onBackHome }: SimulatorProps & { restoredRun?: ReturnType<typeof sampleAiceRun>; recordEntryOrigin?: WorkRecordOrigin; recipeRefId?: string | null; resumeStep?: number; token?: string; userId?: string; onStartNew?: () => void; onFinish?: () => void; onBackHome?: () => void }) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<PrototypeState>(() => ({ ...initialState, runId: crypto.randomUUID() }));
+  const selectedPhotoUrl = usePhotoUrl(state.llmCandidate?.photo);
   const [densitySetupComplete, setDensitySetupComplete] = useState(false);
   const [sourceRun, setSourceRun] = useState(restoredRun);
   const [restoredUnchanged, setRestoredUnchanged] = useState(Boolean(restoredRun));
@@ -282,6 +284,9 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
   //: (2026-09-20 발견·수정). 목표 두께 설정에는 이 값을, 위험 판정에는
   //: safeThicknessMm만 쓴다.
   const [nextTrialThicknessMm, setNextTrialThicknessMm] = useState<readonly [number, number] | null>(null);
+  //: 가장 최근 평가에서 나온 "다음 시도 제안"(추정) — 학습값(위 두 상태)과 따로
+  //: 보관한다. "차이가 있어요" 한 번만으로도 생기며 평가마다 덮어쓴다.
+  const [nextTrialSuggestion, setNextTrialSuggestion] = useState<NextTrialSuggestion | null>(null);
   useEffect(() => {
     if (!token || !activeRecipeId) {
       setRecipeRunCount(0);
@@ -289,6 +294,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       setSafeThicknessMm(null);
       setDensityRange(null);
       setNextTrialThicknessMm(null);
+      setNextTrialSuggestion(null);
       return;
     }
     let cancelled = false;
@@ -301,6 +307,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
           setSafeThicknessMm(table.safe_thickness_mm);
           setDensityRange(table.specific_gravity_range);
           setNextTrialThicknessMm(table.next_trial_thickness_mm);
+          setNextTrialSuggestion(table.next_trial_suggestion ?? null);
         }
       })
       .catch(() => {
@@ -310,6 +317,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
           setSafeThicknessMm(null);
           setDensityRange(null);
           setNextTrialThicknessMm(null);
+          setNextTrialSuggestion(null);
         }
       });
     return () => {
@@ -317,11 +325,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
     };
   }, [token, activeRecipeId]);
   const recipeTargetThicknessMm = useMemo(() => {
+    // 가장 최근 평가의 두께 시험 제안이 있으면 그 값을 가장 먼저 쓴다(추정).
+    if (nextTrialSuggestion?.variable === "thickness" && nextTrialSuggestion.thickness_mm != null) {
+      return Number(nextTrialSuggestion.thickness_mm.toFixed(2));
+    }
     // 개인 다음-시도 제안이 있으면 그걸 우선한다(이 레시피의 과거 성공
     // 회차 기반) — 없으면 위험 판정 경계의 중간값으로 대체한다.
     const [lo, hi] = nextTrialThicknessMm ?? safeThicknessMm ?? DEFAULT_SAFE_RANGE_MM;
     return Number(((lo + hi) / 2).toFixed(2));
-  }, [nextTrialThicknessMm, safeThicknessMm]);
+  }, [nextTrialSuggestion, nextTrialThicknessMm, safeThicknessMm]);
   //: v9 후속(2026-09-20) — "비중도 해당 레시피의 비중이어야" 요구사항의
   //: 화면 표시 근거. 이 레시피의 실측 비중 범위(densityRange)가 있으면
   //: 그 중앙값을, 없으면 문헌 기본 범위([1.4, 1.5])의 중앙값을 쓴다.
@@ -332,6 +344,8 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
     return Number(((lo + hi) / 2).toFixed(2));
   }, [densityRange]);
 
+  //: 지난 평가의 "유지시간 ±N분" 제안을 다음 소성 곡선에 반영한다(같은 레시피일 때만 제안이 있음).
+  const holdExtensionMin = nextTrialSuggestion?.variable === "hold" ? nextTrialSuggestion.hold_delta_min ?? 0 : 0;
   const executionCurves = useMemo(() => {
     const prediction = predictNextRun({
       coating: computedCoating,
@@ -345,10 +359,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       //: 로그인 전이거나 관측이 아직 없으면 null.
       firingGlossBiasLevel: firingGlossBias,
     });
-    const curveSeries = buildCurveComparison(computedCoating, activeFiringRangeC, prediction.holdDeltaC, prediction.reason);
+    const curveSeries = buildCurveComparison(computedCoating, activeFiringRangeC, prediction.holdDeltaC, prediction.reason, holdExtensionMin);
     const personalized = curveSeries.find((curve) => curve.role === "next")!;
     return [curveSeries[0], { ...personalized, id: `personalized-${computedCoating}-v1`, role: "adjusted" as const, label: "두께·개인 이력 반영 계획" }];
-  }, [computedCoating, state.ware, activeFiringRangeC, recipeRunCount, firingGlossBias]);
+  }, [computedCoating, state.ware, activeFiringRangeC, recipeRunCount, firingGlossBias, holdExtensionMin]);
   const planPeakDeltaC = Math.round(
     Math.max(...executionCurves[1].points.map((point) => point.temperatureC)) -
     Math.max(...executionCurves[0].points.map((point) => point.temperatureC)),
@@ -463,7 +477,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
         ...run.result,
         match: state.evaluation.match,
         defects_reviewed: evaluationComplete(state.evaluation),
-        photo: state.evaluation.resultPhoto ? { id: `${state.runId}-result`, kind: "result", storage_path: null, data_url: state.evaluation.resultPhoto.dataUrl, placeholder: false, source_type: "observed", rights_confirmed: false, alt: state.evaluation.resultPhoto.name } : null,
+        photo: state.evaluation.resultPhoto ? { id: `${state.runId}-result`, kind: "result", storage_path: state.evaluation.resultPhoto.storagePath ?? null, data_url: state.evaluation.resultPhoto.dataUrl ?? null, placeholder: false, source_type: "observed", rights_confirmed: false, alt: state.evaluation.resultPhoto.name } : null,
         color: state.evaluation.color,
         gloss: resolveGlossObservation(goal.gloss, state.evaluation.gloss),
         texture: resolveTextureObservation(goal.texture, state.evaluation.texture),
@@ -523,7 +537,15 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
     };
     try {
       assertAiceRun(historyRun);
-      await aiceRunsApi.create(token, { title: promptText, run: historyRun, request_id: runId, is_public: false });
+      const saved = await aiceRunsApi.create(token, { title: promptText, run: historyRun, request_id: runId, is_public: false, recipe_ref_id: recipeRefId });
+      const storedCandidates = saved.run.intake?.candidates.candidates;
+      if (storedCandidates) setState((current) => current.intakePrompt === promptText ? {
+        ...current,
+        intakeCandidates: storedCandidates,
+        llmCandidate: current.llmCandidate
+          ? storedCandidates.find((candidate) => candidate.id === current.llmCandidate?.id) ?? current.llmCandidate
+          : undefined,
+      } : current);
       pendingHistorySave.current = null;
       setHistorySaveStatus("idle");
       setHistoryRevision((current) => current + 1);
@@ -538,6 +560,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveInFlight = useRef(false);
+  const [savedSuggestion, setSavedSuggestion] = useState<NextTrialSuggestion | null>(null);
   async function saveResultToRecords() {
     const title = recordTitle.trim();
     if (!token || !title || saveInFlight.current || !evaluationComplete(state.evaluation)) return;
@@ -548,8 +571,17 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       const savedAt = recordedAt || new Date().toISOString();
       const completedRun: AiceRun = { ...(snapshot as AiceRun), title, created_at: savedAt, updated_at: savedAt };
       assertAiceRun(completedRun);
-      await aiceRunsApi.create(token, { title, run: completedRun, request_id: state.runId, is_public: false });
+      const saved = await aiceRunsApi.create(token, { title, run: completedRun, request_id: state.runId, is_public: false, recipe_ref_id: recipeRefId });
       setSaveStatus("idle");
+      // 저장과 함께 갱신된 "다음 시도 제안"을 읽어 성공 화면에 보여 준다. 실패해도
+      // 저장 자체는 이미 끝났으므로 제안만 조용히 생략한다.
+      setSavedSuggestion(null);
+      try {
+        const table = await calibrationApi.get(token, saved?.recipe_id ?? activeRecipeId ?? "");
+        setSavedSuggestion(table.next_trial_suggestion ?? null);
+      } catch {
+        setSavedSuggestion(null);
+      }
       clearWorkProgress();
       setSaveDialog("success");
     } catch (err) {
@@ -603,7 +635,11 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
         defects: restoredRun.result.defects,
         defectSeverities: restoredRun.result.defect_severities ?? {},
         scope: restoredRun.result.feedback_scope ?? "personal",
-        resultPhoto: restoredRun.result.photo?.data_url ? { dataUrl: restoredRun.result.photo.data_url, name: restoredRun.result.photo.alt } : null,
+        resultPhoto: restoredRun.result.photo ? {
+          dataUrl: restoredRun.result.photo.data_url ?? undefined,
+          storagePath: restoredRun.result.photo.storage_path ?? undefined,
+          name: restoredRun.result.photo.alt,
+        } : null,
       },
     });
     setDensitySetupComplete(fromWorkRecords ? false : Boolean(restoredRun.application.density.value && restoredRun.application.dip_seconds));
@@ -637,17 +673,18 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
     setSaveStatus("idle");
     setSaveError(null);
     setSaveDialog(null);
+    setSavedSuggestion(null);
     setRecordTitle("");
     setRecordedAt("");
     setDensitySetupComplete(false);
     setPlanDialog(null);
     setStep(0);
   };
-  const leaveWorkflow = (save: boolean) => {
+  const leaveWorkflow = async (save: boolean) => {
     try {
       if (save) {
         assertAiceRun(snapshot);
-        saveWorkProgress(snapshot, step);
+        saveWorkProgress(await persistRunPhotos(snapshot), step);
       }
       else clearWorkProgress();
       setExitSaveError("");
@@ -762,6 +799,9 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
             {/* v9 후속: 비중 확인 → 담금시간 역산을 맨 위로 올린다(목표
                 두께는 이 레시피의 안전 두께 범위 중앙값을 기본값으로
                 채운다). 그 아래 실측 무게 입력 → 계산된 종단면 순서. */}
+            {nextTrialSuggestion && nextTrialSuggestion.variable !== "none" && <p className="density-check-hint next-trial-hint">
+              지난 평가 제안: {nextTrialSuggestion.message}
+            </p>}
             <DensityCheck
               rho={state.specificGravity}
               onRhoChange={(value) => updateInputs({ specificGravity: value, dipSeconds: "" })}
@@ -849,7 +889,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
             <ResultFeedback
               value={state.evaluation}
               onChange={(evaluation) => { setRestoredUnchanged(false); setState((current) => ({ ...current, evaluation, result: evaluation.match ?? undefined })); }}
-              targetPhoto={state.llmCandidateImage}
+              targetPhoto={state.llmCandidateImage ?? (selectedPhotoUrl ? { src: selectedPhotoUrl } : undefined)}
             />
             {sourceRun?.status === "evaluated" && !restoredUnchanged && !recordEntryOrigin && <Alert tone="warning" title="완료된 회차는 수정할 수 없어요">새 회차를 시작해 새 관측을 남겨 주세요. 기존 관측은 중복 학습하지 않습니다.</Alert>}
             {state.result && (
@@ -958,6 +998,10 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
             </> : <>
               <h2 id="record-save-dialog-title">작업이 기록되었습니다</h2>
               <p>작업 기록에서 이번 작업과 결과 관찰 내용을 확인할 수 있어요.</p>
+              {savedSuggestion && <div className="next-trial-suggestion" role="note" aria-label="다음 시도 제안">
+                <strong>다음 시도 제안</strong>
+                <p>{savedSuggestion.message}</p>
+              </div>}
               <div className="record-save-dialog-actions success">
                 <button type="button" onClick={() => { restart(); onStartNew?.(); }}>신규 작업</button>
                 <button type="button" className="primary" onClick={() => onFinish?.()}>작업 끝내기</button>

@@ -244,11 +244,8 @@ function PasswordEditor() {
 function KilnProfileEditor({ userId }: { userId: string }) {
   //: v9 6페이지 개편: 센서 배치를 회차마다 프리셋 버튼으로 고르지 않고
   //: 계정에 한 번 기록한 가마 정보에서 자동으로 구성한다(kilnSimulation
-  //: .sensorPreset). capacity·shelf·power는 계산에 쓰이지 않는 참고 정보다.
+  //: .sensorPreset).
   const [kilnSensorPlan, setKilnSensorPlan] = useState<SensorPlan>("three");
-  const [kilnCapacityL, setKilnCapacityL] = useState("");
-  const [kilnShelfCount, setKilnShelfCount] = useState("");
-  const [kilnPowerKw, setKilnPowerKw] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -259,9 +256,7 @@ function KilnProfileEditor({ userId }: { userId: string }) {
       try {
         const result = await requireSupabase()
           .from("profiles")
-          .select(
-            "kiln_sensor_plan, kiln_capacity_l, kiln_shelf_count, kiln_power_kw",
-          )
+          .select("kiln_sensor_plan")
           .eq("id", userId)
           .maybeSingle();
         if (result.error) throw result.error;
@@ -270,9 +265,6 @@ function KilnProfileEditor({ userId }: { userId: string }) {
             (result.data?.kiln_sensor_plan as SensorPlan | undefined) ??
               "three",
           );
-          setKilnCapacityL(result.data?.kiln_capacity_l?.toString() ?? "");
-          setKilnShelfCount(result.data?.kiln_shelf_count?.toString() ?? "");
-          setKilnPowerKw(result.data?.kiln_power_kw?.toString() ?? "");
         }
       } catch (failure) {
         if (active)
@@ -302,9 +294,6 @@ function KilnProfileEditor({ userId }: { userId: string }) {
           {
             id: userId,
             kiln_sensor_plan: kilnSensorPlan,
-            kiln_capacity_l: kilnCapacityL.trim() ? Number(kilnCapacityL) : null,
-            kiln_shelf_count: kilnShelfCount.trim() ? Number(kilnShelfCount) : null,
-            kiln_power_kw: kilnPowerKw.trim() ? Number(kilnPowerKw) : null,
           },
           { onConflict: "id" },
         );
@@ -338,40 +327,8 @@ function KilnProfileEditor({ userId }: { userId: string }) {
             ))}
           </select>
         </label>
-        <label>
-          용량(L)
-          <input
-            type="number"
-            min="0"
-            value={kilnCapacityL}
-            disabled={loading || busy}
-            onChange={(event) => setKilnCapacityL(event.target.value)}
-          />
-        </label>
-        <label>
-          선반 수
-          <input
-            type="number"
-            min="0"
-            value={kilnShelfCount}
-            disabled={loading || busy}
-            onChange={(event) => setKilnShelfCount(event.target.value)}
-          />
-        </label>
-        <label>
-          정격 출력(kW)
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={kilnPowerKw}
-            disabled={loading || busy}
-            onChange={(event) => setKilnPowerKw(event.target.value)}
-          />
-        </label>
         <p className="kiln-profile-note">
           센서 배치는 가마·소성곡선 화면의 센서 위치를 자동으로 구성합니다.
-          용량·선반 수·정격 출력은 참고용 기록이며 계산에 쓰이지 않습니다.
         </p>
       </fieldset>
       <button disabled={loading || busy} type="submit">
