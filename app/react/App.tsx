@@ -651,7 +651,8 @@ export function App() {
         </section>
         <section className="app-view" hidden={view !== "post"}>
           <PostDetailScreen
-            key={selectedPost.id}
+            //: 화면을 벗어나면 다시 만들어 수정 모드·입력 중이던 내용이 남지 않게 한다.
+            key={`${selectedPost.id}-${view === "post" ? "open" : "closed"}`}
             post={selectedPost}
             user={selectedPostUser}
             viewer={{ displayName, username, avatarUrl }}

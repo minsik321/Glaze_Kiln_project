@@ -609,10 +609,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .post-edit-memo { min-height: 110px; resize: vertical; line-height: 1.6; }
 .post-edit-price { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .post-edit-check { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #536168; font-size: 12px; }
-.post-edit-photo { display: grid; gap: 6px; justify-items: start; padding: 10px 18px 0; }
-.post-edit-photo-button { display: inline-grid; min-height: 30px; place-items: center; padding: 0 12px; border: 1px solid #cfe3ec; border-radius: 8px; background: #fff; color: #31383c; font-size: 11px; font-weight: 700; cursor: pointer; }
+.post-hero { position: relative; }
+.sale-detail-photo { position: relative; width: min(100%, 620px); margin: 0 auto; }
+.sale-detail-photo .sale-detail-image { width: 100%; }
+.post-edit-photo { position: absolute; top: 12px; right: 12px; z-index: 2; display: grid; gap: 6px; justify-items: end; }
+.post-edit-photo-button { display: inline-flex; align-items: center; min-height: 32px; padding: 0 13px; border-radius: 999px; background: rgba(30, 38, 42, .62); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; backdrop-filter: blur(6px); }
 .post-edit-photo-button input { display: none; }
-.post-edit-photo p { margin: 0; color: #d85066; font-size: 11px; }
+.post-edit-photo p { margin: 0; padding: 5px 9px; border-radius: 8px; background: #fff0f2; color: #d85066; font-size: 11px; }
 .post-owner-dialog-layer { position: absolute; z-index: 50; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(24,34,39,.38); backdrop-filter: blur(3px); }
 .post-owner-dialog { width: min(100%, 340px); padding: 24px 20px 20px; border-radius: 20px; background: #fff; box-shadow: 0 18px 54px rgba(25,38,44,.24); }
 .post-owner-dialog form { display: grid; gap: 14px; }

@@ -260,8 +260,10 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
             <button className="post-author-name" type="button" onClick={() => onOpenProfile(user.id)}><strong>{user.displayName}</strong><span>@{user.username}</span></button>
             {ownerActions}
           </section>
-          <img className="sale-detail-image" src={heroImage} alt={post.label} />
-          {photoEditor}
+          <div className="sale-detail-photo">
+            <img className="sale-detail-image" src={heroImage} alt={post.label} />
+            {photoEditor}
+          </div>
           <section className="sale-detail-copy">
             <span>판매 중</span>
             {editing
@@ -311,6 +313,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
 
         <figure className="post-hero">
           <img className={`crop-${post.crop}`} src={heroImage} alt={post.label} />
+          {photoEditor}
           <figcaption>
             <div><span>{post.publishedAt}</span>{editing ? <input className="post-edit-field post-edit-title" aria-label="유약 이름" value={editTitle} maxLength={50} onChange={(event) => setEditTitle(event.target.value)} /> : <h1>{post.glazeName}</h1>}<p>{post.finish}</p></div>
             <div className="post-hero-actions">
@@ -320,7 +323,6 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
             </div>
           </figcaption>
         </figure>
-        {photoEditor}
 
         <div className="post-detail-tags" aria-label="작업 핵심 정보"><span>{post.firing}</span><span>{post.cone}</span><span>{post.clayBody}</span></div>
         <FiringCurve post={post} />

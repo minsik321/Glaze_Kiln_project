@@ -102,19 +102,28 @@ function validateAiceRecord(record: AiceRunRecord): AiceRunRecord {
   return record;
 }
 
-async function migrateStoredRunPhotos(record: AiceRunRecord): Promise<AiceRunRecord> {
-  try {
-    const run = await persistRunPhotos(record.run);
-    if (run === record.run) return record;
-    const { data, error } = await requireSupabase().from("aice_runs")
-      .update({ payload: run }).eq("id", record.id).select("id").single();
-    if (error || !data) throw error ?? new Error("사진이 포함된 기록을 갱신하지 못했습니다.");
-    return { ...record, run };
-  } catch (error) {
-    // Old inline photos remain readable; the next owner visit retries migration.
-    console.warn("이전 사진을 Supabase Storage로 옮기지 못했습니다.", error);
-    return record;
-  }
+const migratingRunIds = new Set<string>();
+
+//: 옛 기록의 인라인(base64) 사진을 Storage로 옮긴다. 기록을 화면에 띄우는 것을
+//: 막지 않도록 백그라운드로 돌리고(옛 사진은 data_url 그대로 읽힌다), 목록 조회에서는
+//: 하지 않는다. 실패하면 다음 상세 진입 때 다시 시도한다.
+function migrateStoredRunPhotos(record: AiceRunRecord): AiceRunRecord {
+  if (migratingRunIds.has(record.id)) return record;
+  migratingRunIds.add(record.id);
+  void (async () => {
+    try {
+      const run = await persistRunPhotos(record.run);
+      if (run === record.run) return;
+      const { data, error } = await requireSupabase().from("aice_runs")
+        .update({ payload: run }).eq("id", record.id).select("id").single();
+      if (error || !data) throw error ?? new Error("사진이 포함된 기록을 갱신하지 못했습니다.");
+    } catch (error) {
+      console.warn("이전 사진을 Supabase Storage로 옮기지 못했습니다.", error);
+    } finally {
+      migratingRunIds.delete(record.id);
+    }
+  })();
+  return record;
 }
 
 export type RecipeSuggestResponse = {
@@ -306,7 +315,7 @@ export const calibrationApi = {
 export const aiceRunsApi = {
   listMine: async (token: string, offset = 0) => {
     const page = await request<AiceRunPage>(`/aice-runs?limit=20&offset=${offset}`, token);
-    return { ...page, items: await Promise.all(page.items.map((item) => migrateStoredRunPhotos(validateAiceRecord(item)))) };
+    return { ...page, items: page.items.map(validateAiceRecord) };
   },
   get: async (token: string, id: string) => migrateStoredRunPhotos(validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token))),
   listPublic: async (token: string, offset = 0) => {

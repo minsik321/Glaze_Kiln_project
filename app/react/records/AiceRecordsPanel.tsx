@@ -17,6 +17,7 @@ type Props = {
 export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
   const [items, setItems] = useState<AiceRunRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<RecordFilter>("all");
   const [sort, setSort] = useState<RecordSort>("newest");
@@ -35,34 +36,45 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
     });
   }, [filter, items, sort]);
 
-  const load = useCallback(async () => {
+  //: 첫 페이지가 오면 바로 목록을 보여 주고, 나머지 페이지는 뒤에서 이어 붙인다.
+  //: `isActive`가 false가 되면(언마운트·재로딩) 이전 호출의 결과는 버린다.
+  const load = useCallback(async (isActive: () => boolean = () => true) => {
     setLoading(true);
+    setLoadingMore(false);
     setError("");
+    setItems([]);
+
+    const keep = (records: AiceRunRecord[]) => records.filter((record) => isVisibleWorkRecord(record.run) && (!onlyOrigin || workRecordOrigin(record.run) === onlyOrigin));
 
     try {
-      const records: AiceRunRecord[] = [];
-
       for (let pageNumber = 0; pageNumber < MAX_PAGES; pageNumber += 1) {
         const page = await aiceRunsApi.listMine(token, pageNumber * PAGE_SIZE);
-        records.push(...page.items);
+        if (!isActive()) return;
+        setItems((current) => [...current, ...keep(page.items)]);
 
         if (page.items.length < PAGE_SIZE) break;
+        if (pageNumber === 0) {
+          setLoading(false);
+          setLoadingMore(true);
+        }
       }
-
-      setItems(records.filter((record) => isVisibleWorkRecord(record.run) && (!onlyOrigin || workRecordOrigin(record.run) === onlyOrigin)));
     } catch (failure) {
+      if (!isActive()) return;
       setError(
         failure instanceof Error
           ? failure.message
           : "작업 기록을 불러오지 못했습니다.",
       );
-    } finally {
-      setLoading(false);
     }
+    if (!isActive()) return;
+    setLoading(false);
+    setLoadingMore(false);
   }, [token, onlyOrigin]);
 
   useEffect(() => {
-    void load();
+    let active = true;
+    void load(() => active);
+    return () => { active = false; };
   }, [load]);
 
   return (
@@ -107,7 +119,7 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
         </div>
       )}
 
-      {loading ? (
+      {loading || (loadingMore && displayedItems.length === 0) ? (
         <div
           className="record-loading"
           role="status"
