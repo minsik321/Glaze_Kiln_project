@@ -1286,6 +1286,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .thickness-section svg { display: block; width: 100%; min-height: 260px; margin: var(--space-2) 0; background: linear-gradient(var(--color-surface), var(--color-surface-subtle)); border: 1px solid var(--color-border); }
 .section-body { fill: var(--color-surface-subtle); stroke: var(--color-border-strong); stroke-width: 1; stroke-linejoin: round; }
 .glaze-segment { fill: none; stroke-width: 9; stroke-linecap: round; }
+.thickness-scale { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--color-text-muted); }
+.thickness-scale i { flex: 1; height: 8px; border-radius: 4px; background: linear-gradient(90deg, hsl(120 72% 42%), hsl(60 72% 42%), hsl(0 72% 42%)); }
 .glaze-segment.thin { stroke: url(#pattern-thin) var(--color-accent); stroke: var(--color-accent); stroke-dasharray: 2 5; }
 .glaze-segment.target { stroke: var(--color-accent-strong); stroke-dasharray: 1 3; }
 .glaze-segment.thick { stroke: var(--color-danger); stroke-width: 13; stroke-dasharray: 6 3; }
@@ -2114,6 +2116,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .guided-step-shell .prototype-actions .ghost { background: #aad2e8; color: #fff; }
 .guided-step-shell .prototype-actions .next {
+  margin-left: auto;
   display: grid;
   place-items: center;
   justify-content: center;
@@ -2124,7 +2127,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   text-align: center;
 }
 .guided-step-shell .prototype-actions button:disabled { opacity: .42; cursor: default; }
-.guided-step-shell .prototype-actions button:only-child { width: auto; min-width: 112px; flex-basis: auto; }
 .guided-step-shell .prototype-actions .completion-actions { display: flex; gap: 8px; margin-left: auto; }
 
 /* Figma 71:1382 — 3단계 도포 입력 화면 */
