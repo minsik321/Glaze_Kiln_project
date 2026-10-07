@@ -47,6 +47,9 @@ class AimlapiSettings:
     #: 않도록 분리할 수 있다(``effective_target_model``).
     target_model: str = ""
     image_model: str = ""
+    #: RAG 임베딩 모델(``/embeddings``). 출력 차원은 vectorstore.VECTOR_SIZE와
+    #: 같아야 한다(text-embedding-3-small = 1536).
+    embedding_model: str = "text-embedding-3-small"
     #: 응답 생성(read) 대기 상한. connect_timeout_seconds와 분리한 이유는
     #: connect_timeout_seconds의 docstring 참고.
     timeout_seconds: float = 30.0
@@ -70,6 +73,10 @@ class AimlapiSettings:
     @property
     def image_configured(self) -> bool:
         return bool(self.api_key and self.image_model)
+
+    @property
+    def embedding_configured(self) -> bool:
+        return bool(self.api_key and self.embedding_model)
 
     @property
     def effective_target_model(self) -> str:
@@ -171,6 +178,32 @@ class AimlapiClient:
                 502, "invalid_upstream_response", "LLM 응답 형식이 올바르지 않습니다."
             ) from exc
         return self._parse_json_object(content)
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """텍스트마다 임베딩 벡터 하나를 입력 순서대로 돌려준다(``/embeddings``)."""
+        if not texts:
+            return []
+        if not self.settings.embedding_configured:
+            raise AimlapiError(
+                503, "aimlapi_embedding_not_configured", "임베딩 모델이 설정되지 않았습니다."
+            )
+        response = await self._request(
+            "POST",
+            "/embeddings",
+            json={"model": self.settings.embedding_model, "input": list(texts)},
+        )
+        try:
+            items = sorted(response.json()["data"], key=lambda item: item["index"])
+            vectors = [[float(value) for value in item["embedding"]] for item in items]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AimlapiError(
+                502, "invalid_upstream_response", "임베딩 응답 형식이 올바르지 않습니다."
+            ) from exc
+        if len(vectors) != len(texts):
+            raise AimlapiError(
+                502, "invalid_upstream_response", "임베딩 응답 개수가 입력과 다릅니다."
+            )
+        return vectors
 
     async def generate_image(
         self,

@@ -268,3 +268,40 @@ async def test_chat_json_retries_on_timeout_then_succeeds() -> None:
     assert result == {"candidates": []}
     assert calls["count"] == 2
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_embed_returns_vectors_in_input_order() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/embeddings"
+        body = json.loads(request.content)
+        assert body == {"model": "text-embedding-3-small", "input": ["a", "b"]}
+        return httpx.Response(200, json={"data": [
+            {"index": 1, "embedding": [0.0, 1.0]},
+            {"index": 0, "embedding": [1.0, 0.0]},
+        ]})
+
+    client = _client(handler)
+    assert await client.embed(["a", "b"]) == [[1.0, 0.0], [0.0, 1.0]]
+    assert await client.embed([]) == []
+
+
+@pytest.mark.asyncio
+async def test_embed_rejects_malformed_or_short_response() -> None:
+    client = _client(lambda _: httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]}))
+    with pytest.raises(AimlapiError) as excinfo:
+        await client.embed(["a", "b"])
+    assert excinfo.value.code == "invalid_upstream_response"
+    client = _client(lambda _: httpx.Response(200, json={"oops": 1}))
+    with pytest.raises(AimlapiError) as excinfo:
+        await client.embed(["a"])
+    assert excinfo.value.code == "invalid_upstream_response"
+
+
+@pytest.mark.asyncio
+async def test_embed_requires_embedding_model() -> None:
+    upstream = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(500)))
+    client = AimlapiClient(_settings(embedding_model=""), client=upstream)
+    with pytest.raises(AimlapiError) as excinfo:
+        await client.embed(["a"])
+    assert excinfo.value.code == "aimlapi_embedding_not_configured"

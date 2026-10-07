@@ -7,6 +7,7 @@ run documents are indexed when those runs are saved, and are not written here.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -22,9 +23,11 @@ from kiln.chem.colorants import COLORANTS  # noqa: E402
 from kiln.chem.materials import MATERIALS  # noqa: E402
 from kiln.chem.stull import StullZone  # noqa: E402
 
+from backend.app.aimlapi import AimlapiClient  # noqa: E402
+from backend.app.config import get_settings  # noqa: E402
+from backend.app.main import _aimlapi_settings  # noqa: E402
 from backend.app.vectorstore import (  # noqa: E402
     VECTOR_SIZE,
-    _default_embed_fn,
     SOURCE_COLORANT_REFERENCE,
     SOURCE_CORRELATION_NOTE,
     SOURCE_MATERIAL_CHEMISTRY,
@@ -186,9 +189,17 @@ def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def build_seed_sql() -> str:
+async def build_seed_sql() -> str:
+    """aimlapi ``/embeddings``로 참고 문서를 임베딩해 시드 SQL을 만든다.
+
+    ``backend/.env``의 ``AIMLAPI_API_KEY``·``AIMLAPI_EMBEDDING_MODEL``이 필요하다.
+    """
     docs = _material_documents() + _correlation_documents() + _colorant_documents()
-    vectors = _default_embed_fn()([doc.text for doc in docs])
+    client = AimlapiClient(_aimlapi_settings(get_settings()))
+    try:
+        vectors = await client.embed([doc.text for doc in docs])
+    finally:
+        await client.close()
     if len(vectors) != len(docs) or any(len(vector) != VECTOR_SIZE for vector in vectors):
         raise ValueError(f"참고 문서 임베딩은 {VECTOR_SIZE}차원이어야 합니다.")
     rows = []
@@ -200,7 +211,7 @@ def build_seed_sql() -> str:
             _quote(embedding) + "::extensions.vector",
         )) + ")")
     return (
-        "-- Generated from backend/scripts/ingest_corpus.py with " + _default_embed_fn.__module__ + ".\n"
+        "-- Generated from backend/scripts/ingest_corpus.py with aimlapi /embeddings.\n"
         "insert into public.aice_vector_documents (doc_id, source_type, content, metadata, embedding) values\n"
         + ",\n".join(rows) + "\n"
         "on conflict (doc_id) do update set content = excluded.content, "
@@ -212,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-sql", type=Path, required=True)
     args = parser.parse_args(argv)
-    sql = build_seed_sql()
+    sql = asyncio.run(build_seed_sql())
     args.output_sql.write_text(sql, encoding="utf-8")
     print(f"Supabase 참고 문서 SQL을 작성했습니다: {args.output_sql}")
     return 0

@@ -27,6 +27,8 @@ class Settings(BaseModel):
     #: 서술(2차 호출, 더 오래 걸림)과 분리된 왕복 시간을 줄일 수 있다.
     aimlapi_target_model: str = ""
     aimlapi_image_model: str = ""
+    #: RAG 임베딩 모델 — vectorstore.VECTOR_SIZE(1536)와 차원이 맞아야 한다.
+    aimlapi_embedding_model: str = "text-embedding-3-small"
     #: 응답 생성(read) 대기 상한 — aimlapi.com이 느릴 때 실제로 기다려주는
     #: 시간. connect_timeout과 분리한 이유는 아래 참고.
     aimlapi_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
@@ -74,6 +76,9 @@ class Settings(BaseModel):
             aimlapi_text_model=os.getenv("AIMLAPI_TEXT_MODEL", ""),
             aimlapi_target_model=os.getenv("AIMLAPI_TARGET_MODEL", ""),
             aimlapi_image_model=os.getenv("AIMLAPI_IMAGE_MODEL", ""),
+            aimlapi_embedding_model=os.getenv(
+                "AIMLAPI_EMBEDDING_MODEL", "text-embedding-3-small"
+            ),
             aimlapi_timeout_seconds=float(os.getenv("AIMLAPI_TIMEOUT_SECONDS", "30")),
             aimlapi_connect_timeout_seconds=float(
                 os.getenv("AIMLAPI_CONNECT_TIMEOUT_SECONDS", "10")

@@ -27,6 +27,7 @@ def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
         text_model=settings.aimlapi_text_model,
         target_model=settings.aimlapi_target_model,
         image_model=settings.aimlapi_image_model,
+        embedding_model=settings.aimlapi_embedding_model,
         timeout_seconds=settings.aimlapi_timeout_seconds,
         connect_timeout_seconds=settings.aimlapi_connect_timeout_seconds,
         max_retries=settings.aimlapi_max_retries,
@@ -34,8 +35,10 @@ def _aimlapi_settings(settings: Settings) -> AimlapiSettings:
     )
 
 
-def _vectorstore(settings: Settings, gateway: SupabaseGateway) -> AiceVectorStore | None:
-    return AiceVectorStore(gateway) if settings.configured else None
+def _vectorstore(
+    settings: Settings, gateway: SupabaseGateway, llm: AimlapiClient
+) -> AiceVectorStore | None:
+    return AiceVectorStore(gateway, embed_fn=llm.embed) if settings.configured else None
 
 
 def create_app(
@@ -47,7 +50,7 @@ def create_app(
     resolved_settings = settings or get_settings()
     resolved_gateway = gateway or SupabaseGateway(resolved_settings)
     resolved_llm = llm or AimlapiClient(_aimlapi_settings(resolved_settings))
-    resolved_vectorstore = vectorstore or _vectorstore(resolved_settings, resolved_gateway)
+    resolved_vectorstore = vectorstore or _vectorstore(resolved_settings, resolved_gateway, resolved_llm)
     owns_gateway = gateway is None
     owns_llm = llm is None
 

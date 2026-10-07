@@ -1,23 +1,22 @@
 """Supabase pgvector search for AICE reference and personal recipe documents.
 
-Embeddings are produced locally with fastembed. Supabase stores the vectors,
+Embeddings are computed through the aimlapi.com ``/embeddings`` endpoint
+(``AimlapiClient.embed``). Supabase stores the vectors,
 enforces owner access through RLS, and performs cosine similarity search.
 """
 
 from __future__ import annotations
 
-import asyncio
 import math
-import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Awaitable, Callable, Sequence
 from uuid import UUID
 
 from .supabase import SupabaseError, SupabaseGateway
 
-VECTOR_SIZE = 384
-DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-EmbedFn = Callable[[Sequence[str]], list[list[float]]]
+#: text-embedding-3-small의 출력 차원. DB의 vector(1536) 컬럼과 같아야 한다.
+VECTOR_SIZE = 1536
+EmbedFn = Callable[[list[str]], Awaitable[list[list[float]]]]
 
 SOURCE_MATERIAL_CHEMISTRY = "material_chemistry"
 SOURCE_CORRELATION_NOTE = "correlation_note"
@@ -44,35 +43,16 @@ class RetrievedDocument:
     metadata: dict[str, Any]
 
 
-def _default_embed_fn() -> EmbedFn:
-    try:
-        from fastembed import TextEmbedding
-    except ImportError as exc:
-        raise VectorStoreUnavailable("fastembed가 설치되지 않았습니다.") from exc
-    model = TextEmbedding(model_name=DEFAULT_EMBEDDING_MODEL)
-
-    def embed(texts: Sequence[str]) -> list[list[float]]:
-        return [vector.tolist() for vector in model.embed(list(texts))]
-
-    return embed
-
-
 class AiceVectorStore:
-    def __init__(self, gateway: SupabaseGateway, *, embed_fn: EmbedFn | None = None) -> None:
+    def __init__(self, gateway: SupabaseGateway, *, embed_fn: EmbedFn) -> None:
         self.gateway = gateway
         self._embed_fn = embed_fn
-        self._lazy_embed_fn: EmbedFn | None = None
-        self._embed_init_lock = threading.Lock()
 
-    def _embed(self, texts: Sequence[str]) -> list[list[float]]:
+    async def _embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
         try:
-            if self._embed_fn is None and self._lazy_embed_fn is None:
-                with self._embed_init_lock:
-                    if self._lazy_embed_fn is None:
-                        self._lazy_embed_fn = _default_embed_fn()
-            vectors = (self._embed_fn or self._lazy_embed_fn)(texts)  # type: ignore[operator]
+            vectors = await self._embed_fn(list(texts))
             if len(vectors) != len(texts) or any(
                 len(vector) != VECTOR_SIZE or not all(math.isfinite(value) for value in vector)
                 for vector in vectors
@@ -88,7 +68,7 @@ class AiceVectorStore:
         """Index owner-scoped runs. Reference corpus is seeded by SQL migration."""
         if not docs:
             return
-        vectors = await asyncio.to_thread(self._embed, [doc.text for doc in docs])
+        vectors = await self._embed([doc.text for doc in docs])
         rows = []
         for doc, vector in zip(docs, vectors):
             if doc.metadata.get("source_type") != SOURCE_PERSONAL_RECIPE or not doc.doc_id.startswith("run-"):
@@ -122,7 +102,7 @@ class AiceVectorStore:
         user_id: str | None = None,
     ) -> list[RetrievedDocument]:
         try:
-            [vector] = await asyncio.to_thread(self._embed, [query_text])
+            [vector] = await self._embed([query_text])
             rows = await self.gateway.rpc("match_aice_vector_documents", token, {
                 "query_embedding": vector,
                 "match_count": limit,

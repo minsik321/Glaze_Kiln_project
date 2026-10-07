@@ -20,7 +20,7 @@ RUN_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")
 
 
-def _embed(texts):
+async def _embed(texts):
     return [[1.0] + [0.0] * (VECTOR_SIZE - 1) for _ in texts]
 
 
@@ -39,7 +39,7 @@ async def test_upsert_personal_run_uses_owner_scoped_supabase_row() -> None:
     assert args[:2] == ("aice_vector_documents", "user-token")
     assert args[2][0]["run_id"] == str(RUN_ID)
     assert args[2][0]["user_id"] == str(USER_ID)
-    assert args[2][0]["embedding"] == _embed(["내 관찰 결과"])[0]
+    assert args[2][0]["embedding"] == (await _embed(["내 관찰 결과"]))[0]
     assert kwargs == {"upsert": True, "conflict": "doc_id"}
 
 
@@ -60,7 +60,7 @@ async def test_search_passes_owner_and_source_filters_to_supabase_rpc() -> None:
     assert result[0].score == 0.91
     assert gateway.rpc.await_args.args[:2] == ("match_aice_vector_documents", "user-token")
     assert gateway.rpc.await_args.args[2] == {
-        "query_embedding": _embed(["사틴"])[0], "match_count": 3,
+        "query_embedding": (await _embed(["사틴"]))[0], "match_count": 3,
         "match_source_types": [SOURCE_PERSONAL_RECIPE], "match_user_id": str(USER_ID),
     }
 
@@ -76,8 +76,11 @@ async def test_search_returns_empty_when_supabase_vectors_are_unavailable() -> N
 @pytest.mark.asyncio
 async def test_invalid_embedding_dimension_blocks_indexing() -> None:
     gateway = AsyncMock()
-    store = AiceVectorStore(gateway, embed_fn=lambda texts: [[1.0] for _ in texts])
-    with pytest.raises(VectorStoreUnavailable, match="384"):
+    async def bad_embed(texts):
+        return [[1.0] for _ in texts]
+
+    store = AiceVectorStore(gateway, embed_fn=bad_embed)
+    with pytest.raises(VectorStoreUnavailable, match=str(VECTOR_SIZE)):
         await store.upsert_documents("token", [VectorDocument(
             doc_id=f"run-{RUN_ID}", text="관찰",
             metadata={"source_type": SOURCE_PERSONAL_RECIPE, "user_id": str(USER_ID)},
@@ -89,3 +92,18 @@ def test_format_retrieved_context() -> None:
     assert format_retrieved_context([]) == ""
     text = format_retrieved_context([RetrievedDocument("규석은 실리카다.", "material_chemistry", .9, {})])
     assert "material_chemistry" in text and "규석은 실리카다." in text
+
+
+@pytest.mark.asyncio
+async def test_embedding_api_failure_becomes_vector_store_unavailable() -> None:
+    async def failing_embed(texts):
+        raise RuntimeError("aimlapi down")
+
+    gateway = AsyncMock()
+    store = AiceVectorStore(gateway, embed_fn=failing_embed)
+    assert await store.search("token", "사틴") == []
+    with pytest.raises(VectorStoreUnavailable):
+        await store.upsert_documents("token", [VectorDocument(
+            doc_id=f"run-{RUN_ID}", text="관찰",
+            metadata={"source_type": SOURCE_PERSONAL_RECIPE, "user_id": str(USER_ID)},
+        )])
