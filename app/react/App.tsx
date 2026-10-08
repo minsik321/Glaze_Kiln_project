@@ -62,6 +62,7 @@ function draftToFeedPost(draft: CreatePostDraft): FeedPost {
     id: crypto.randomUUID(),
     userId: "self",
     image: draft.images[0],
+    images: draft.images.length > 1 ? draft.images : undefined,
     label: `${draft.title} ${draft.kind === "sale" ? "판매 게시물" : "작업 게시물"}`,
     size: "medium",
     crop: 1,

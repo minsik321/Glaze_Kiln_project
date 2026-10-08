@@ -11,6 +11,8 @@ export type FeedPost = {
   id: string;
   userId: string;
   image: string;
+  //: 사진이 여러 장일 때 전체(앞이 대표 사진 = image). 한 장이면 비워 둔다.
+  images?: readonly string[];
   label: string;
   size: "short" | "medium" | "tall";
   crop: number;

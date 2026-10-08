@@ -642,7 +642,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .post-owner-dialog-actions .danger { background: #e55569; color: #fff; }
 .post-owner-dialog-done { width: 100%; }
 .post-hero { width: min(100%, 620px); margin: 0 auto 12px; overflow: hidden; border-radius: 22px; background: #fff; box-shadow: 0 8px 28px rgba(65, 127, 153, .13); }
-.post-hero > img { display: block; width: 100%; height: clamp(260px, 58vw, 430px); object-fit: cover; background: #d9e0e3; }
+.post-hero .post-photo-carousel img { display: block; width: 100%; height: clamp(260px, 58vw, 430px); object-fit: cover; background: #d9e0e3; }
+/* 게시물 사진 영역: 여러 장이면 가로로 넘겨 보고 오른쪽 아래에 1/2 쪽 표시 */
+.post-photo-carousel { position: relative; }
+.post-photo-track { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; cursor: grab; }
+.post-photo-track::-webkit-scrollbar { display: none; }
+.post-photo-track:focus-visible { outline: 2px solid #1eadff; outline-offset: -2px; }
+.post-photo-track.is-dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.post-photo-track > img { flex: 0 0 100%; width: 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.post-photo-counter { position: absolute; right: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(30, 38, 42, .62); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; pointer-events: none; }
 .post-hero figcaption { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px 18px; }
 .post-hero figcaption span { color: #9aa5aa; font-size: 9px; }
 .post-hero h1 { margin: 2px 0 3px; color: #283238; font-size: 23px; line-height: 1.25; }
