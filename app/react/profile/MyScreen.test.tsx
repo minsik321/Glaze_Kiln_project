@@ -287,4 +287,16 @@ describe("MyScreen", () => {
     fireEvent.click(screen.getByRole("switch", { name: "계정 공개" }));
     expect((await screen.findAllByText("저장 실패")).length).toBeGreaterThan(0);
   });
+
+  it("keeps the server post count and explains hidden posts on a private profile", () => {
+    render(<MyScreen variant="other" username="mira" posts={[]} postCount={1} postsHidden />);
+    expect(screen.getByLabelText("프로필 통계").textContent).toContain("게시물1");
+    expect(screen.getAllByText("비공개 계정이에요.").length).toBeGreaterThan(0);
+    expect(screen.queryByText("아직 작업 기록이 없습니다.")).toBeNull();
+  });
+
+  it("counts the visible posts when no server count is given", () => {
+    render(<MyScreen variant="other" username="mira" posts={SALE_POSTS.slice(0, 2)} />);
+    expect(screen.getByLabelText("프로필 통계").textContent).toContain("게시물2");
+  });
 });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls: { op: string; args: unknown[] }[] = [];
+const rpcResult: { data: unknown } = { data: [{ user_id: "u1", post_count: "3" }, { user_id: "u2", post_count: 1 }] };
 const rows: Record<string, unknown[]> = {
   follows: [{ followee_id: "mira" }, { followee_id: "00000000-aaaa-4bbb-8ccc-000000000009" }],
   public_profiles: [{ id: "00000000-aaaa-4bbb-8ccc-000000000009", display_name: "실제 작가" }],
@@ -8,6 +9,7 @@ const rows: Record<string, unknown[]> = {
 
 vi.mock("../lib/supabase", () => ({
   requireSupabase: () => ({
+    rpc: (name: string) => { calls.push({ op: `rpc.${name}`, args: [] }); return Promise.resolve({ data: rpcResult.data, error: null }); },
     from: (table: string) => {
       const chain: Record<string, unknown> = {};
       for (const op of ["select", "eq", "in", "upsert"]) {
@@ -21,7 +23,7 @@ vi.mock("../lib/supabase", () => ({
 }));
 
 import { findFeedUser } from "./feedData";
-import { loadFollowing, setFollowing } from "./followStore";
+import { loadFollowing, loadPostCounts, setFollowing } from "./followStore";
 
 describe("followStore", () => {
   beforeEach(() => { calls.length = 0; });
@@ -39,5 +41,10 @@ describe("followStore", () => {
     await setFollowing("me", "mira", false);
     expect(calls.some((c) => c.op === "follows.upsert")).toBe(true);
     expect(calls.some((c) => c.op === "follows.delete")).toBe(true);
+  });
+
+  it("reads per-author post counts from the server function", async () => {
+    expect(await loadPostCounts()).toEqual({ u1: 3, u2: 1 });
+    expect(calls.some((c) => c.op === "rpc.feed_post_counts")).toBe(true);
   });
 });

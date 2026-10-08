@@ -16,7 +16,7 @@ import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
 import { addComment, loadComments } from "./home/commentStore";
-import { loadFollowers, loadFollowing, setFollowing } from "./home/followStore";
+import { loadFollowers, loadFollowing, loadPostCounts, setFollowing } from "./home/followStore";
 import { aiceRunsApi, feedPostsApi } from "./lib/api";
 import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
@@ -95,6 +95,8 @@ export function App() {
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
   //: 다른 가입자가 올린 글 — 모든 계정이 같은 피드를 보도록 서버에서 가져온다.
   const [otherPosts, setOtherPosts] = useState<FeedPost[]>([]);
+  //: 작성자별 전체 게시물 수(서버 집계). 비공개 계정의 글을 못 읽어도 개수는 유지한다.
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   const [postError, setPostError] = useState("");
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
@@ -173,9 +175,11 @@ export function App() {
     const userId = session?.user.id;
     setCreatedPosts([]);
     setOtherPosts([]);
+    setPostCounts({});
     if (!token || !userId) return;
     let active = true;
     const load = () => {
+      void loadPostCounts().then((counts) => { if (active) setPostCounts(counts); }).catch(() => undefined);
       void feedPostsApi.listAll(token, userId).then((posts) => {
         if (!active) return;
         setCreatedPosts(posts.filter((post) => post.userId === "self"));
@@ -333,6 +337,11 @@ export function App() {
   const myPosts = applyPostState([...createdPosts, ...postsForAccount(session?.user.email)]);
   const selectedProfileBase = findFeedUser(selectedProfileId);
   const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
+  const profilePosts = applyPostState([...otherPosts.filter((post) => post.userId === selectedProfile.id), ...postsForUser(selectedProfile.id)]);
+  //: 실제 가입자 프로필은 서버가 센 게시물 수를 쓰고, 읽힌 글보다 많으면 일부가 비공개로 가려진 것이다.
+  const serverPostCount = postCounts[selectedProfile.id];
+  const profilePostCount = serverPostCount === undefined ? undefined : Math.max(serverPostCount, profilePosts.length);
+  const profilePostsHidden = serverPostCount !== undefined && serverPostCount > profilePosts.length;
   const selectedPostBase = [...createdPosts, ...otherPosts].find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
   const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: followerIds.length, following: followedUserIds.size } };
@@ -721,7 +730,7 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState([...otherPosts.filter((post) => post.userId === selectedProfile.id), ...postsForUser(selectedProfile.id)])} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={profilePosts} postCount={profilePostCount} postsHidden={profilePostsHidden} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
         </section>
         <section className="app-view" hidden={view !== "connections"}>
           {view === "connections" && <ConnectionsScreen

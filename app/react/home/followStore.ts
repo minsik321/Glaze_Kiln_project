@@ -38,3 +38,11 @@ export async function setFollowing(ownerId: string, targetId: string, follow: bo
     : await table.delete().eq("follower_id", ownerId).eq("followee_id", targetId);
   if (error) throw error;
 }
+
+//: 작성자별 게시물 수. 비공개 계정의 글은 못 읽어도 개수는 보여야 해서 서버 함수로 센다
+//: (읽힌 글 개수로 세면 언팔로우하는 순간 1 → 0으로 줄어든다).
+export async function loadPostCounts(): Promise<Record<string, number>> {
+  const { data, error } = await requireSupabase().rpc("feed_post_counts");
+  if (error) throw error;
+  return Object.fromEntries(((data ?? []) as { user_id: string; post_count: number | string }[]).map((row) => [row.user_id, Number(row.post_count)]));
+}

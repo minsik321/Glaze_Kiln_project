@@ -6,6 +6,9 @@ type MyScreenProps = {
   bio?: string;
   avatarUrl?: string;
   isPrivate?: boolean;
+  //: 서버가 센 전체 게시물 수. 비공개 계정은 글을 못 읽어도 개수는 보여준다.
+  postCount?: number;
+  postsHidden?: boolean;
   variant?: "mine" | "other";
   avatarTone?: number;
   stats?: { records: number; followers: number; following: number };
@@ -133,7 +136,7 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   return <svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>;
 }
 
-export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", bio = "", avatarUrl = "", isPrivate = false, variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onChangeAccountPrivate, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
+export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", bio = "", avatarUrl = "", isPrivate = false, postCount, postsHidden = false, variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onChangeAccountPrivate, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
   const [layout, setLayout] = useState<"sale" | "work">("work");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
@@ -528,7 +531,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             <button className="my-message-button" type="button" aria-label="메시지" onClick={onMessage}><ChatIcon /></button>
           </div>}
           <dl className="my-stats" aria-label="프로필 통계">
-            <div><dt>게시물</dt><dd>{suppliedPosts.length}</dd></div>
+            <div><dt>게시물</dt><dd>{postCount ?? suppliedPosts.length}</dd></div>
             <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
             <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
           </dl>
@@ -559,7 +562,13 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             </button>
           </article>
         ))}
-        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && (
+        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && postsHidden && (
+          <div className="my-posts-empty" role="status">
+            <strong>비공개 계정이에요.</strong>
+            <p>팔로우하면 작업물과 판매글을 볼 수 있어요.</p>
+          </div>
+        )}
+        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && !postsHidden && (
           <div className="my-posts-empty" role="status">
             <strong>{panelLayout === "sale" ? "아직 판매글이 없습니다." : "아직 작업 기록이 없습니다."}</strong>
             <p>{panelLayout === "sale" ? "판매글을 등록하면 이곳에 표시됩니다." : "첫 유약 작업을 기록하면 이곳에 표시됩니다."}</p>
