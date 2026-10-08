@@ -13,7 +13,7 @@ if (!url || !key) {
   if (!valid) {
     fail("브라우저용 publishable 또는 legacy anon 키만 사용할 수 있습니다.");
   } else {
-    for (const endpoint of ["/auth/v1/settings", "/rest/v1/profiles?select=id&limit=0", "/rest/v1/work_records?select=id&limit=0"]) {
+    for (const endpoint of ["/auth/v1/settings", "/rest/v1/profiles?select=id&limit=0", "/rest/v1/personal_calibrations?select=recipe_id&limit=0", "/rest/v1/aice_runs?select=id,payload&limit=0"]) {
       const label = endpoint.split("?")[0];
       try {
         const response = await fetch(new URL(endpoint, url), { headers: { apikey: key }, signal: AbortSignal.timeout(15000) });
@@ -29,6 +29,20 @@ if (!url || !key) {
       } catch (error) {
         fail(`FAIL: ${label} 요청 실패 (${error.cause?.code ?? error.name}). 네트워크와 URL을 확인하세요.`);
       }
+    }
+    try {
+      const endpoint = "/rest/v1/aice_runs?select=id,request_id,feedback_status&limit=0";
+      const response = await fetch(new URL(endpoint, url), { headers: { apikey: key }, signal: AbortSignal.timeout(15000) });
+      const data = await response.json();
+      if (response.ok || ([401, 403].includes(response.status) && data.code === "42501")) {
+        console.log("PASS: AICE 원자적 저장 스키마 적용됨");
+      } else if (response.status === 400 && data.code === "42703") {
+        console.warn("WARN: AICE 원자적 저장 마이그레이션 미적용 — 호환 저장 모드로 동작합니다.");
+      } else {
+        fail(`FAIL: AICE 원자적 저장 스키마 확인 필요 (HTTP ${response.status}, code ${data.code ?? "none"})`);
+      }
+    } catch (error) {
+      fail(`FAIL: AICE 원자적 저장 스키마 요청 실패 (${error.cause?.code ?? error.name}).`);
     }
     if (!process.exitCode) console.log("연결 검사 완료. 로그인 계정의 CRUD/이메일 발송은 별도 검증이 필요합니다.");
   }

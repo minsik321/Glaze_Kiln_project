@@ -79,6 +79,12 @@ PRIOR_PSEUDO_COUNT: float = 8.0
 #: 동일하게 유지된다).
 DEFAULT_COMPONENTS: tuple[str, ...] = ("규석", "장석", "석회석")
 
+# 사용자에게 곧바로 계량표로 제시하는 후보는 3개 역할 원료가 모두 실제로
+# 들어 있는 비퇴화 배합만 사용한다. 0% 꼭짓점은 조성 공간 탐색에는 유효하지만
+# 완성 레시피처럼 보여 주면 단일 원료에 가까운 시험점이 제작용 배합으로
+# 오해된다. 격자 간격 자체는 바꾸지 않고 후보화 직전에만 제외한다.
+_MIN_DISPLAY_COMPONENT_PCT = 0.1
+
 #: 역거리 가중의 분모 하한. 완전 일치 관측(거리 0)에서 0으로 나누는 것을 막고,
 #: 그 관측이 사실상 전권을 갖게 한다.
 _EPS = 1e-9
@@ -417,6 +423,14 @@ def propose(state: SearchState, prior: Prior, n: int = 6) -> list[Candidate]:
         points = refine(center, state.grid_step, DEFAULT_COMPONENTS)
     else:
         points = simplex_grid(state.grid_step, DEFAULT_COMPONENTS, fixed=fixed)
+
+    displayable_points = [
+        point
+        for point in points
+        if all(point.get(component, 0.0) >= _MIN_DISPLAY_COMPONENT_PCT for component in DEFAULT_COMPONENTS)
+    ]
+    if displayable_points:
+        points = displayable_points
 
     personal_weight = prior.weight_of_personal_data()
 

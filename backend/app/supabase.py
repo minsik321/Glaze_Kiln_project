@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
 from .config import Settings
 from .models import AuthUser
+
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseError(Exception):
@@ -58,13 +62,21 @@ class SupabaseGateway:
         )
         return self._list_json(response)
 
+    async def rpc(self, name: str, token: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+        response = await self._request(
+            "POST", f"{self.settings.supabase_url}/rest/v1/rpc/{name}",
+            headers=self._headers(token), json=body,
+        )
+        return self._list_json(response)
+
     async def insert(
-        self, table: str, token: str, body: dict[str, Any], *, upsert: bool = False
+        self, table: str, token: str, body: dict[str, Any] | list[dict[str, Any]], *, upsert: bool = False,
+        conflict: str = "id",
     ) -> list[dict[str, Any]]:
         prefer, params = "return=representation", {}
         if upsert:
             prefer += ",resolution=merge-duplicates"
-            params["on_conflict"] = "id"
+            params["on_conflict"] = conflict
         response = await self._request(
             "POST",
             f"{self.settings.supabase_url}/rest/v1/{table}",
@@ -108,10 +120,18 @@ class SupabaseGateway:
         try:
             response = await self.client.request(method, url, **kwargs)
         except httpx.TimeoutException as exc:
+            logger.warning("Supabase request timed out: %s %s (%s)", method, httpx.URL(url).path, type(exc).__name__)
             raise SupabaseError(
                 504, "supabase_timeout", "Supabase 응답 시간이 초과되었습니다."
             ) from exc
         except httpx.HTTPError as exc:
+            logger.warning(
+                "Supabase request failed: %s %s (%s: %s)",
+                method,
+                httpx.URL(url).path,
+                type(exc).__name__,
+                exc,
+            )
             raise SupabaseError(
                 502, "supabase_unavailable", "Supabase에 연결할 수 없습니다."
             ) from exc

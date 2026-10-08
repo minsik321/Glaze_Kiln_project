@@ -49,6 +49,9 @@
   `local_max_mm`/`local_min_mm`/`spread_mm` 로 08절 위험 판정이 바로
   쓸 수 있는 요약값을 제공한다.
 - `fired_thickness()` — 소성 후 두께 스칼라 값.
+- `ThicknessProfile.areal_density_g_m2` — `glaze_weight_g / area_m2` (LLM
+  프런트도어 TODO Phase 1). `mean_mm`과 달리 `ρ_dry` 가정에 기대지 않는
+  불변량이다. `kiln.aice.contract.ThicknessEstimate.areal_density` 로 노출된다.
 
 ## ④ 차이
 

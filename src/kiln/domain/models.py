@@ -365,6 +365,12 @@ class FiringRun:
     declared_kg: float = 0.0
     #: 선반 면적 [m²]. ``packing_ratio`` 산출의 분모 (9-2절)
     shelf_area_m2: float = 0.0
+    #: 승온 속도 [℃/h] — 이전에는 ``schedule`` 점열의 기울기로만 암묵적으로
+    #: 존재했다. 1급 필드로 끌어올린다(LLM 프런트도어 TODO Phase 1). 값이
+    #: 없으면 None — schedule에서 기울기를 되짚어 지어내지 않는다.
+    ramp_rate_c_per_h: float | None = None
+    #: 최고온 유지 시간 [분] — 위와 같은 이유로 1급 필드.
+    hold_minutes: float | None = None
 
 
 # ─── 가마 프로필 · 계수 테이블 · 탐색 상태 ───────────────────────────────────
