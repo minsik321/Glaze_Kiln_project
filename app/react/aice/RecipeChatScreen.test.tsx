@@ -323,20 +323,25 @@ describe("RecipeChatScreen (화면 1)", () => {
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "생성 기록" })).toBeNull());
   });
 
-  it("surfaces a similar past candidate from history with a remark when a new prompt overlaps it", async () => {
-    const pastCandidate = { ...CANDIDATE, id: "hist-cand-1", name: "지난 청록 사틴" };
-    const record = historyRecord({
-      id: "run-5",
-      title: "사발 청록 사틴 유약",
-      intake: { prompt_text: "사발 청록 사틴 유약", prompt_photos: [], candidates: { candidates: [pastCandidate], selected_id: null } },
-    });
-    mockFetch({ history: historyPage([record]) });
+  it("surfaces a completed past work from history with a remark when a new prompt overlaps it", async () => {
+    // 사이드바에는 채팅 초안(draft)만 뜬다 — 이력 로드 완료를 기다리는 용도.
+    const draft = historyRecord({ id: "run-draft", title: "초안 요청 기록" });
+    // 과거 이력 카드는 끝까지 작업해 결과를 기록한(evaluated) 기록에서만 나온다.
+    const completed = historyRecord({ id: "run-5", title: "사발 청록 사틴 유약" });
+    completed.run = {
+      ...completed.run,
+      status: "evaluated",
+      recipe: { ...completed.run.recipe, name: "지난 청록 사틴" },
+      result: { ...completed.run.result, gloss: CANDIDATE.target_gloss ?? "satin", transparency: CANDIDATE.target_transparency ?? "opaque" },
+    };
+    (completed as { status: string }).status = "evaluated";
+    mockFetch({ history: historyPage([draft, completed]) });
     render(<RecipeChatScreen token="user-token" />);
 
     // 이력이 실제로 로드된 뒤 제출해야 한다 — 마운트 시점 listMine 호출이
     // 비동기라, 로드 전에 곧장 제출하면 매칭 대상이 비어 있다.
     fireEvent.click(screen.getByLabelText("생성 기록 열기"));
-    await waitFor(() => expect(screen.getByText("사발 청록 사틴 유약")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("초안 요청 기록")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("생성 기록 열기"));
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "생성 기록" })).toBeNull());
 
@@ -347,6 +352,6 @@ describe("RecipeChatScreen (화면 1)", () => {
 
     await waitFor(() => expect(screen.getByText("지난 청록 사틴")).toBeTruthy());
     expect(screen.getByText("과거 이력 · 유사 후보")).toBeTruthy();
-    expect(screen.getByText(/사발 청록 사틴 유약/)).toBeTruthy();
+    expect(screen.getByText(/끝까지 작업해 기록한/)).toBeTruthy();
   });
 });

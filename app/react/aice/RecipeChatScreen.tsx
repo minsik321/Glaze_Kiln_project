@@ -100,6 +100,9 @@ export function RecipeChatScreen({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarMounted, setSidebarMounted] = useState(false);
   const [history, setHistory] = useState<AiceRunRecord[]>([]);
+  //: 과거 이력 카드의 근거 — 사이드바 목록(history, 채팅 초안)과 별개로, 끝까지
+  //: 작업해 결과를 기록한 내 기록을 비교 대상으로 쓴다. findSimilarHistory가 거른다.
+  const [pastRuns, setPastRuns] = useState<AiceRunRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [restoredRunId, setRestoredRunId] = useState<string | null>(null);
@@ -138,6 +141,7 @@ export function RecipeChatScreen({
     try {
       const page = await aiceRunsApi.listMine(token);
       setHistory(page.items.filter((record) => isChatGenerationRecord(record.run)));
+      setPastRuns(page.items);
     } catch (err) {
       setHistoryError(err instanceof ApiError ? err.message : "이전 기록을 불러오지 못했습니다.");
     } finally {
@@ -253,7 +257,7 @@ export function RecipeChatScreen({
       setImages({});
       setImageErrors({});
       setStatus("complete");
-      const matches = findSimilarHistory(trimmed, normalizedCandidates, history);
+      const matches = findSimilarHistory(trimmed, normalizedCandidates, pastRuns);
       setHistoryMatches(matches);
       // 과거 이력 후보는 새로 생성하지 않고 저장된 사진만 보여준다.
       matches.forEach((match) => void loadSavedImage(match.candidate));
@@ -292,7 +296,7 @@ export function RecipeChatScreen({
     const matches = findSimilarHistory(
       intake.prompt_text,
       normalizedCandidates,
-      history.filter((item) => item.id !== record.id),
+      pastRuns.filter((item) => item.id !== record.id),
     );
     setHistoryMatches(matches);
     matches.forEach((match) => void loadSavedImage(match.candidate));
