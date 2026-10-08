@@ -6,7 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 const alice = "00000000-0000-0000-0000-00000000000a";
 const bob = "00000000-0000-0000-0000-00000000000b";
 const KEY_A = "glaze-v1-aaaa", KEY_B = "glaze-v1-bbbb";
-const SKIP = new Set(["20261005020000_aice_vectors.sql", "20261005030000_aice_vector_corpus.sql"]);
+const SKIP = new Set(["20261005020000_aice_vectors.sql", "20261005030000_aice_vector_corpus.sql", "20261007000000_aice_vectors_1536.sql"]);
 
 async function database({ beforeRecipes } = {}) {
   const db = new PGlite();
