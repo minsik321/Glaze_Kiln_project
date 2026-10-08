@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid5
 
 import asyncio
@@ -95,7 +95,7 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=100_000)]
 AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,recipe_ref_id,ware_preset,is_public,created_at,updated_at"
 RECIPE_COLUMNS = "id,owner_id,forked_from_id,name,materials,colorants,composition_key,is_public,created_at,updated_at"
-FEED_POST_COLUMNS = "id,kind,payload,created_at,updated_at"
+FEED_POST_COLUMNS = "id,user_id,kind,payload,created_at,updated_at"
 #: 목록용 — payload 전체 대신 필요한 JSON 경로만 뽑는다(사진·후보·intake는 받지 않는다).
 AICE_SUMMARY_COLUMNS = (
     "id,title,status,created_at,"
@@ -133,15 +133,28 @@ def _one(rows: list[dict], model: type[BaseModel], code: str, message: str) -> B
 
 
 @router.get("/feed-posts", response_model=FeedPostPage)
-async def list_feed_posts(token: Token, user: User, gateway: Gateway, limit: Limit = 50, offset: Offset = 0) -> FeedPostPage:
+async def list_feed_posts(
+    token: Token, user: User, gateway: Gateway, limit: Limit = 50, offset: Offset = 0,
+    scope: Literal["all", "mine"] = "all",
+) -> FeedPostPage:
+    """홈 피드. 기본은 모든 사용자의 글(최신순), `scope=mine`이면 내 글만."""
+    params: dict = {"select": FEED_POST_COLUMNS, "order": "created_at.desc", "limit": limit, "offset": offset}
+    if scope == "mine":
+        params["user_id"] = f"eq.{user.id}"
     try:
-        rows = await gateway.select("feed_posts", token, {
-            "select": FEED_POST_COLUMNS, "user_id": f"eq.{user.id}",
-            "order": "created_at.desc", "limit": limit, "offset": offset,
-        })
+        rows = await gateway.select("feed_posts", token, params)
+        names = await _author_names(gateway, token, {str(row["user_id"]) for row in rows if row.get("user_id")})
     except SupabaseError as exc:
         _raise_supabase(exc)
-    return FeedPostPage(items=[_validate(FeedPostResponse, row) for row in rows], limit=limit, offset=offset)
+    items = [_validate(FeedPostResponse, {**row, "author_id": row.get("user_id"), "author_name": names.get(str(row.get("user_id")), "")}) for row in rows]
+    return FeedPostPage(items=items, limit=limit, offset=offset)
+
+
+async def _author_names(gateway: SupabaseGateway, token: str, user_ids: set[str]) -> dict[str, str]:
+    if not user_ids:
+        return {}
+    rows = await gateway.select("public_profiles", token, {"select": "id,display_name", "id": f"in.({','.join(sorted(user_ids))})"})
+    return {str(row["id"]): row.get("display_name") or "" for row in rows}
 
 
 @router.post("/feed-posts", response_model=FeedPostResponse, status_code=status.HTTP_201_CREATED)

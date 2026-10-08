@@ -534,7 +534,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .collection-feed-header > div { display: flex; justify-content: flex-end; }
 .collection-feed-header h1 { margin: 0; color: #20282c; font-size: 16px; text-align: center; }
 .collection-feed-header svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.collection-feed-header button[aria-pressed="true"] { color: #149fd9; }
+.collection-feed-header button[aria-pressed="true"] { color: #8b9499; }
 .collection-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 26px; }
 .collection-feed--grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 8px; }
 .collection-feed--list { display: block; }
@@ -642,7 +642,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .post-owner-dialog-actions .danger { background: #e55569; color: #fff; }
 .post-owner-dialog-done { width: 100%; }
 .post-hero { width: min(100%, 620px); margin: 0 auto 12px; overflow: hidden; border-radius: 22px; background: #fff; box-shadow: 0 8px 28px rgba(65, 127, 153, .13); }
-.post-hero > img { display: block; width: 100%; height: clamp(260px, 58vw, 430px); object-fit: cover; background: #d9e0e3; }
+.post-hero .post-photo-carousel img { display: block; width: 100%; height: clamp(260px, 58vw, 430px); object-fit: cover; background: #d9e0e3; }
+/* 게시물 사진 영역: 여러 장이면 가로로 넘겨 보고 오른쪽 아래에 1/2 쪽 표시 */
+.post-photo-carousel { position: relative; }
+.post-photo-track { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; cursor: grab; }
+.post-photo-track::-webkit-scrollbar { display: none; }
+.post-photo-track:focus-visible { outline: 2px solid #1eadff; outline-offset: -2px; }
+.post-photo-track.is-dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.post-photo-track > img { flex: 0 0 100%; width: 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.post-photo-counter { position: absolute; right: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(30, 38, 42, .62); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; pointer-events: none; }
 .post-hero figcaption { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px 18px; }
 .post-hero figcaption span { color: #9aa5aa; font-size: 9px; }
 .post-hero h1 { margin: 2px 0 3px; color: #283238; font-size: 23px; line-height: 1.25; }
@@ -957,8 +965,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: var(--app-safe-top) 21px 0;
   box-sizing: border-box;
 }
-.my-header strong { justify-self: center; min-width: 0; overflow: hidden; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
-.my-screen.other .my-header { display: flex; gap: 4px; padding-right: 16px; padding-left: 10px; }
+.my-header strong { justify-self: center; min-width: 0; overflow: hidden; font-size: 27px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.my-screen.other .my-header { display: flex; align-items: center; gap: 4px; padding-right: 16px; padding-left: 10px; }
 .my-screen.other .my-header strong { justify-self: auto; }
 .my-screen.other .my-header-actions { margin-left: auto; }
 .my-header button,
@@ -974,6 +982,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .my-header button { justify-self: end; width: 36px; }
 .my-header-actions { display: flex; justify-self: end; }
+.my-header strong .my-lock { width: 22px; height: 22px; margin-right: 6px; vertical-align: -3px; }
 .my-header svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .my-settings-layer { position: absolute; z-index: 30; inset: 0; overflow: hidden; background: #fff; }
 .my-settings-panel { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; padding: var(--app-safe-top) 16px max(24px, env(safe-area-inset-bottom)); overflow-y: auto; background: #fff; animation: my-settings-slide-in 300ms cubic-bezier(.22, .8, .24, 1) both; }
@@ -1181,7 +1190,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .my-posts.work { display: grid; gap: 1px; }
 .my-posts.work .my-post { border-bottom: 1px solid #eee; }
 .my-posts.work .my-post-open { display: grid; grid-template-columns: 104px 1fr; gap: 14px; align-items: center; min-height: 104px; padding: 8px 18px; }
-.my-posts.work .my-post-placeholder { width: 88px; height: 88px; }
+.my-posts.work .my-post-placeholder { width: 88px; height: 88px; border-radius: 12px; object-fit: cover; }
 .my-post-placeholder { background: #d9d9d9; }
 .my-post-placeholder.tone-2, .my-post-placeholder.tone-5 { background: #d2d2d2; }
 .my-post-placeholder.tone-3, .my-post-placeholder.tone-6 { background: #e0e0e0; }
@@ -2294,6 +2303,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .thickness-judgment.thin { background: #eef7ff; color: #397da7; }
 .thickness-judgment.target { background: #edf9f4; color: #378269; }
 .thickness-judgment.unavailable { background: #f2f4f5; color: #747d81; }
+.thickness-alert { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: #fff0f1; color: #b45260; border: 1px solid #e8b4bb; font-size: 13px; font-weight: 700; }
 .thickness-measurement { margin: 8px 2px 0; color: #99a2a6; font-size: 9px; text-align: right; }
 .guided-step-3 .firing-plan-description {
   margin: -8px 0 16px;
@@ -2624,3 +2634,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .guided-step-3 .density-check-hint.next-trial-hint { margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
 
 .post-save-error { position: fixed; left: 16px; right: 16px; bottom: 84px; z-index: 60; margin: 0; padding: 12px 14px; border-radius: 12px; background: #fff0f2; color: #d85066; font-size: 12px; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+
+.notification-avatar > img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.notification-empty { margin: 48px 16px; color: #8b9499; text-align: center; font-size: 14px; }
+.notification-read-all:disabled { color: #b5bcc0; cursor: default; }

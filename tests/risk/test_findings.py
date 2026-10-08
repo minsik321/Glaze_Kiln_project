@@ -124,7 +124,7 @@ def test_non_dipping_cannot_judge_distribution_risks(method):
     "method", [GlazingMethod.POURING, GlazingMethod.SPRAYING, GlazingMethod.BRUSHING]
 )
 def test_non_dipping_still_judges_mean_based_risks(method):
-    """8-2절 표: 부기·분무·붓칠도 미용융·기포·결정 과다는 평균 기반으로 판정한다."""
+    """8-2절 표: 붓기·분무·붓칠도 미용융·기포·결정 과다는 평균 기반으로 판정한다."""
     profile = _profile([(0.0, 1.05), (60.0, 1.05)], mean_mm=1.05, has_distribution=False)
     findings = evaluate_findings(profile, method=method, safe_range_mm=SAFE)
 

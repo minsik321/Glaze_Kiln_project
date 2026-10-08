@@ -227,7 +227,8 @@ describe("MyScreen", () => {
 
   it("toggles account privacy and app notifications", () => {
     vi.useFakeTimers();
-    render(<MyScreen />);
+    const onChangeAccountPrivate = vi.fn();
+    render(<MyScreen onChangeAccountPrivate={onChangeAccountPrivate} />);
 
     fireEvent.click(screen.getByRole("button", { name: "마이 메뉴" }));
     fireEvent.click(screen.getByRole("button", { name: "계정 공개 범위" }));
@@ -235,8 +236,9 @@ describe("MyScreen", () => {
     expect(privacyPage?.classList.contains("is-closing")).toBe(false);
     const privacy = screen.getByRole("switch", { name: "계정 공개" });
     expect(privacy.getAttribute("aria-checked")).toBe("true");
+    //: 공개 범위는 서버에 저장되는 값이라 화면이 마음대로 뒤집지 않고 저장을 요청만 한다.
     fireEvent.click(privacy);
-    expect(privacy.getAttribute("aria-checked")).toBe("false");
+    expect(onChangeAccountPrivate).toHaveBeenCalledWith(true);
 
     fireEvent.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
     expect(privacyPage?.classList.contains("is-closing")).toBe(true);
@@ -259,5 +261,42 @@ describe("MyScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "작업물" }));
     fireEvent.click(screen.getByRole("button", { name: `${YEJIN_DEMO_POSTS[1].label} 게시물 보기` }));
     expect(onOpenPost).toHaveBeenLastCalledWith(YEJIN_DEMO_POSTS[1].id);
+  });
+
+  it("shows a lock before the username on a private own profile only", () => {
+    const { rerender } = render(<MyScreen username="gamajaengi" isPrivate />);
+    expect(screen.getByRole("img", { name: "비공개 계정" })).toBeTruthy();
+    rerender(<MyScreen username="gamajaengi" />);
+    expect(screen.queryByRole("img", { name: "비공개 계정" })).toBeNull();
+    rerender(<MyScreen username="mira" variant="other" isPrivate />);
+    expect(screen.queryByRole("img", { name: "비공개 계정" })).toBeNull();
+  });
+
+  it("reflects the saved visibility in the switch and explains who can see posts", () => {
+    render(<MyScreen isPrivate />);
+    fireEvent.click(screen.getByRole("button", { name: "마이 메뉴" }));
+    fireEvent.click(screen.getByRole("button", { name: "계정 공개 범위" }));
+    expect(screen.getByRole("switch", { name: "계정 공개" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText("나를 팔로우한 사람만 내 작업물과 판매글을 볼 수 있어요.")).toBeTruthy();
+  });
+
+  it("shows the server error when saving the visibility fails", async () => {
+    render(<MyScreen onChangeAccountPrivate={() => Promise.reject(new Error("저장 실패"))} />);
+    fireEvent.click(screen.getByRole("button", { name: "마이 메뉴" }));
+    fireEvent.click(screen.getByRole("button", { name: "계정 공개 범위" }));
+    fireEvent.click(screen.getByRole("switch", { name: "계정 공개" }));
+    expect((await screen.findAllByText("저장 실패")).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the server post count and explains hidden posts on a private profile", () => {
+    render(<MyScreen variant="other" username="mira" posts={[]} postCount={1} postsHidden />);
+    expect(screen.getByLabelText("프로필 통계").textContent).toContain("게시물1");
+    expect(screen.getAllByText("비공개 계정이에요.").length).toBeGreaterThan(0);
+    expect(screen.queryByText("아직 작업 기록이 없습니다.")).toBeNull();
+  });
+
+  it("counts the visible posts when no server count is given", () => {
+    render(<MyScreen variant="other" username="mira" posts={SALE_POSTS.slice(0, 2)} />);
+    expect(screen.getByLabelText("프로필 통계").textContent).toContain("게시물2");
   });
 });

@@ -52,4 +52,23 @@ describe("CreatePostScreen", () => {
 
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ title: "내 해안 사틴", description: "다음엔 더 얇게", record: { recordId: "run-1", details: { clayBody: "백색 석기 소지" } } });
   });
+
+  it("blocks a second submit while the first one is still saving", async () => {
+    let finish!: () => void;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<CreatePostScreen kind="work" onBack={vi.fn()} onSubmit={onSubmit} />);
+
+    fireEvent.change(screen.getByLabelText("게시물 사진 선택"), { target: { files: [new File(["photo"], "a.png", { type: "image/png" })] } });
+    await screen.findByAltText("선택한 사진 1");
+    fireEvent.change(screen.getByPlaceholderText("작업 제목을 입력해 주세요"), { target: { value: "청자 사발" } });
+    const submit = screen.getByRole("button", { name: "게시하기" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    fireEvent.submit(submit.closest("form")!);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "게시 중…" }).hasAttribute("disabled")).toBe(true);
+    finish();
+    await waitFor(() => expect(screen.getByRole("button", { name: "게시하기" }).hasAttribute("disabled")).toBe(false));
+  });
 });

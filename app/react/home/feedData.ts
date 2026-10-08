@@ -11,6 +11,8 @@ export type FeedPost = {
   id: string;
   userId: string;
   image: string;
+  //: 사진이 여러 장일 때 전체(앞이 대표 사진 = image). 한 장이면 비워 둔다.
+  images?: readonly string[];
   label: string;
   size: "short" | "medium" | "tall";
   crop: number;
@@ -272,8 +274,22 @@ export function postsForAccount(email?: string | null) {
   return email?.trim().toLowerCase() === "yejin1046@gmail.com" ? YEJIN_DEMO_POSTS : [];
 }
 
+//: 실제 가입자(다른 계정)가 올린 글의 작성자. 피드를 불러올 때 채워 넣고,
+//: 더미 목록에 없는 id는 여기서 찾는다 — 없으면 더미 첫 사용자로 잘못 표시된다.
+const remoteFeedUsers = new Map<string, FeedUser>();
+
+export function registerFeedUser(id: string, displayName: string) {
+  const name = displayName.trim() || "가마쟁이";
+  // 같은 사람은 항상 같은 아바타 색이 나오도록 id에서 1~4를 정한다.
+  const tone = ([...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 4) + 1;
+  remoteFeedUsers.set(id, {
+    id, username: name, displayName: name, bio: "", avatarTone: tone,
+    stats: { records: 0, followers: 0, following: 0 },
+  });
+}
+
 export function findFeedUser(userId: string) {
-  return FEED_USERS.find((user) => user.id === userId) ?? FEED_USERS[0];
+  return FEED_USERS.find((user) => user.id === userId) ?? remoteFeedUsers.get(userId) ?? FEED_USERS[0];
 }
 
 export function findFeedPost(postId: string) {

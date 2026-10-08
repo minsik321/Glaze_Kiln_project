@@ -106,6 +106,18 @@ const screenTitles = [
   ["소성 시뮬레이션", "시간에 따른 온도 변화와 가마 상태를 확인합니다."],
 ] as const;
 
+//: 서버는 후보를 저장할 때 id를 조성 기반 정규 id로 바꾸므로(identity.py
+//: normalize_run_recipe), 저장 뒤 intakeCandidates의 id와 사용자가 고른
+//: 후보(llmCandidate)의 id가 어긋날 수 있다. 서버 검증은 selected_id가 후보
+//: 목록 안에 있어야 하므로, id가 없으면 같은 조성의 후보로 찾아 맞춘다.
+function selectedIntakeId(candidates: RecipeCandidate[], selected: RecipeCandidate | undefined): string | null {
+  if (!selected) return null;
+  const byId = candidates.find((item) => item.id === selected.id);
+  if (byId) return byId.id;
+  const key = (item: RecipeCandidate) => JSON.stringify([Object.entries(item.materials).sort(), Object.entries(item.colorants ?? {}).sort()]);
+  return candidates.find((item) => key(item) === key(selected))?.id ?? null;
+}
+
 function ChoiceCard({
   title,
   description,
@@ -435,7 +447,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       },
       application: {
         ...run.application,
-        method: ({ "담금": "dipping", "부기": "pouring", "붓칠": "brushing", "분무": "spraying" } as const)[state.glazingMethod as "담금"] ?? "dipping",
+        method: ({ "담금": "dipping", "붓기": "pouring", "붓칠": "brushing", "분무": "spraying" } as const)[state.glazingMethod as "담금"] ?? "dipping",
         dip_seconds: dipSeconds,
         drying_complete: state.dryingComplete,
         before_weight: state.beforeWeightG.trim() ? { value: Number(state.beforeWeightG), unit: "g", source_type: "observed", confidence: 1, note: "사용자 입력" } : run.application.before_weight,
@@ -471,7 +483,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       intake: state.intakePrompt ? {
         prompt_text: state.intakePrompt,
         prompt_photos: [],
-        candidates: { candidates: state.intakeCandidates, selected_id: state.llmCandidate?.id ?? null },
+        candidates: { candidates: state.intakeCandidates, selected_id: selectedIntakeId(state.intakeCandidates, state.llmCandidate) },
       } : run.intake,
       result: {
         ...run.result,
@@ -613,7 +625,7 @@ export function AicePrototype({ onSnapshotReady, restoredRun, recordEntryOrigin,
       beforeWeightG: fromWorkRecords ? "" : restoredRun.application.before_weight.value?.toString() ?? "",
       afterWeightG: fromWorkRecords ? "" : restoredRun.application.after_weight.value?.toString() ?? "",
       specificGravity: fromWorkRecords ? "" : restoredRun.application.density.value?.toString() ?? "",
-      glazingMethod: ({ dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" })[restoredRun.application.method],
+      glazingMethod: ({ dipping: "담금", pouring: "붓기", brushing: "붓칠", spraying: "분무" })[restoredRun.application.method],
       dipSeconds: fromWorkRecords ? "" : restoredRun.application.dip_seconds?.toString() ?? "",
       dryingComplete: fromWorkRecords ? false : restoredRun.application.drying_complete ?? false,
       riskMitigationApplied: fromWorkRecords ? false : Boolean(selected),

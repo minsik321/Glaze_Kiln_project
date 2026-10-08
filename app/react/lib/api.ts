@@ -1,6 +1,6 @@
 import { assertAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
 import { persistPostImage, persistRunPhotos, signedPostImageUrl } from "../aice/photoStorage";
-import type { FeedPost } from "../home/feedData";
+import { registerFeedUser, type FeedPost } from "../home/feedData";
 import { requireSupabase } from "./supabase";
 
 const API_URL = (
@@ -366,9 +366,9 @@ export const recipesApi = {
   get: (token: string, id: string) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, token),
 };
 
-type FeedPostRow = { id: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "publishedAt"> & { imagePath?: string | null; image?: string }; created_at: string };
+type FeedPostRow = { id: string; author_id?: string | null; author_name?: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "images" | "publishedAt"> & { imagePath?: string | null; imagePaths?: string[]; image?: string }; created_at: string };
 
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (minutes < 1) return "방금 전";
   if (minutes < 60) return `${minutes}분 전`;
@@ -376,23 +376,33 @@ function relativeTime(iso: string): string {
   return `${Math.floor(minutes / 1440)}일 전`;
 }
 
-async function rowToPost(row: FeedPostRow): Promise<FeedPost> {
-  const { imagePath, image: legacyImage, ...rest } = row.payload;
-  const image = imagePath ? await signedPostImageUrl(imagePath).catch(() => null) : null;
-  return { ...rest, id: row.id, userId: "self", image: image ?? legacyImage ?? "", publishedAt: relativeTime(row.created_at), kind: row.kind } as FeedPost;
+async function rowToPost(row: FeedPostRow, selfId?: string): Promise<FeedPost> {
+  const { imagePath, imagePaths, image: legacyImage, ...rest } = row.payload;
+  //: 사진이 여러 장이면 imagePaths, 예전 글은 imagePath 한 장 또는 payload에 박힌 data URL.
+  const paths = imagePaths?.length ? imagePaths : imagePath ? [imagePath] : [];
+  const signed = (await Promise.all(paths.map((path) => signedPostImageUrl(path).catch(() => null)))).filter((url): url is string => Boolean(url));
+  const images = signed.length ? signed : legacyImage ? [legacyImage] : [];
+  //: 내 글은 "self", 다른 사람 글은 그 사람의 실제 id.
+  const isMine = !selfId || !row.author_id || row.author_id === selfId;
+  if (!isMine && row.author_id) registerFeedUser(row.author_id, row.author_name ?? "");
+  return { ...rest, id: row.id, userId: isMine ? "self" : row.author_id!, image: images[0] ?? "", images: images.length > 1 ? images : undefined, publishedAt: relativeTime(row.created_at), kind: row.kind } as FeedPost;
 }
 
 //: 사진은 저장소에 올리고 경로만 payload에 남긴다. 저장소를 못 쓰면 data URL을 그대로 둔다.
 async function postBody(post: FeedPost) {
-  const { id: _id, userId: _userId, image, publishedAt: _publishedAt, ...rest } = post;
-  const imagePath = await persistPostImage(image);
-  return JSON.stringify({ kind: post.kind ?? "work", payload: imagePath ? { ...rest, imagePath } : { ...rest, image } });
+  const { id: _id, userId: _userId, image, images, publishedAt: _publishedAt, ...rest } = post;
+  const all = images?.length ? images : [image];
+  const stored = (await Promise.all(all.map((item) => persistPostImage(item)))).filter((path): path is string => Boolean(path));
+  //: imagePath(대표)는 예전 글·저장소 읽기 정책과의 호환용으로 계속 남기고, 전체는 imagePaths에 둔다.
+  const photos = stored.length ? { imagePath: stored[0], imagePaths: stored } : { image };
+  return JSON.stringify({ kind: post.kind ?? "work", payload: { ...rest, ...photos } });
 }
 
 export const feedPostsApi = {
-  listMine: async (token: string) => {
+  //: 모든 사용자의 글(최신순). selfId와 같은 작성자의 글은 내 글("self")로 표시한다.
+  listAll: async (token: string, selfId: string) => {
     const page = await request<{ items: FeedPostRow[] }>("/feed-posts?limit=100", token);
-    return Promise.all(page.items.map(rowToPost));
+    return Promise.all(page.items.map((row) => rowToPost(row, selfId)));
   },
   create: async (token: string, post: FeedPost) =>
     rowToPost(await request<FeedPostRow>("/feed-posts", token, { method: "POST", body: await postBody(post) })),

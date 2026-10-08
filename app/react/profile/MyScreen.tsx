@@ -5,6 +5,10 @@ type MyScreenProps = {
   displayName?: string;
   bio?: string;
   avatarUrl?: string;
+  isPrivate?: boolean;
+  //: 서버가 센 전체 게시물 수. 비공개 계정은 글을 못 읽어도 개수는 보여준다.
+  postCount?: number;
+  postsHidden?: boolean;
   variant?: "mine" | "other";
   avatarTone?: number;
   stats?: { records: number; followers: number; following: number };
@@ -18,6 +22,7 @@ type MyScreenProps = {
   onOpenBookmarks?: () => void;
   onOpenAccountSettings?: () => void;
   onOpenKilnSettings?: () => void;
+  onChangeAccountPrivate?: (isPrivate: boolean) => void | Promise<void>;
   onSaveProfile?: (profile: { nickname: string; avatarUrl: string; bio: string }) => void | Promise<void>;
   onLogout?: () => void | Promise<void>;
   onDeleteAccount?: (password: string) => void | Promise<void>;
@@ -74,6 +79,10 @@ function MenuIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg>;
 }
 
+function LockIcon() {
+  return <svg className="my-lock" viewBox="0 0 24 24" role="img" aria-label="비공개 계정"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>;
+}
+
 function BackIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>;
 }
@@ -127,7 +136,7 @@ function SettingsItemIcon({ name }: { name: (typeof settingsItems)[number]["icon
   return <svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>;
 }
 
-export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", bio = "", avatarUrl = "", variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
+export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이", bio = "", avatarUrl = "", isPrivate = false, postCount, postsHidden = false, variant = "mine", avatarTone = 1, stats = { records: 0, followers: 0, following: 0 }, posts: suppliedPosts = [], onBack, onMessage, isFollowing = false, onToggleFollow, onOpenConnections, onOpenPost, onOpenBookmarks, onOpenAccountSettings, onOpenKilnSettings, onChangeAccountPrivate, onSaveProfile, onLogout, onDeleteAccount, onReturnToLogin, onSettingsOpenChange, settingsOpenRequest = 0 }: MyScreenProps) {
   const [layout, setLayout] = useState<"sale" | "work">("work");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsClosing, setSettingsClosing] = useState(false);
@@ -135,10 +144,19 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   const [settingsPageClosing, setSettingsPageClosing] = useState(false);
   const [settingsDialog, setSettingsDialog] = useState<SettingsDialog>(null);
   const [password, setPassword] = useState("");
-  const [accountPublic, setAccountPublic] = useState(true);
+  const accountPublic = !isPrivate;
   const [appNotifications, setAppNotifications] = useState(true);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  //: 계정 공개 범위는 서버(profiles.is_private)에 저장된다 — 실패하면 화면 값은 그대로 두고 알린다.
+  async function changeAccountPrivate() {
+    setSettingsError("");
+    try {
+      await onChangeAccountPrivate?.(accountPublic);
+    } catch (error) {
+      setSettingsError(errorMessage(error, "계정 공개 설정을 저장하지 못했습니다."));
+    }
+  }
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileNickname, setProfileNickname] = useState(displayName);
   const [profileBio, setProfileBio] = useState(bio);
@@ -410,7 +428,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
         {isMine
           ? <span aria-hidden="true" />
           : <button type="button" aria-label="홈 피드로 돌아가기" onClick={onBack}><BackIcon /></button>}
-        <strong>{username}</strong>
+        <strong>{isMine && isPrivate && <LockIcon />}{username}</strong>
         <div className="my-header-actions">
           {isMine && <button type="button" aria-label="북마크 피드" onClick={onOpenBookmarks}><BookmarkIcon /></button>}
           <button type="button" aria-label={isMine ? "마이 메뉴" : "프로필 더보기"} aria-expanded={isMine ? settingsOpen : undefined} onClick={isMine ? openSettings : undefined}>{isMine ? <MenuIcon /> : <MoreIcon />}</button>
@@ -472,7 +490,8 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             {settingsPage === "privacy" && (
               <section className="my-settings-detail" aria-label="계정 공개 범위 설정">
                 <div className="my-settings-detail-heading"><span><SettingsItemIcon name="lock" /></span><h3>계정 공개 범위</h3><p>프로필과 게시물을 다른 사용자에게 공개할지 선택해 주세요.</p></div>
-                <div className="my-settings-toggle-row"><div><strong>{accountPublic ? "공개 계정" : "비공개 계정"}</strong><small>{accountPublic ? "누구나 내 프로필과 게시물을 볼 수 있어요." : "승인된 사용자만 내 콘텐츠를 볼 수 있어요."}</small></div><button className="my-settings-switch" type="button" role="switch" aria-label="계정 공개" aria-checked={accountPublic} onClick={() => setAccountPublic((value) => !value)}><span /></button></div>
+                <div className="my-settings-toggle-row"><div><strong>{accountPublic ? "공개 계정" : "비공개 계정"}</strong><small>{accountPublic ? "누구나 내 작업물과 판매글을 볼 수 있어요." : "나를 팔로우한 사람만 내 작업물과 판매글을 볼 수 있어요."}</small></div><button className="my-settings-switch" type="button" role="switch" aria-label="계정 공개" aria-checked={accountPublic} onClick={() => void changeAccountPrivate()}><span /></button></div>
+                {settingsError && <p className="my-settings-error" role="alert">{settingsError}</p>}
               </section>
             )}
 
@@ -512,7 +531,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             <button className="my-message-button" type="button" aria-label="메시지" onClick={onMessage}><ChatIcon /></button>
           </div>}
           <dl className="my-stats" aria-label="프로필 통계">
-            <div><dt>게시물</dt><dd>{suppliedPosts.length}</dd></div>
+            <div><dt>게시물</dt><dd>{postCount ?? suppliedPosts.length}</dd></div>
             <div><dt><button type="button" onClick={() => onOpenConnections?.("followers")}>팔로워</button></dt><dd>{stats.followers}</dd></div>
             <div><dt><button type="button" onClick={() => onOpenConnections?.("following")}>팔로잉</button></dt><dd>{stats.following}</dd></div>
           </dl>
@@ -543,7 +562,13 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
             </button>
           </article>
         ))}
-        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && (
+        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && postsHidden && (
+          <div className="my-posts-empty" role="status">
+            <strong>비공개 계정이에요.</strong>
+            <p>팔로우하면 작업물과 판매글을 볼 수 있어요.</p>
+          </div>
+        )}
+        {(panelLayout === "sale" ? salePosts : workPosts).length === 0 && !postsHidden && (
           <div className="my-posts-empty" role="status">
             <strong>{panelLayout === "sale" ? "아직 판매글이 없습니다." : "아직 작업 기록이 없습니다."}</strong>
             <p>{panelLayout === "sale" ? "판매글을 등록하면 이곳에 표시됩니다." : "첫 유약 작업을 기록하면 이곳에 표시됩니다."}</p>

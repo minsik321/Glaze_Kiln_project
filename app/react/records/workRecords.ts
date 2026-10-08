@@ -136,7 +136,7 @@ export function feedPostToWorkRecord(post: FeedPost, user: FeedUser, now = new D
   };
 }
 
-const METHOD_LABELS: Record<AiceRun["application"]["method"], string> = { dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" };
+const METHOD_LABELS: Record<AiceRun["application"]["method"], string> = { dipping: "담금", pouring: "붓기", brushing: "붓칠", spraying: "분무" };
 
 //: 작업기록에서 "작업 게시"로 넘어갈 때 폼에 미리 채워 넣는 값. 사용자가 고칠 수
 //: 있는 것은 `title`(유약 이름)·`memo`·사진뿐이고, 나머지(`details`)는 기록 그대로

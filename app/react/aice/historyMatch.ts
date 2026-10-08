@@ -29,6 +29,36 @@ const GENERIC_TERMS = new Set([
   "또는", "그리고", "정도", "약간", "조금", "좀",
 ]);
 
+//: 같은 레시피인지 보는 지문(fingerprint). 이름·id·사진이 달라도 배합이 같으면 같은
+//: 레시피다 — 과거에 같은 배합으로 여러 번 작업한 기록, 또는 AI가 낸 후보가 과거
+//: 기록과 같은 배합일 때 카드가 중복으로 뜨던 문제를 막는다. 원료 합을 100으로 맞춰
+//: 소수 첫째 자리를 1%로 거칠게 뭉쳐(반올림) 미세한 수치 차이는 같은 것으로 본다.
+export function recipeKey(candidate: Pick<RecipeCandidate, "materials" | "colorants">): string {
+  const part = (entries: Record<string, number> | undefined, scale: number, digits: number) =>
+    Object.entries(entries ?? {})
+      .filter(([, amount]) => Number.isFinite(amount) && amount > 0)
+      .map(([name, amount]) => [name.trim().toLowerCase(), (amount * scale).toFixed(digits)] as const)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([name, amount]) => `${name}:${amount}`)
+      .join("|");
+  const total = Object.values(candidate.materials ?? {}).reduce((sum, amount) => sum + (Number.isFinite(amount) && amount > 0 ? amount : 0), 0);
+  const scale = total > 0 ? 100 / total : 1;
+  return `${part(candidate.materials, scale, 0)}#${part(candidate.colorants, 1, 1)}`;
+}
+
+//: 먼저 나온 것을 남기고 같은 레시피의 나머지는 버린다. `seen`에 이미 있는 키도 버린다.
+export function dedupeByRecipe<T>(items: readonly T[], keyOf: (item: T) => string, seen: Iterable<string> = []): T[] {
+  const keys = new Set(seen);
+  const kept: T[] = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    if (keys.has(key)) continue;
+    keys.add(key);
+    kept.push(item);
+  }
+  return kept;
+}
+
 function keywords(text: string): string[] {
   return text
     .toLowerCase()
@@ -113,12 +143,13 @@ export function findSimilarHistory(
     matches.push({ runId: record.id, runTitle: record.title, candidate: pastCandidate, distance, matchedTerms, remark });
   }
 
-  return matches
-    .sort((a, b) => {
-      const ad = a.distance ?? Number.POSITIVE_INFINITY;
-      const bd = b.distance ?? Number.POSITIVE_INFINITY;
-      if (ad !== bd) return ad - bd;
-      return b.matchedTerms.length - a.matchedTerms.length;
-    })
-    .slice(0, limit);
+  const ranked = matches.sort((a, b) => {
+    const ad = a.distance ?? Number.POSITIVE_INFINITY;
+    const bd = b.distance ?? Number.POSITIVE_INFINITY;
+    if (ad !== bd) return ad - bd;
+    return b.matchedTerms.length - a.matchedTerms.length;
+  });
+  //: 순위를 매긴 뒤 중복을 거른다 — 같은 배합이면 가장 가까운 기록 하나만 남기고,
+  //: 이번에 AI가 새로 낸 후보와 같은 배합인 과거 기록은 카드를 또 만들지 않는다.
+  return dedupeByRecipe(ranked, (match) => recipeKey(match.candidate), freshCandidates.map(recipeKey)).slice(0, limit);
 }

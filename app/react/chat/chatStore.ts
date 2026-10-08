@@ -77,14 +77,14 @@ export async function saveChatThread(ownerId: string, thread: ChatThread): Promi
   if (error) throw error;
 }
 
-export async function saveChatMessage(ownerId: string, peerId: string, message: ChatMessage): Promise<void> {
-  const { error } = await requireSupabase().from("chat_messages").insert({
-    id: message.id,
-    owner_id: ownerId,
-    peer_id: peerId,
-    body: message.body,
-    sent_at: message.sentAt,
-    sender: message.sender,
+//: 보낸 사람 사본과 (상대가 실제 가입자면) 받는 사람 사본을 서버 함수가 함께 만든다.
+//: ownerId는 호출부 시그니처 호환용 — 서버는 로그인 세션의 사용자로 처리한다.
+export async function saveChatMessage(_ownerId: string, peerId: string, message: ChatMessage): Promise<void> {
+  const { error } = await requireSupabase().rpc("send_chat_message", {
+    p_id: message.id,
+    p_peer: peerId,
+    p_body: message.body,
+    p_sent_at: message.sentAt,
   });
   if (error) throw error;
 }

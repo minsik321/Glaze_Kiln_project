@@ -134,7 +134,7 @@ def test_worst_does_not_collapse_unavailable_into_none(app):
 
 
 def test_all_five_risks_are_always_reported(app):
-    for method in ("담금", "부기", "분무", "붓칠"):
+    for method in ("담금", "붓기", "분무", "붓칠"):
         ware = app.register_ware("cylinder", "백자토", 800.0, glaze_interior=False)
         payload = app.glaze(
             ware["ware_id"], "lime_matte", method, 500.0, 512.0,

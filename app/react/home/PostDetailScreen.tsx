@@ -1,3 +1,4 @@
+import { PostPhotoCarousel } from "./PostPhotoCarousel";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import type { FeedPost, FeedUser } from "./feedData";
 
@@ -76,7 +77,7 @@ function FiringCurve({ post }: { post: FeedPost }) {
   );
 }
 
-export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, shareRecipients = [], onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat, onShareToChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; shareRecipients?: readonly FeedUser[]; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable" | "image">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void; onShareToChat?: (recipientId: string, message: string) => void }) {
+export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = false, isFollowing = false, isSaved = false, shareRecipients = [], onToggleFollow, onToggleSaved, onEdit, onDelete, onImportRecipe, onAddComment, onBack, onOpenProfile, onStartChat, onShareToChat }: { post: FeedPost; user: FeedUser; viewer: { displayName: string; username: string; avatarUrl: string }; comments: readonly PostComment[]; isOwnPost?: boolean; isFollowing?: boolean; isSaved?: boolean; shareRecipients?: readonly FeedUser[]; onToggleFollow?: () => void; onToggleSaved?: () => void; onEdit?: (changes: Pick<FeedPost, "glazeName" | "memo" | "price" | "priceNegotiable" | "image" | "images">) => void; onDelete?: () => void; onImportRecipe?: () => Promise<void>; onAddComment: (body: string) => void; onBack: () => void; onOpenProfile: (userId: string) => void; onStartChat?: () => void; onShareToChat?: (recipientId: string, message: string) => void }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [importStatus, setImportStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [importError, setImportError] = useState("");
@@ -196,7 +197,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
 
   function saveEdit() {
     if (!canSaveEdit) return;
-    onEdit?.({ image: editImage, glazeName: editTitle.trim(), memo: editMemo.trim(), price: post.kind === "sale" && editPrice ? Number(editPrice) : post.price, priceNegotiable: post.kind === "sale" ? editNegotiable : post.priceNegotiable });
+    onEdit?.({ image: editImage, images: post.images && post.images.length > 1 ? [editImage, ...post.images.slice(1)] : undefined, glazeName: editTitle.trim(), memo: editMemo.trim(), price: post.kind === "sale" && editPrice ? Number(editPrice) : post.price, priceNegotiable: post.kind === "sale" ? editNegotiable : post.priceNegotiable });
     setEditing(false);
     showToast("수정되었습니다.");
   }
@@ -214,7 +215,10 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
     <label className="post-edit-photo-button"><span>사진 변경</span><input type="file" accept="image/*" aria-label="게시물 사진 변경" onChange={pickEditImage} /></label>
     {editImageError && <p role="alert">{editImageError}</p>}
   </div>;
-  const heroImage = editing ? editImage : post.image;
+  //: 사진 변경은 대표(첫) 사진을 바꾼다. 나머지 사진은 그대로 둔다.
+  const heroImages: readonly string[] = editing
+    ? [editImage, ...(post.images?.slice(1) ?? [])]
+    : post.images?.length ? post.images : [post.image];
 
   const ownerDialogLayer = ownerDialog && (
     <div className="post-owner-dialog-layer">
@@ -261,7 +265,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
             {ownerActions}
           </section>
           <div className="sale-detail-photo">
-            <img className="sale-detail-image" src={heroImage} alt={post.label} />
+            <PostPhotoCarousel images={heroImages} alt={post.label} imageClassName="sale-detail-image" />
             {photoEditor}
           </div>
           <section className="sale-detail-copy">
@@ -312,7 +316,7 @@ export function PostDetailScreen({ post, user, viewer, comments, isOwnPost = fal
         </section>
 
         <figure className="post-hero">
-          <img className={`crop-${post.crop}`} src={heroImage} alt={post.label} />
+          <PostPhotoCarousel images={heroImages} alt={post.label} imageClassName={`crop-${post.crop}`} />
           {photoEditor}
           <figcaption>
             <div><span>{post.publishedAt}</span>{editing ? <input className="post-edit-field post-edit-title" aria-label="유약 이름" value={editTitle} maxLength={50} onChange={(event) => setEditTitle(event.target.value)} /> : <h1>{post.glazeName}</h1>}<p>{post.finish}</p></div>

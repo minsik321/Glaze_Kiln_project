@@ -10,11 +10,14 @@ import { useAuth } from "./auth/AuthProvider";
 import { HomeScreen } from "./home/HomeScreen";
 import { CreatePostScreen, type CreatePostDraft, type CreatePostKind } from "./home/CreatePostScreen";
 import { NotificationScreen } from "./home/NotificationScreen";
+import { loadNotifications, markNotificationsRead, type NotificationItem } from "./home/notificationStore";
 import { FEED_POSTS, FEED_USERS, dummyFollowerIds, dummyFollowingIds, findFeedPost, findFeedUser, postsForAccount, postsForUser, type FeedPost, type FeedUser } from "./home/feedData";
 import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
+import { addComment, loadComments } from "./home/commentStore";
+import { loadFollowers, loadFollowing, loadPostCounts, setFollowing } from "./home/followStore";
 import { aiceRunsApi, feedPostsApi } from "./lib/api";
 import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
@@ -60,6 +63,7 @@ function draftToFeedPost(draft: CreatePostDraft): FeedPost {
     id: crypto.randomUUID(),
     userId: "self",
     image: draft.images[0],
+    images: draft.images.length > 1 ? draft.images : undefined,
     label: `${draft.title} ${draft.kind === "sale" ? "판매 게시물" : "작업 게시물"}`,
     size: "medium",
     crop: 1,
@@ -91,12 +95,21 @@ export function App() {
   const [createPostRecord, setCreatePostRecord] = useState<{ seed: RecordPostSeed; from: "picker" | "detail" } | null>(null);
   const [pickingRecord, setPickingRecord] = useState(false);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
+  //: 다른 가입자가 올린 글 — 모든 계정이 같은 피드를 보도록 서버에서 가져온다.
+  const [otherPosts, setOtherPosts] = useState<FeedPost[]>([]);
+  //: 작성자별 전체 게시물 수(서버 집계). 비공개 계정의 글을 못 읽어도 개수는 유지한다.
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   const [postError, setPostError] = useState("");
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
+  //: 나를 팔로우하는 사람(실제 가입자). 팔로우 관계는 DB(follows)에 있다.
+  const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [followToast, setFollowToast] = useState<{ id: number; message: string } | null>(null);
   const followToastId = useRef(0);
+  const chatSendCount = useRef(0);
+  //: 피드 다시 불러오기. 팔로우를 바꾸면 비공개 계정 글의 열람 권한이 달라지므로 호출한다.
+  const reloadFeed = useRef<(() => void) | undefined>(undefined);
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
@@ -108,13 +121,14 @@ export function App() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsDetail | null>(null);
   const [settingsDetailClosing, setSettingsDetailClosing] = useState(false);
   const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
-  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string; bio: string }>();
+  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string; bio: string; isPrivate: boolean }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
   const [connectionsOwnerId, setConnectionsOwnerId] = useState("self");
   const [connectionsInitialTab, setConnectionsInitialTab] = useState<ConnectionTab>("followers");
   const [selectedPostId, setSelectedPostId] = useState("chloe-1");
   const [postReturnView, setPostReturnView] = useState<"work" | "followingFeed" | "bookmarks" | "my" | "profile">("work");
-  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>(DEMO_POST_COMMENTS);
+  //: 저장된 댓글(DB). 더미 게시물의 시연용 댓글(DEMO_POST_COMMENTS)은 그 앞에 붙여 보여준다.
+  const [savedComments, setSavedComments] = useState<Record<string, PostComment[]>>({});
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
@@ -139,7 +153,7 @@ export function App() {
     let active = true;
     void requireSupabase()
       .from("profiles")
-      .select("display_name, avatar_url, bio")
+      .select("display_name, avatar_url, bio, is_private")
       .eq("id", session.user.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -148,6 +162,7 @@ export function App() {
           displayName: data.display_name || session.user.user_metadata.display_name || "가마쟁이",
           avatarUrl: data.avatar_url || "",
           bio: data.bio || "",
+          isPrivate: data.is_private === true,
         });
       });
     return () => { active = false; };
@@ -155,19 +170,81 @@ export function App() {
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
-  //: 올린 게시글은 DB(feed_posts)에 있다 — 로그인하면 다시 불러온다.
+  //: 게시글은 DB(feed_posts)에 있다 — 로그인하면 모든 사용자의 글을 불러오고,
+  //: 다른 탭/기기에서 올라온 새 글은 창에 다시 돌아올 때 가져온다.
   useEffect(() => {
     const token = session?.access_token;
+    const userId = session?.user.id;
     setCreatedPosts([]);
-    if (!token) return;
+    setOtherPosts([]);
+    setPostCounts({});
+    if (!token || !userId) return;
     let active = true;
-    void feedPostsApi.listMine(token).then((posts) => {
-      if (active) setCreatedPosts(posts);
+    const load = () => {
+      void loadPostCounts().then((counts) => { if (active) setPostCounts(counts); }).catch(() => undefined);
+      void feedPostsApi.listAll(token, userId).then((posts) => {
+        if (!active) return;
+        setCreatedPosts(posts.filter((post) => post.userId === "self"));
+        setOtherPosts(posts.filter((post) => post.userId !== "self"));
+      }).catch((error: unknown) => {
+        if (active) setPostError(error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.");
+      });
+    };
+    const reloadWhenVisible = () => { if (document.visibilityState === "visible") load(); };
+    reloadFeed.current = load;
+    load();
+    document.addEventListener("visibilitychange", reloadWhenVisible);
+    return () => { active = false; reloadFeed.current = undefined; document.removeEventListener("visibilitychange", reloadWhenVisible); };
+  }, [session?.user.id]);
+
+  //: 알림은 DB에 있다 — 로그인하면 불러오고, 홈에서 새 알림을 알 수 있게 주기적으로 다시 읽는다.
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useEffect(() => {
+    const userId = session?.user.id;
+    setNotifications([]);
+    if (!userId) return;
+    let active = true;
+    const refresh = () => { void loadNotifications().then((items) => { if (active) setNotifications(items); }).catch(() => undefined); };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [session?.user.id]);
+  function markNotificationsAsRead(ids: readonly string[]) {
+    const set = new Set(ids);
+    setNotifications((current) => current.map((item) => set.has(item.id) ? { ...item, read: true } : item));
+    void markNotificationsRead(ids).catch(() => undefined);
+  }
+
+  //: 팔로잉/팔로워는 DB에 있다 — 로그인하면 다시 불러온다.
+  useEffect(() => {
+    const userId = session?.user.id;
+    setFollowedUserIds(new Set());
+    setFollowerIds([]);
+    if (!userId) return;
+    let active = true;
+    void Promise.all([loadFollowing(userId), loadFollowers(userId)]).then(([following, followers]) => {
+      if (!active) return;
+      setFollowedUserIds(new Set(following));
+      setFollowerIds(followers);
     }).catch((error: unknown) => {
-      if (active) setPostError(error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.");
+      if (active) setFollowToast({ id: ++followToastId.current, message: error instanceof Error ? error.message : "팔로우 목록을 불러오지 못했습니다." });
     });
     return () => { active = false; };
   }, [session?.user.id]);
+
+  //: 게시글 상세를 열면 그 글의 댓글을 DB에서 불러온다.
+  useEffect(() => {
+    if (!session?.user.id || view !== "post") return;
+    let active = true;
+    const postId = selectedPostId;
+    void loadComments(postId).then((comments) => {
+      if (active) setSavedComments((current) => ({ ...current, [postId]: comments }));
+    }).catch((error: unknown) => {
+      if (active) setPostError(error instanceof Error ? error.message : "댓글을 불러오지 못했습니다.");
+    });
+    return () => { active = false; };
+  }, [session?.user.id, view, selectedPostId]);
 
   const reportPostError = (error: unknown, fallback: string) => setPostError(error instanceof Error ? error.message : fallback);
 
@@ -188,6 +265,23 @@ export function App() {
     });
     return () => { active = false; };
   }, [session?.user.id]);
+
+  //: 상대가 보낸 메시지는 서버 사본으로 쌓이므로, 채팅 화면이 열려 있는 동안 주기적으로 다시 불러온다.
+  useEffect(() => {
+    const ownerId = session?.user.id;
+    if (!ownerId || (view !== "chat" && view !== "conversation")) return;
+    let active = true;
+    const poll = () => {
+      const sendsAtStart = chatSendCount.current;
+      void loadChatThreads(ownerId).then((threads) => {
+        //: 조회 도중 내가 보낸 메시지가 있으면 이 결과는 낡았으니 버린다(다음 주기에 반영).
+        if (!active || sendsAtStart !== chatSendCount.current) return;
+        setChatThreads((current) => JSON.stringify(current) === JSON.stringify(threads) ? current : threads);
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(poll, 5_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [session?.user.id, view]);
 
   useEffect(() => {
     if (!followToast) return;
@@ -258,15 +352,20 @@ export function App() {
   const avatarUrl = profileIdentity?.avatarUrl ?? "";
   const bio = profileIdentity?.bio ?? "";
   const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
-  const feedPosts = applyPostState([...createdPosts, ...FEED_POSTS]);
+  const feedPosts = applyPostState([...createdPosts, ...otherPosts, ...FEED_POSTS]);
   const followingFeedPosts = feedPosts.filter((post) => followedUserIds.has(post.userId));
   const bookmarkedPosts = feedPosts.filter((post) => bookmarkedPostIds.has(post.id));
   const myPosts = applyPostState([...createdPosts, ...postsForAccount(session?.user.email)]);
   const selectedProfileBase = findFeedUser(selectedProfileId);
   const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
-  const selectedPostBase = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
+  const profilePosts = applyPostState([...otherPosts.filter((post) => post.userId === selectedProfile.id), ...postsForUser(selectedProfile.id)]);
+  //: 실제 가입자 프로필은 서버가 센 게시물 수를 쓰고, 읽힌 글보다 많으면 일부가 비공개로 가려진 것이다.
+  const serverPostCount = postCounts[selectedProfile.id];
+  const profilePostCount = serverPostCount === undefined ? undefined : Math.max(serverPostCount, profilePosts.length);
+  const profilePostsHidden = serverPostCount !== undefined && serverPostCount > profilePosts.length;
+  const selectedPostBase = [...createdPosts, ...otherPosts].find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
-  const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
+  const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: followerIds.length, following: followedUserIds.size } };
   const selectedPostUser = selectedPost.userId === "self"
     ? selfUser
     : findFeedUser(selectedPost.userId);
@@ -298,7 +397,9 @@ export function App() {
     const thread: ChatThread = { userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: sentAt, messages: [] };
     try {
       await saveChatThread(session.user.id, thread);
+      chatSendCount.current += 1;
       await saveChatMessage(session.user.id, user.id, message);
+      chatSendCount.current += 1;
       setChatError("");
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "게시물을 채팅으로 보내지 못했습니다.");
@@ -318,24 +419,34 @@ export function App() {
 
   async function sendChatMessage(message: ChatMessage) {
     if (!session?.user.id || !activeChatUserId) throw new Error("로그인한 채팅을 찾을 수 없습니다.");
+    chatSendCount.current += 1;
     await saveChatMessage(session.user.id, activeChatUserId, message);
+    chatSendCount.current += 1;
     setChatThreads((current) => current.map((thread) => thread.userId === activeChatUserId
       ? { ...thread, updatedAt: message.sentAt, messages: [...thread.messages, message] }
       : thread));
   }
 
   function toggleFollow(userId: string) {
+    const ownerId = session?.user.id;
     if (userId === "self") return;
     const wasFollowing = followedUserIds.has(userId);
-    setFollowedUserIds((current) => {
+    const apply = (follow: boolean) => setFollowedUserIds((current) => {
       const next = new Set(current);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
+      if (follow) next.add(userId);
+      else next.delete(userId);
       return next;
     });
+    apply(!wasFollowing);
     setFollowToast({
       id: ++followToastId.current,
       message: `${findFeedUser(userId).displayName}님을 ${wasFollowing ? "언팔로우했습니다." : "팔로우했습니다."}`,
+    });
+    //: 저장에 실패하면 화면을 원래대로 돌리고 알린다 — 새로고침하면 사라질 상태를 남겨 두지 않는다.
+    if (!ownerId) return;
+    void setFollowing(ownerId, userId, !wasFollowing).then(() => reloadFeed.current?.()).catch((error: unknown) => {
+      apply(wasFollowing);
+      setFollowToast({ id: ++followToastId.current, message: error instanceof Error ? error.message : "팔로우를 저장하지 못했습니다." });
     });
   }
 
@@ -356,7 +467,7 @@ export function App() {
 
   const connectionsOwner = connectionsOwnerId === "self" ? selfUser : findFeedUser(connectionsOwnerId);
   const connectionFollowers = connectionsOwnerId === "self"
-    ? []
+    ? followerIds.map(findFeedUser)
     : [...dummyFollowerIds(connectionsOwnerId).map(findFeedUser), ...(followedUserIds.has(connectionsOwnerId) ? [selfUser] : [])];
   const connectionFollowing = connectionsOwnerId === "self"
     ? [...followedUserIds].map(findFeedUser)
@@ -464,6 +575,7 @@ export function App() {
             onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
             onOpenFollowingFeed={() => setView("followingFeed")}
             onOpenNotifications={() => setView("notifications")}
+            hasUnreadNotifications={notifications.some((item) => !item.read)}
           />
           {showWorkflow && (
             <div
@@ -518,7 +630,8 @@ export function App() {
             }}
             onSubmit={(draft) => {
               const finish = (post: FeedPost) => {
-                setCreatedPosts((current) => [post, ...current]);
+                //: 같은 글이 이미 있으면(피드 재조회가 먼저 끝난 경우) 겹쳐 쌓지 않고 교체한다.
+                setCreatedPosts((current) => [post, ...current.filter((item) => item.id !== post.id)]);
                 setCreatePostKind(null);
                 setCreatePostRecord(null);
                 setView("work");
@@ -526,7 +639,7 @@ export function App() {
               const post = draftToFeedPost(draft);
               if (!session) { finish(post); return; }
               setPostError("");
-              void feedPostsApi.create(session.access_token, post).then(finish).catch((error: unknown) => reportPostError(error, "게시글을 저장하지 못했습니다."));
+              return feedPostsApi.create(session.access_token, post).then(finish).catch((error: unknown) => reportPostError(error, "게시글을 저장하지 못했습니다."));
             }}
           />
         )}
@@ -586,7 +699,7 @@ export function App() {
             posts={myPosts}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("my"); setView("post"); }}
             onOpenBookmarks={() => setView("bookmarks")}
-            stats={{ records: myPosts.length, followers: 0, following: followedUserIds.size }}
+            stats={{ records: myPosts.length, followers: followerIds.length, following: followedUserIds.size }}
             onOpenConnections={(tab) => openConnections("self", tab)}
             onOpenAccountSettings={() => openSettingsDetail("account")}
             onOpenKilnSettings={() => openSettingsDetail("kiln")}
@@ -601,7 +714,14 @@ export function App() {
                 if (saved.error.code === "23505") throw new Error("이미 사용중인 닉네임입니다.");
                 throw new Error(saved.error.message || "프로필을 저장하지 못했습니다.");
               }
-              setProfileIdentity({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio });
+              setProfileIdentity((current) => ({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio, isPrivate: current?.isPrivate ?? false }));
+            }}
+            isPrivate={profileIdentity?.isPrivate ?? false}
+            onChangeAccountPrivate={async (nextPrivate) => {
+              if (!session) throw new Error("로그인 정보를 확인할 수 없습니다.");
+              const saved = await requireSupabase().from("profiles").upsert({ id: session.user.id, is_private: nextPrivate }, { onConflict: "id" });
+              if (saved.error) throw new Error(saved.error.message || "계정 공개 설정을 저장하지 못했습니다.");
+              setProfileIdentity((current) => ({ displayName: current?.displayName ?? displayName, avatarUrl: current?.avatarUrl ?? avatarUrl, bio: current?.bio ?? bio, isPrivate: nextPrivate }));
             }}
             onSettingsOpenChange={setMySettingsOpen}
             onLogout={async () => {
@@ -633,7 +753,7 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState(postsForUser(selectedProfile.id))} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={profilePosts} postCount={profilePostCount} postsHidden={profilePostsHidden} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
         </section>
         <section className="app-view" hidden={view !== "connections"}>
           {view === "connections" && <ConnectionsScreen
@@ -655,7 +775,7 @@ export function App() {
             post={selectedPost}
             user={selectedPostUser}
             viewer={{ displayName, username, avatarUrl }}
-            comments={postComments[selectedPost.id] ?? []}
+            comments={[...(DEMO_POST_COMMENTS[selectedPost.id] ?? []), ...(savedComments[selectedPost.id] ?? [])]}
             isOwnPost={selectedPost.userId === "self"}
             isFollowing={followedUserIds.has(selectedPostUser.id)}
             isSaved={bookmarkedPostIds.has(selectedPost.id)}
@@ -689,13 +809,14 @@ export function App() {
               const imported = feedPostToWorkRecord(selectedPost, selectedPostUser);
               await aiceRunsApi.create(session.access_token, { title: imported.title, run: imported, request_id: imported.run_id, is_public: false });
             }}
-            onAddComment={(body) => setPostComments((current) => ({
-              ...current,
-              [selectedPost.id]: [
-                ...(current[selectedPost.id] ?? []),
-                { id: crypto.randomUUID(), body, displayName, username, avatarUrl, createdAt: "방금 전" },
-              ],
-            }))}
+            onAddComment={(body) => {
+              const ownerId = session?.user.id;
+              const postId = selectedPost.id;
+              if (!ownerId) { setPostError("로그인이 필요합니다."); return; }
+              void addComment(postId, ownerId, body).then((saved) => {
+                setSavedComments((current) => ({ ...current, [postId]: [...(current[postId] ?? []), saved] }));
+              }).catch((error: unknown) => reportPostError(error, "댓글을 저장하지 못했습니다."));
+            }}
             onBack={() => setView(postReturnView)}
             onStartChat={() => openConversation(selectedPostUser)}
             onShareToChat={(recipientId, message) => sharePostInChat(findFeedUser(recipientId), message)}
@@ -706,7 +827,20 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "notifications"}>
-          <NotificationScreen onBack={() => setView("work")} />
+          <NotificationScreen
+            notifications={notifications}
+            onBack={() => setView("work")}
+            onMarkRead={markNotificationsAsRead}
+            onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
+            onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
+            onOpenChat={(userId) => {
+              const ownerId = session?.user.id;
+              //: 상대 사본 대화방은 서버가 만들었으므로, 열기 전에 목록을 다시 불러온다.
+              const open = () => { setActiveChatUserId(userId); setView("conversation"); };
+              if (!ownerId) return open();
+              void loadChatThreads(ownerId).then(setChatThreads).catch(() => undefined).finally(open);
+            }}
+          />
         </section>
         {settingsDetail && (
           <section

@@ -29,7 +29,7 @@ function Select<T extends string>({ label, value, options, onChange }: { label: 
 export function WorkRecordDetail({ run, origin, nextTrial, edit }: Props) {
   const peak = Math.max(...run.curves.baseline.points.map((point) => point.temperature_c));
   const totalMinutes = Math.max(...run.curves.baseline.points.map((point) => point.minute));
-  const method = ({ dipping: "담금", pouring: "부기", brushing: "붓칠", spraying: "분무" } as const)[run.application.method];
+  const method = ({ dipping: "담금", pouring: "붓기", brushing: "붓칠", spraying: "분무" } as const)[run.application.method];
   const source = run.sources.find((item) => item.reference === "aice-feed-post-import");
   const memo = workRecordMemo(run);
   const draft = edit?.draft;

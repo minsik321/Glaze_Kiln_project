@@ -40,6 +40,8 @@ __all__ = ["ThicknessPoint", "ThicknessProfile", "compute_profile", "fired_thick
 #: g(ρ)/m(ρ) 정규화 기준점과 같다 — "비중이 딱 정규화 지점"이라고 가정하는
 #: 것과 같은 뜻이므로 g(ρ)=m(ρ)=1.0이 되어 왜곡이 최소가 된다.
 _RHO_FALLBACK = 1.45
+#: 붓기의 가정 접촉 시간(초). 미정값 — 실측 후 보정 대상.
+_POUR_ASSUMED_CONTACT_S = 3.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +159,7 @@ def compute_profile(
 
     1. 표면적 A — 왁스 면적 제외, 내부 시유 여부 반영(7-5절).
     2. 시유 방법이 분포 모델을 지원하지 않으면(``has_distribution_model``
-       False, 즉 부기·분무·붓칠) **부위별 분포를 지어내지 않는다** — 모든
+       False, 즉 붓기·분무·붓칠) **부위별 분포를 지어내지 않는다** — 모든
        점을 평균값으로 채우고 ``has_distribution=False`` 로 둔다(7-5절).
     3. 담금이면 모양 항(t_abs, t_flow)을 위치별로 계산하고, 그 면적가중
        평균이 ``W/(A·ρ_dry)`` 와 같아지도록 **전체를 한 배율로 스케일**한다
@@ -232,7 +234,14 @@ def compute_profile(
         )
 
     dip_seconds = record.dip_seconds
-    assert dip_seconds is not None  # GlazingRecord.__post_init__이 보장한다
+    if dip_seconds is None:
+        # 붓기: 담금시간이 없다. 접촉 시간을 가정해 흡수 항 크기를 정한다 —
+        # 총량 제약이 평균을 고정하므로 이 값은 흡수:흘러내림 비율에만 영향을 준다.
+        dip_seconds = _POUR_ASSUMED_CONTACT_S
+        notes.append(
+            f"붓기라 접촉 시간 실측 없음 — {_POUR_ASSUMED_CONTACT_S}s로 가정 "
+            "(분포 비율에만 영향, 평균은 총량 제약이 고정)"
+        )
 
     g_val = (rho / 1.45) ** g_exp
     m_val = (rho / 1.45) ** m_exp

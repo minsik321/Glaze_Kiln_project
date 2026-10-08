@@ -94,6 +94,17 @@ def test_format_retrieved_context() -> None:
     assert "material_chemistry" in text and "규석은 실리카다." in text
 
 
+def test_format_retrieved_context_drops_duplicate_documents() -> None:
+    docs = [
+        RetrievedDocument("규석은 실리카다.", "material_chemistry", .9, {}),
+        RetrievedDocument("  규석은   실리카다. ", "correlation_note", .8, {}),
+        RetrievedDocument("내 사틴 레시피", "personal_recipe", .7, {}),
+        RetrievedDocument("", "personal_recipe", .6, {}),
+    ]
+    lines = format_retrieved_context(docs).splitlines()
+    assert lines == ["- (material_chemistry) 규석은 실리카다.", "- (personal_recipe) 내 사틴 레시피"]
+
+
 @pytest.mark.asyncio
 async def test_embedding_api_failure_becomes_vector_store_unavailable() -> None:
     async def failing_embed(texts):

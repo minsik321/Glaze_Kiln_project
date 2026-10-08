@@ -603,10 +603,14 @@ async def test_feed_post_create_list_update_delete_are_owner_scoped() -> None:
     stored = {"id": post_id, "kind": "work", "payload": {"glazeName": "해안 사틴", "memo": "m"}, "created_at": NOW, "updated_at": NOW}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/v1/public_profiles":
+            return httpx.Response(200, json=[{"id": str(USER_ID), "display_name": "작가"}])
         assert request.url.path == "/rest/v1/feed_posts"
         if request.method == "POST":
             assert json.loads(request.content)["user_id"] == str(USER_ID)
             return httpx.Response(201, json=[stored])
+        if request.method == "GET" and "user_id" not in request.url.params:
+            return httpx.Response(200, json=[{**stored, "user_id": OTHER_USER}, {**stored, "user_id": str(USER_ID)}])
         assert request.url.params["user_id"] == f"eq.{USER_ID}"
         if request.method == "PATCH":
             assert request.url.params["id"] == f"eq.{post_id}"
@@ -621,11 +625,16 @@ async def test_feed_post_create_list_update_delete_are_owner_scoped() -> None:
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         created = await client.post("/api/v1/feed-posts", headers=headers, json=body)
         listed = await client.get("/api/v1/feed-posts", headers=headers)
+        mine = await client.get("/api/v1/feed-posts?scope=mine", headers=headers)
         edited = await client.put(f"/api/v1/feed-posts/{post_id}", headers=headers, json={**body, "payload": {"glazeName": "고침"}})
         removed = await client.delete(f"/api/v1/feed-posts/{post_id}", headers=headers)
         invalid = await client.post("/api/v1/feed-posts", headers=headers, json={"kind": "work", "payload": {}})
     assert created.status_code == 201 and created.json()["id"] == post_id
     assert listed.json()["items"][0]["payload"]["glazeName"] == "해안 사틴"
+    # 전체 피드: 다른 사용자의 글도 오고, 내 글에는 작성자 이름이 붙는다.
+    assert [item["author_id"] for item in listed.json()["items"]] == [OTHER_USER, str(USER_ID)]
+    assert listed.json()["items"][1]["author_name"] == "작가"
+    assert mine.status_code == 200
     assert edited.json()["payload"]["glazeName"] == "고침"
     assert removed.status_code == 204
     assert invalid.status_code == 422

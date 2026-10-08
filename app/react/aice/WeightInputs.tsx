@@ -1,6 +1,6 @@
 import type { ArealDensityResult } from "./arealDensity";
 
-const METHODS = ["담금", "부기", "분무", "붓칠"] as const;
+const METHODS = ["담금", "붓기", "분무", "붓칠"] as const;
 
 export function WeightInputs({
   beforeG,
