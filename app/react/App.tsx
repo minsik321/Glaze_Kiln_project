@@ -91,6 +91,8 @@ export function App() {
   const [createPostRecord, setCreatePostRecord] = useState<{ seed: RecordPostSeed; from: "picker" | "detail" } | null>(null);
   const [pickingRecord, setPickingRecord] = useState(false);
   const [createdPosts, setCreatedPosts] = useState<FeedPost[]>([]);
+  //: 다른 가입자가 올린 글 — 모든 계정이 같은 피드를 보도록 서버에서 가져온다.
+  const [otherPosts, setOtherPosts] = useState<FeedPost[]>([]);
   const [postError, setPostError] = useState("");
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
@@ -155,18 +157,28 @@ export function App() {
 
   useEffect(() => () => window.clearTimeout(settingsDetailCloseTimer.current), []);
 
-  //: 올린 게시글은 DB(feed_posts)에 있다 — 로그인하면 다시 불러온다.
+  //: 게시글은 DB(feed_posts)에 있다 — 로그인하면 모든 사용자의 글을 불러오고,
+  //: 다른 탭/기기에서 올라온 새 글은 창에 다시 돌아올 때 가져온다.
   useEffect(() => {
     const token = session?.access_token;
+    const userId = session?.user.id;
     setCreatedPosts([]);
-    if (!token) return;
+    setOtherPosts([]);
+    if (!token || !userId) return;
     let active = true;
-    void feedPostsApi.listMine(token).then((posts) => {
-      if (active) setCreatedPosts(posts);
-    }).catch((error: unknown) => {
-      if (active) setPostError(error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.");
-    });
-    return () => { active = false; };
+    const load = () => {
+      void feedPostsApi.listAll(token, userId).then((posts) => {
+        if (!active) return;
+        setCreatedPosts(posts.filter((post) => post.userId === "self"));
+        setOtherPosts(posts.filter((post) => post.userId !== "self"));
+      }).catch((error: unknown) => {
+        if (active) setPostError(error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.");
+      });
+    };
+    const reloadWhenVisible = () => { if (document.visibilityState === "visible") load(); };
+    load();
+    document.addEventListener("visibilitychange", reloadWhenVisible);
+    return () => { active = false; document.removeEventListener("visibilitychange", reloadWhenVisible); };
   }, [session?.user.id]);
 
   const reportPostError = (error: unknown, fallback: string) => setPostError(error instanceof Error ? error.message : fallback);
@@ -258,13 +270,13 @@ export function App() {
   const avatarUrl = profileIdentity?.avatarUrl ?? "";
   const bio = profileIdentity?.bio ?? "";
   const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
-  const feedPosts = applyPostState([...createdPosts, ...FEED_POSTS]);
+  const feedPosts = applyPostState([...createdPosts, ...otherPosts, ...FEED_POSTS]);
   const followingFeedPosts = feedPosts.filter((post) => followedUserIds.has(post.userId));
   const bookmarkedPosts = feedPosts.filter((post) => bookmarkedPostIds.has(post.id));
   const myPosts = applyPostState([...createdPosts, ...postsForAccount(session?.user.email)]);
   const selectedProfileBase = findFeedUser(selectedProfileId);
   const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
-  const selectedPostBase = createdPosts.find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
+  const selectedPostBase = [...createdPosts, ...otherPosts].find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
   const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
   const selectedPostUser = selectedPost.userId === "self"
@@ -633,7 +645,7 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "profile"}>
-          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState(postsForUser(selectedProfile.id))} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
+          <MyScreen variant="other" username={selectedProfile.username} displayName={selectedProfile.displayName} bio={selectedProfile.bio} avatarTone={selectedProfile.avatarTone} stats={selectedProfile.stats} posts={applyPostState([...otherPosts.filter((post) => post.userId === selectedProfile.id), ...postsForUser(selectedProfile.id)])} onBack={() => setView("work")} onMessage={() => openConversation(selectedProfile)} isFollowing={followedUserIds.has(selectedProfile.id)} onToggleFollow={() => toggleFollow(selectedProfile.id)} onOpenConnections={(tab) => openConnections(selectedProfile.id, tab)} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("profile"); setView("post"); }} />
         </section>
         <section className="app-view" hidden={view !== "connections"}>
           {view === "connections" && <ConnectionsScreen

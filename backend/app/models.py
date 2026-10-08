@@ -498,6 +498,9 @@ class FeedPostWrite(ApiModel):
 class FeedPostResponse(ApiModel):
     id: UUID
     user_id: UUID | None = Field(default=None, exclude=True)
+    # 전체 피드에서 작성자를 화면에 그리기 위한 값. 쓰기 응답에서는 비어 있다.
+    author_id: UUID | None = None
+    author_name: str = ""
     kind: Literal["work", "sale"]
     payload: dict[str, Any]
     created_at: datetime

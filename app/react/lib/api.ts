@@ -1,6 +1,6 @@
 import { assertAiceRun, type AiceRun, type RecipeCandidate } from "../aice/contract";
 import { persistPostImage, persistRunPhotos, signedPostImageUrl } from "../aice/photoStorage";
-import type { FeedPost } from "../home/feedData";
+import { registerFeedUser, type FeedPost } from "../home/feedData";
 import { requireSupabase } from "./supabase";
 
 const API_URL = (
@@ -366,7 +366,7 @@ export const recipesApi = {
   get: (token: string, id: string) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, token),
 };
 
-type FeedPostRow = { id: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "publishedAt"> & { imagePath?: string | null; image?: string }; created_at: string };
+type FeedPostRow = { id: string; author_id?: string | null; author_name?: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "publishedAt"> & { imagePath?: string | null; image?: string }; created_at: string };
 
 function relativeTime(iso: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
@@ -376,10 +376,13 @@ function relativeTime(iso: string): string {
   return `${Math.floor(minutes / 1440)}일 전`;
 }
 
-async function rowToPost(row: FeedPostRow): Promise<FeedPost> {
+async function rowToPost(row: FeedPostRow, selfId?: string): Promise<FeedPost> {
   const { imagePath, image: legacyImage, ...rest } = row.payload;
   const image = imagePath ? await signedPostImageUrl(imagePath).catch(() => null) : null;
-  return { ...rest, id: row.id, userId: "self", image: image ?? legacyImage ?? "", publishedAt: relativeTime(row.created_at), kind: row.kind } as FeedPost;
+  //: 내 글은 "self", 다른 사람 글은 그 사람의 실제 id.
+  const isMine = !selfId || !row.author_id || row.author_id === selfId;
+  if (!isMine && row.author_id) registerFeedUser(row.author_id, row.author_name ?? "");
+  return { ...rest, id: row.id, userId: isMine ? "self" : row.author_id!, image: image ?? legacyImage ?? "", publishedAt: relativeTime(row.created_at), kind: row.kind } as FeedPost;
 }
 
 //: 사진은 저장소에 올리고 경로만 payload에 남긴다. 저장소를 못 쓰면 data URL을 그대로 둔다.
@@ -390,9 +393,10 @@ async function postBody(post: FeedPost) {
 }
 
 export const feedPostsApi = {
-  listMine: async (token: string) => {
+  //: 모든 사용자의 글(최신순). selfId와 같은 작성자의 글은 내 글("self")로 표시한다.
+  listAll: async (token: string, selfId: string) => {
     const page = await request<{ items: FeedPostRow[] }>("/feed-posts?limit=100", token);
-    return Promise.all(page.items.map(rowToPost));
+    return Promise.all(page.items.map((row) => rowToPost(row, selfId)));
   },
   create: async (token: string, post: FeedPost) =>
     rowToPost(await request<FeedPostRow>("/feed-posts", token, { method: "POST", body: await postBody(post) })),

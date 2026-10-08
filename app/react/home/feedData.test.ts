@@ -25,3 +25,13 @@ describe("home feed dummy data", () => {
     expect(postsForAccount("new-user@example.com")).toHaveLength(0);
   });
 });
+
+describe("registerFeedUser", () => {
+  it("resolves a signed-up author instead of falling back to the first dummy user", async () => {
+    const { registerFeedUser, findFeedUser, FEED_USERS } = await import("./feedData");
+    registerFeedUser("00000000-aaaa-4bbb-8ccc-000000000001", "새 작가");
+    const user = findFeedUser("00000000-aaaa-4bbb-8ccc-000000000001");
+    expect(user.displayName).toBe("새 작가");
+    expect(user.id).not.toBe(FEED_USERS[0].id);
+  });
+});
