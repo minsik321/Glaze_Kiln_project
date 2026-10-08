@@ -1,0 +1,33 @@
+# Render Blueprint — 백엔드(FastAPI). 프런트는 Vercel(vercel.json)에 배포한다.
+# 비밀값(sync: false)은 Render 대시보드에서 직접 입력한다.
+services:
+  - type: web
+    name: kiln-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install ".[backend]"
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      # Vercel 도메인(쉼표 구분, 끝 슬래시 없이). 예: https://your-app.vercel.app
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: AIMLAPI_API_KEY
+        sync: false
+      - key: AIMLAPI_BASE_URL
+        value: https://api.aimlapi.com/v1
+      - key: AIMLAPI_TEXT_MODEL
+        value: google/gemini-3.5-flash-lite
+      - key: AIMLAPI_TARGET_MODEL
+        value: google/gemini-2.5-flash-lite
+      - key: AIMLAPI_IMAGE_MODEL
+        value: google/nano-banana
+      - key: AIMLAPI_EMBEDDING_MODEL
+        value: text-embedding-3-small
