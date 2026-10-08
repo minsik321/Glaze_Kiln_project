@@ -115,7 +115,7 @@ export function App() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsDetail | null>(null);
   const [settingsDetailClosing, setSettingsDetailClosing] = useState(false);
   const settingsDetailCloseTimer = useRef<number | undefined>(undefined);
-  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string; bio: string }>();
+  const [profileIdentity, setProfileIdentity] = useState<{ displayName: string; avatarUrl: string; bio: string; isPrivate: boolean }>();
   const [selectedProfileId, setSelectedProfileId] = useState("chloe");
   const [connectionsOwnerId, setConnectionsOwnerId] = useState("self");
   const [connectionsInitialTab, setConnectionsInitialTab] = useState<ConnectionTab>("followers");
@@ -147,7 +147,7 @@ export function App() {
     let active = true;
     void requireSupabase()
       .from("profiles")
-      .select("display_name, avatar_url, bio")
+      .select("display_name, avatar_url, bio, is_private")
       .eq("id", session.user.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -156,6 +156,7 @@ export function App() {
           displayName: data.display_name || session.user.user_metadata.display_name || "가마쟁이",
           avatarUrl: data.avatar_url || "",
           bio: data.bio || "",
+          isPrivate: data.is_private === true,
         });
       });
     return () => { active = false; };
@@ -678,7 +679,14 @@ export function App() {
                 if (saved.error.code === "23505") throw new Error("이미 사용중인 닉네임입니다.");
                 throw new Error(saved.error.message || "프로필을 저장하지 못했습니다.");
               }
-              setProfileIdentity({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio });
+              setProfileIdentity((current) => ({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio, isPrivate: current?.isPrivate ?? false }));
+            }}
+            isPrivate={profileIdentity?.isPrivate ?? false}
+            onChangeAccountPrivate={async (nextPrivate) => {
+              if (!session) throw new Error("로그인 정보를 확인할 수 없습니다.");
+              const saved = await requireSupabase().from("profiles").upsert({ id: session.user.id, is_private: nextPrivate }, { onConflict: "id" });
+              if (saved.error) throw new Error(saved.error.message || "계정 공개 설정을 저장하지 못했습니다.");
+              setProfileIdentity((current) => ({ displayName: current?.displayName ?? displayName, avatarUrl: current?.avatarUrl ?? avatarUrl, bio: current?.bio ?? bio, isPrivate: nextPrivate }));
             }}
             onSettingsOpenChange={setMySettingsOpen}
             onLogout={async () => {

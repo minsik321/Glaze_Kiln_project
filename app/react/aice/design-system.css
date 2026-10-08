@@ -534,7 +534,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .collection-feed-header > div { display: flex; justify-content: flex-end; }
 .collection-feed-header h1 { margin: 0; color: #20282c; font-size: 16px; text-align: center; }
 .collection-feed-header svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.collection-feed-header button[aria-pressed="true"] { color: #149fd9; }
+.collection-feed-header button[aria-pressed="true"] { color: #8b9499; }
 .collection-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 26px; }
 .collection-feed--grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 8px; }
 .collection-feed--list { display: block; }
@@ -974,6 +974,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .my-header button { justify-self: end; width: 36px; }
 .my-header-actions { display: flex; justify-self: end; }
+.my-header strong .my-lock { width: 22px; height: 22px; margin-right: 6px; vertical-align: -3px; }
 .my-header svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .my-settings-layer { position: absolute; z-index: 30; inset: 0; overflow: hidden; background: #fff; }
 .my-settings-panel { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; padding: var(--app-safe-top) 16px max(24px, env(safe-area-inset-bottom)); overflow-y: auto; background: #fff; animation: my-settings-slide-in 300ms cubic-bezier(.22, .8, .24, 1) both; }
