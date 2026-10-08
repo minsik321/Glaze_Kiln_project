@@ -2294,6 +2294,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .thickness-judgment.thin { background: #eef7ff; color: #397da7; }
 .thickness-judgment.target { background: #edf9f4; color: #378269; }
 .thickness-judgment.unavailable { background: #f2f4f5; color: #747d81; }
+.thickness-alert { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: #fff0f1; color: #b45260; border: 1px solid #e8b4bb; font-size: 13px; font-weight: 700; }
 .thickness-measurement { margin: 8px 2px 0; color: #99a2a6; font-size: 9px; text-align: right; }
 .guided-step-3 .firing-plan-description {
   margin: -8px 0 16px;

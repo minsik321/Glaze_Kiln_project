@@ -103,6 +103,7 @@ export function App() {
   const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [followToast, setFollowToast] = useState<{ id: number; message: string } | null>(null);
   const followToastId = useRef(0);
+  const chatSendCount = useRef(0);
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
@@ -236,6 +237,23 @@ export function App() {
     return () => { active = false; };
   }, [session?.user.id]);
 
+  //: 상대가 보낸 메시지는 서버 사본으로 쌓이므로, 채팅 화면이 열려 있는 동안 주기적으로 다시 불러온다.
+  useEffect(() => {
+    const ownerId = session?.user.id;
+    if (!ownerId || (view !== "chat" && view !== "conversation")) return;
+    let active = true;
+    const poll = () => {
+      const sendsAtStart = chatSendCount.current;
+      void loadChatThreads(ownerId).then((threads) => {
+        //: 조회 도중 내가 보낸 메시지가 있으면 이 결과는 낡았으니 버린다(다음 주기에 반영).
+        if (!active || sendsAtStart !== chatSendCount.current) return;
+        setChatThreads((current) => JSON.stringify(current) === JSON.stringify(threads) ? current : threads);
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(poll, 5_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [session?.user.id, view]);
+
   useEffect(() => {
     if (!followToast) return;
     const timer = window.setTimeout(() => setFollowToast(null), 2_400);
@@ -345,7 +363,9 @@ export function App() {
     const thread: ChatThread = { userId: user.id, username: user.username, displayName: user.displayName, avatarTone: user.avatarTone, updatedAt: sentAt, messages: [] };
     try {
       await saveChatThread(session.user.id, thread);
+      chatSendCount.current += 1;
       await saveChatMessage(session.user.id, user.id, message);
+      chatSendCount.current += 1;
       setChatError("");
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "게시물을 채팅으로 보내지 못했습니다.");
@@ -365,7 +385,9 @@ export function App() {
 
   async function sendChatMessage(message: ChatMessage) {
     if (!session?.user.id || !activeChatUserId) throw new Error("로그인한 채팅을 찾을 수 없습니다.");
+    chatSendCount.current += 1;
     await saveChatMessage(session.user.id, activeChatUserId, message);
+    chatSendCount.current += 1;
     setChatThreads((current) => current.map((thread) => thread.userId === activeChatUserId
       ? { ...thread, updatedAt: message.sentAt, messages: [...thread.messages, message] }
       : thread));

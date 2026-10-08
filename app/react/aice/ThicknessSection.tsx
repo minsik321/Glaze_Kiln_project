@@ -79,6 +79,9 @@ export function ThicknessSection({ ware, profile, loading = false, safeRangeMm =
       </svg>
       {profile && <div className="thickness-scale" aria-hidden="true"><span>얇음 {safeRangeMm[0].toFixed(1)}mm</span><i /><span>두꺼움 {safeRangeMm[1].toFixed(1)}mm</span></div>}
       <p className={`thickness-judgment ${view.overallStatus}`}><strong>판단 결과</strong><span>{judgment}</span></p>
+      {view.overallStatus === "thick" && (
+        <p className="thickness-alert" role="alert">⚠ 유약이 너무 두껍게 발렸어요. 흘러내림 위험이 있으니 유약을 씻어내고 재시유하세요.</p>
+      )}
       {profile && <p className="thickness-measurement">평균 {profile.mean_mm.toFixed(2)}mm · {profile.areal_density_g_m2.toFixed(0)}g/m²</p>}
     </section>
   );
