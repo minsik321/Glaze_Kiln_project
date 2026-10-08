@@ -10,6 +10,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { HomeScreen } from "./home/HomeScreen";
 import { CreatePostScreen, type CreatePostDraft, type CreatePostKind } from "./home/CreatePostScreen";
 import { NotificationScreen } from "./home/NotificationScreen";
+import { loadNotifications, markNotificationsRead, type NotificationItem } from "./home/notificationStore";
 import { FEED_POSTS, FEED_USERS, dummyFollowerIds, dummyFollowingIds, findFeedPost, findFeedUser, postsForAccount, postsForUser, type FeedPost, type FeedUser } from "./home/feedData";
 import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
@@ -195,6 +196,25 @@ export function App() {
     document.addEventListener("visibilitychange", reloadWhenVisible);
     return () => { active = false; reloadFeed.current = undefined; document.removeEventListener("visibilitychange", reloadWhenVisible); };
   }, [session?.user.id]);
+
+  //: 알림은 DB에 있다 — 로그인하면 불러오고, 홈에서 새 알림을 알 수 있게 주기적으로 다시 읽는다.
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useEffect(() => {
+    const userId = session?.user.id;
+    setNotifications([]);
+    if (!userId) return;
+    let active = true;
+    const refresh = () => { void loadNotifications().then((items) => { if (active) setNotifications(items); }).catch(() => undefined); };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [session?.user.id]);
+  function markNotificationsAsRead(ids: readonly string[]) {
+    const set = new Set(ids);
+    setNotifications((current) => current.map((item) => set.has(item.id) ? { ...item, read: true } : item));
+    void markNotificationsRead(ids).catch(() => undefined);
+  }
 
   //: 팔로잉/팔로워는 DB에 있다 — 로그인하면 다시 불러온다.
   useEffect(() => {
@@ -555,6 +575,7 @@ export function App() {
             onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
             onOpenFollowingFeed={() => setView("followingFeed")}
             onOpenNotifications={() => setView("notifications")}
+            hasUnreadNotifications={notifications.some((item) => !item.read)}
           />
           {showWorkflow && (
             <div
@@ -806,7 +827,20 @@ export function App() {
           />
         </section>
         <section className="app-view" hidden={view !== "notifications"}>
-          <NotificationScreen onBack={() => setView("work")} />
+          <NotificationScreen
+            notifications={notifications}
+            onBack={() => setView("work")}
+            onMarkRead={markNotificationsAsRead}
+            onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
+            onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
+            onOpenChat={(userId) => {
+              const ownerId = session?.user.id;
+              //: 상대 사본 대화방은 서버가 만들었으므로, 열기 전에 목록을 다시 불러온다.
+              const open = () => { setActiveChatUserId(userId); setView("conversation"); };
+              if (!ownerId) return open();
+              void loadChatThreads(ownerId).then(setChatThreads).catch(() => undefined).finally(open);
+            }}
+          />
         </section>
         {settingsDetail && (
           <section

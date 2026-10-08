@@ -1,64 +1,69 @@
-import { useState } from "react";
+import type { NotificationItem } from "./notificationStore";
 
-type NotificationItem = {
-  id: string;
-  kind: "comment" | "follow" | "like";
-  user: string;
-  message: string;
-  time: string;
-  avatarTone: number;
-  image?: string;
-  group: "오늘" | "이번 주";
-};
+const DAY_MS = 86_400_000;
 
-const notifications: readonly NotificationItem[] = [
-  { id: "n1", kind: "comment", user: "mira.ceramic", message: "청록 결정유 작업에 댓글을 남겼어요. “결정이 정말 선명하게 나왔네요!”", time: "8분 전", avatarTone: 2, image: "/glaze-textures/crystalline-turquoise.png", group: "오늘" },
-  { id: "n2", kind: "follow", user: "dohoon.kiln", message: "회원님을 팔로우하기 시작했어요.", time: "1시간 전", avatarTone: 3, group: "오늘" },
-  { id: "n3", kind: "like", user: "sena.glaze", message: "아이보리 시노유 작업을 저장했어요.", time: "3시간 전", avatarTone: 4, image: "/glaze-textures/shino-ivory.png", group: "오늘" },
-  { id: "n4", kind: "comment", user: "jun.claylab", message: "흑유 오일스팟의 소성곡선에 답글을 남겼어요.", time: "어제", avatarTone: 5, image: "/glaze-textures/tenmoku-oilspot.png", group: "이번 주" },
-  { id: "n5", kind: "follow", user: "haeun.pottery", message: "회원님을 팔로우하기 시작했어요.", time: "3일 전", avatarTone: 6, group: "이번 주" },
-] as const;
+//: 7일 안이면 "이번 주", 그 전이면 "이전". 오늘 받은 것은 "오늘".
+function groupOf(createdAt: string): "오늘" | "이번 주" | "이전" {
+  const age = Date.now() - new Date(createdAt).getTime();
+  return age < DAY_MS ? "오늘" : age < 7 * DAY_MS ? "이번 주" : "이전";
+}
 
 function BackIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>;
 }
 
 function KindIcon({ kind }: { kind: NotificationItem["kind"] }) {
+  if (kind === "message") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v10H8l-4 4z" /></svg>;
   if (kind === "comment") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v11H9l-4 3z" /></svg>;
-  if (kind === "follow") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3" /><path d="M4 19a6 6 0 0 1 12 0M18 8v6M15 11h6" /></svg>;
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3" /><path d="M4 19a6 6 0 0 1 12 0M18 8v6M15 11h6" /></svg>;
 }
 
-export function NotificationScreen({ onBack }: { onBack: () => void }) {
-  const [readIds, setReadIds] = useState<Set<string>>(() => new Set(["n4", "n5"]));
-  const markAllRead = () => setReadIds(new Set(notifications.map((item) => item.id)));
+export function NotificationScreen({ notifications, onBack, onMarkRead, onOpenProfile, onOpenPost, onOpenChat }: {
+  notifications: readonly NotificationItem[];
+  onBack: () => void;
+  onMarkRead: (ids: readonly string[]) => void;
+  onOpenProfile?: (userId: string) => void;
+  onOpenPost?: (postId: string) => void;
+  onOpenChat?: (userId: string) => void;
+}) {
+  const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
+  const open = (item: NotificationItem) => {
+    if (!item.read) onMarkRead([item.id]);
+    if (item.kind === "comment" && item.postId) onOpenPost?.(item.postId);
+    else if (item.kind === "message") onOpenChat?.(item.actorId);
+    else if (item.kind === "follow") onOpenProfile?.(item.actorId);
+  };
 
   return (
     <section className="notification-screen" aria-label="알림 목록 화면">
       <header className="notification-header">
         <button type="button" aria-label="홈 피드로 돌아가기" onClick={onBack}><BackIcon /></button>
         <h1>알림</h1>
-        <button className="notification-read-all" type="button" onClick={markAllRead}>모두 읽음</button>
+        <button className="notification-read-all" type="button" disabled={unreadIds.length === 0} onClick={() => onMarkRead(unreadIds)}>모두 읽음</button>
       </header>
       <main className="notification-scroll">
-        {(["오늘", "이번 주"] as const).map((group) => (
-          <section className="notification-group" key={group} aria-labelledby={`notification-${group}`}>
-            <h2 id={`notification-${group}`}>{group}</h2>
-            <div className="notification-list">
-              {notifications.filter((item) => item.group === group).map((item) => {
-                const isRead = readIds.has(item.id);
-                return (
-                  <button className={`notification-item${isRead ? " is-read" : ""}`} type="button" key={item.id} onClick={() => setReadIds((current) => new Set(current).add(item.id))}>
-                    <span className={`notification-avatar avatar-tone-${item.avatarTone}`}><i className={`notification-kind ${item.kind}`}><KindIcon kind={item.kind} /></i></span>
+        {notifications.length === 0 && <p className="notification-empty" role="status">아직 받은 알림이 없어요.</p>}
+        {(["오늘", "이번 주", "이전"] as const).map((group) => {
+          const items = notifications.filter((item) => groupOf(item.createdAt) === group);
+          if (!items.length) return null;
+          return (
+            <section className="notification-group" key={group} aria-labelledby={`notification-${group}`}>
+              <h2 id={`notification-${group}`}>{group}</h2>
+              <div className="notification-list">
+                {items.map((item) => (
+                  <button className={`notification-item${item.read ? " is-read" : ""}`} type="button" key={item.id} onClick={() => open(item)}>
+                    <span className="notification-avatar avatar-tone-2">
+                      {item.avatarUrl && <img src={item.avatarUrl} alt="" />}
+                      <i className={`notification-kind ${item.kind}`}><KindIcon kind={item.kind} /></i>
+                    </span>
                     <span className="notification-copy"><strong>{item.user}</strong><span>{item.message}</span><time>{item.time}</time></span>
-                    {item.image && <img src={item.image} alt="관련 유약 게시물" />}
-                    {!isRead && <b className="notification-unread" aria-label="읽지 않은 알림" />}
+                    {!item.read && <b className="notification-unread" aria-label="읽지 않은 알림" />}
                   </button>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </main>
     </section>
   );

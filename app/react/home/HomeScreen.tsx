@@ -13,6 +13,8 @@ type HomeScreenProps = {
   onOpenBookmarks?: () => void;
   onOpenFollowingFeed: () => void;
   onOpenNotifications: () => void;
+  //: 읽지 않은 알림이 있을 때만 알림 아이콘에 빨간 점을 단다.
+  hasUnreadNotifications?: boolean;
   //: 내가 올린 게시글(`userId: "self"`)의 작성자 — 없으면 더미 목록의 첫 사용자로 잘못 표시된다.
   selfUser?: FeedUser;
 };
@@ -47,7 +49,7 @@ function SaleIcon() {
 
 type FeedFilter = "all" | "recipe" | "sale";
 
-export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications, selfUser }: HomeScreenProps) {
+export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications, hasUnreadNotifications = false, selfUser }: HomeScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -96,7 +98,7 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
         </div>
         <div className="home-header-actions">
           <button type="button" aria-label="검색 열기" onClick={onOpenSearch}><SearchIcon /></button>
-          <button className="home-notifications" type="button" aria-label="알림 목록" onClick={onOpenNotifications}><BellIcon /><span aria-hidden="true" /></button>
+          <button className="home-notifications" type="button" aria-label="알림 목록" onClick={onOpenNotifications}><BellIcon />{hasUnreadNotifications && <span aria-hidden="true" />}</button>
         </div>
       </header>
 
