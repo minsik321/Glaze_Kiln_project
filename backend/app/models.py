@@ -324,7 +324,7 @@ class ThicknessComputeRequest(ApiModel):
     ware_preset: Literal["bowl", "plate", "mug", "cylinder_vase", "bottle", "jar", "tile", "other"]
     weight_before_g: float = Field(ge=0)
     weight_after_g: float = Field(ge=0)
-    #: `kiln.domain.enums.GlazingMethod`의 한국어 라벨 그대로("담금"·"부기"·"분무"·"붓칠").
+    #: `kiln.domain.enums.GlazingMethod`의 한국어 라벨 그대로("담금"·"붓기"·"분무"·"붓칠").
     method: str = "담금"
     dip_seconds: float | None = Field(default=None, ge=0)
     specific_gravity: float | None = Field(default=None, gt=1.0)

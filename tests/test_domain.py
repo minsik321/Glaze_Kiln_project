@@ -78,10 +78,11 @@ def test_a_coordinate_is_zero_distance_from_itself():
 # ─── 8-2절 시유 방법과 가용 판정 ─────────────────────────────────────────────
 
 
-def test_only_dipping_has_a_distribution_model():
-    """분포 모델은 담금 전용이다 (7-5, 8-2절)."""
+def test_only_dipping_and_pouring_have_a_distribution_model():
+    """분포 모델은 담금·붓기(중력 흘러내림)에서만 작동한다 (7-5, 8-2절)."""
     assert GlazingMethod.DIPPING.has_distribution_model
-    for method in (GlazingMethod.POURING, GlazingMethod.SPRAYING, GlazingMethod.BRUSHING):
+    assert GlazingMethod.POURING.has_distribution_model
+    for method in (GlazingMethod.SPRAYING, GlazingMethod.BRUSHING):
         assert not method.has_distribution_model
 
 

@@ -188,9 +188,17 @@ def test_waxed_area_is_excluded_from_A():
 # ─── 7-5절 적용 조건 ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "method", [GlazingMethod.POURING, GlazingMethod.SPRAYING, GlazingMethod.BRUSHING]
-)
+def test_pouring_has_flow_distribution_with_assumed_contact_time():
+    """붓기도 흘러내림 분포를 내되, 접촉 시간 가정을 기록에 남긴다."""
+    ware = _ware(profile=((0.0, 20.0), (30.0, 35.0), (60.0, 30.0)))
+    profile = compute_profile(
+        _record(method=GlazingMethod.POURING, dip_seconds=None), ware, CoefficientTable(recipe_id="r1")
+    )
+    assert profile.has_distribution is True
+    assert any("접촉 시간" in n for n in profile.provenance_notes)
+
+
+@pytest.mark.parametrize("method", [GlazingMethod.SPRAYING, GlazingMethod.BRUSHING])
 def test_non_dipping_does_not_invent_a_distribution(method):
     """7-5절: 담금이 아니면 부위별 분포를 **지어내지 않는다**."""
     ware = _ware(profile=((0.0, 20.0), (30.0, 35.0), (60.0, 30.0)))

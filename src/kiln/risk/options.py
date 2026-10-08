@@ -86,7 +86,7 @@ _NEEDS_DISTRIBUTION = frozenset({"부분 보정"})
 def reversal_options(*, has_distribution: bool = True) -> tuple[ReversalOption, ...]:
     """8-4절 되돌림 선택지 목록. 비용을 반드시 병기한다.
 
-    ``has_distribution`` 이 False면(부기·분무·붓칠) **부분 보정을 빼고**
+    ``has_distribution`` 이 False면(붓기·분무·붓칠) **부분 보정을 빼고**
     낸다. 어느 부위가 위험한지 짚을 수 없는 상태에서 "국소 위험 완화"를
     선택지로 내밀면 8-2절이 막으려던 것과 같은 종류의 거짓 안심이 된다.
     나머지 선택지(재시유·적재 조정·스케줄 보정·그대로 진행)는 부위 정보와

@@ -112,19 +112,20 @@ class FailureType(Enum):
 class GlazingMethod(Enum):
     """8-2절 · 시유 방법. 가용 판정의 층을 가른다.
 
-    분포 모델은 담금 전용이다. 담금이 아니면 분포 기반 판정
-    (흘러내림·응력 균열)이 작동하지 않고 「판정 불가」로 회색 처리된다.
+    분포 모델은 담금·붓기에서 작동한다(둘 다 유약이 중력으로 흘러내린다).
+    분무·붓칠은 분포 기반 판정(흘러내림·응력 균열)이 작동하지 않고
+    「판정 불가」로 회색 처리된다.
     """
 
     DIPPING = "담금"
-    POURING = "부기"
+    POURING = "붓기"
     SPRAYING = "분무"
     BRUSHING = "붓칠"
 
     @property
     def has_distribution_model(self) -> bool:
         """부위별 두께 분포를 산출할 수 있는가 (7-5절)."""
-        return self is GlazingMethod.DIPPING
+        return self in (GlazingMethod.DIPPING, GlazingMethod.POURING)
 
 
 class RiskType(Enum):
