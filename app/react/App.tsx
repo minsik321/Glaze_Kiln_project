@@ -15,6 +15,7 @@ import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
+import { loadFollowers, loadFollowing, setFollowing } from "./home/followStore";
 import { aiceRunsApi, feedPostsApi } from "./lib/api";
 import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
 import { clearWorkProgress, loadWorkProgress, type SavedWorkProgress } from "./aice/workProgress";
@@ -97,6 +98,8 @@ export function App() {
   const [postOverrides, setPostOverrides] = useState<Record<string, FeedPost>>({});
   const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
   const [followedUserIds, setFollowedUserIds] = useState<Set<string>>(() => new Set());
+  //: 나를 팔로우하는 사람(실제 가입자). 팔로우 관계는 DB(follows)에 있다.
+  const [followerIds, setFollowerIds] = useState<string[]>([]);
   const [followToast, setFollowToast] = useState<{ id: number; message: string } | null>(null);
   const followToastId = useRef(0);
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
@@ -179,6 +182,23 @@ export function App() {
     load();
     document.addEventListener("visibilitychange", reloadWhenVisible);
     return () => { active = false; document.removeEventListener("visibilitychange", reloadWhenVisible); };
+  }, [session?.user.id]);
+
+  //: 팔로잉/팔로워는 DB에 있다 — 로그인하면 다시 불러온다.
+  useEffect(() => {
+    const userId = session?.user.id;
+    setFollowedUserIds(new Set());
+    setFollowerIds([]);
+    if (!userId) return;
+    let active = true;
+    void Promise.all([loadFollowing(userId), loadFollowers(userId)]).then(([following, followers]) => {
+      if (!active) return;
+      setFollowedUserIds(new Set(following));
+      setFollowerIds(followers);
+    }).catch((error: unknown) => {
+      if (active) setFollowToast({ id: ++followToastId.current, message: error instanceof Error ? error.message : "팔로우 목록을 불러오지 못했습니다." });
+    });
+    return () => { active = false; };
   }, [session?.user.id]);
 
   const reportPostError = (error: unknown, fallback: string) => setPostError(error instanceof Error ? error.message : fallback);
@@ -278,7 +298,7 @@ export function App() {
   const selectedProfile = { ...selectedProfileBase, stats: { ...selectedProfileBase.stats, followers: dummyFollowerIds(selectedProfileId).length + (followedUserIds.has(selectedProfileId) ? 1 : 0), following: dummyFollowingIds(selectedProfileId).length } };
   const selectedPostBase = [...createdPosts, ...otherPosts].find((post) => post.id === selectedPostId) ?? findFeedPost(selectedPostId);
   const selectedPost = postOverrides[selectedPostId] ?? selectedPostBase;
-  const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: 0, following: followedUserIds.size } };
+  const selfUser: FeedUser = { id: "self", username, displayName, bio, avatarTone: 1, stats: { records: myPosts.length, followers: followerIds.length, following: followedUserIds.size } };
   const selectedPostUser = selectedPost.userId === "self"
     ? selfUser
     : findFeedUser(selectedPost.userId);
@@ -337,17 +357,25 @@ export function App() {
   }
 
   function toggleFollow(userId: string) {
+    const ownerId = session?.user.id;
     if (userId === "self") return;
     const wasFollowing = followedUserIds.has(userId);
-    setFollowedUserIds((current) => {
+    const apply = (follow: boolean) => setFollowedUserIds((current) => {
       const next = new Set(current);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
+      if (follow) next.add(userId);
+      else next.delete(userId);
       return next;
     });
+    apply(!wasFollowing);
     setFollowToast({
       id: ++followToastId.current,
       message: `${findFeedUser(userId).displayName}님을 ${wasFollowing ? "언팔로우했습니다." : "팔로우했습니다."}`,
+    });
+    //: 저장에 실패하면 화면을 원래대로 돌리고 알린다 — 새로고침하면 사라질 상태를 남겨 두지 않는다.
+    if (!ownerId) return;
+    void setFollowing(ownerId, userId, !wasFollowing).catch((error: unknown) => {
+      apply(wasFollowing);
+      setFollowToast({ id: ++followToastId.current, message: error instanceof Error ? error.message : "팔로우를 저장하지 못했습니다." });
     });
   }
 
@@ -368,7 +396,7 @@ export function App() {
 
   const connectionsOwner = connectionsOwnerId === "self" ? selfUser : findFeedUser(connectionsOwnerId);
   const connectionFollowers = connectionsOwnerId === "self"
-    ? []
+    ? followerIds.map(findFeedUser)
     : [...dummyFollowerIds(connectionsOwnerId).map(findFeedUser), ...(followedUserIds.has(connectionsOwnerId) ? [selfUser] : [])];
   const connectionFollowing = connectionsOwnerId === "self"
     ? [...followedUserIds].map(findFeedUser)
@@ -598,7 +626,7 @@ export function App() {
             posts={myPosts}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("my"); setView("post"); }}
             onOpenBookmarks={() => setView("bookmarks")}
-            stats={{ records: myPosts.length, followers: 0, following: followedUserIds.size }}
+            stats={{ records: myPosts.length, followers: followerIds.length, following: followedUserIds.size }}
             onOpenConnections={(tab) => openConnections("self", tab)}
             onOpenAccountSettings={() => openSettingsDetail("account")}
             onOpenKilnSettings={() => openSettingsDetail("kiln")}
