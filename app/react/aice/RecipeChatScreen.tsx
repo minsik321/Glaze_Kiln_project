@@ -3,7 +3,7 @@ import { aiceRunsApi, ApiError, recipeCandidatesApi, type AiceRunRecord } from "
 import { isChatGenerationRecord } from "../records/workRecords";
 import { signedPhotoUrl } from "./photoStorage";
 import type { ChatIntake, RecipeCandidate } from "./contract";
-import { findSimilarHistory, type HistoryMatch } from "./historyMatch";
+import { dedupeByRecipe, findSimilarHistory, recipeKey, type HistoryMatch } from "./historyMatch";
 import { Alert, AsyncState, DetailDrawer } from "./ui";
 
 const CANDIDATE_NUMBER_SUFFIX = /\s*(?:[-–—:·]\s*)?(?:후보|candidate)\s*#?\s*\d+\s*$/iu;
@@ -379,11 +379,20 @@ export function RecipeChatScreen({
     }
   }
 
+  //: AI 후보 안, 과거 기록 안, 그리고 둘 사이에서 같은 배합이 두 번 나오지 않게 한다.
+  //: (id로만 비교하면 과거 기록 카드의 id는 항상 달라 중복을 못 잡는다.)
+  const freshCards = dedupeByRecipe(
+    candidates.map((candidate) => normalizeCandidateName(candidate)),
+    recipeKey,
+  );
+  const historyCards = dedupeByRecipe(
+    historyMatches.filter((match) => !candidates.some((candidate) => candidate.id === match.candidate.id)),
+    (match) => recipeKey(match.candidate),
+    freshCards.map(recipeKey),
+  );
   const cards: Array<{ candidate: RecipeCandidate; remark?: string }> = [
-    ...candidates.map((candidate) => ({ candidate: normalizeCandidateName(candidate) })),
-    ...historyMatches
-      .filter((match) => !candidates.some((candidate) => candidate.id === match.candidate.id))
-      .map((match) => ({ candidate: normalizeCandidateName(match.candidate), remark: match.remark })),
+    ...freshCards.map((candidate) => ({ candidate })),
+    ...historyCards.map((match) => ({ candidate: normalizeCandidateName(match.candidate), remark: match.remark })),
   ];
 
   return (

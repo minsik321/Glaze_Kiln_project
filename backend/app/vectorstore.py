@@ -128,7 +128,26 @@ class AiceVectorStore:
         ]
 
 
+def dedupe_retrieved(documents: Sequence[RetrievedDocument]) -> list[RetrievedDocument]:
+    """같은 내용의 검색 결과를 하나로 줄인다(앞선 것, 즉 먼저 넣은 쪽을 남긴다).
+
+    전역 문헌 검색과 개인 레시피 검색을 이어 붙이거나 같은 문서가 여러 번
+    색인돼 있으면 같은 문장이 프롬프트에 중복돼 들어가 토큰을 낭비하고
+    LLM이 그 내용에 쏠린다. 공백·대소문자 차이는 같은 내용으로 본다.
+    """
+    seen: set[str] = set()
+    unique: list[RetrievedDocument] = []
+    for doc in documents:
+        key = " ".join(doc.text.lower().split())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(doc)
+    return unique
+
+
 def format_retrieved_context(documents: Sequence[RetrievedDocument]) -> str:
+    documents = dedupe_retrieved(documents)
     if not documents:
         return ""
     return "\n".join(f"- ({doc.source_type}) {doc.text}" for doc in documents)

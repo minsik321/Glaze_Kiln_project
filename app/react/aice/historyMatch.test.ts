@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completedRunCandidate, findSimilarHistory } from "./historyMatch";
+import { completedRunCandidate, dedupeByRecipe, findSimilarHistory, recipeKey } from "./historyMatch";
 import { sampleAiceRun } from "./contract";
 import type { AiceRunRecord } from "../lib/api";
 import type { RecipeCandidate } from "./contract";
@@ -98,7 +98,7 @@ describe("findSimilarHistory", () => {
 
   it("matches a completed record by the result coordinate close to the new target", () => {
     const history = [record({ title: "예전 다른 표현", resultGloss: "satin", resultTransparency: "opaque" })];
-    const fresh = [candidate({ id: "fresh-1", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const fresh = [candidate({ id: "fresh-1", materials: { 장석: 10, 규석: 60, 석회석: 10, 카올린: 20 }, target_gloss: "SATIN", target_transparency: "OPAQUE" })];
     const matches = findSimilarHistory("전혀 겹치지 않는 새 문장", fresh, history);
     expect(matches).toHaveLength(1);
     expect(matches[0].distance).toBe(0);
@@ -131,12 +131,46 @@ describe("findSimilarHistory", () => {
 
   it("ranks closer coordinates first and limits the result count", () => {
     const history = [
-      record({ id: "r1", title: "하나", resultGloss: "semi_gloss", resultTransparency: "opaque" }),
-      record({ id: "r2", title: "둘", resultGloss: "satin", resultTransparency: "opaque" }),
-      record({ id: "r3", title: "셋", resultGloss: "matte", resultTransparency: "opaque" }),
+      record({ id: "r1", title: "하나", materials: { 장석: 50, 규석: 30, 석회석: 10, 카올린: 10 }, resultGloss: "semi_gloss", resultTransparency: "opaque" }),
+      record({ id: "r2", title: "둘", materials: { 장석: 40, 규석: 30, 석회석: 20, 카올린: 10 }, resultGloss: "satin", resultTransparency: "opaque" }),
+      record({ id: "r3", title: "셋", materials: { 장석: 30, 규석: 30, 석회석: 30, 카올린: 10 }, resultGloss: "matte", resultTransparency: "opaque" }),
     ];
-    const fresh = [candidate({ target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const fresh = [candidate({ materials: { 장석: 10, 규석: 60, 석회석: 10, 카올린: 20 }, target_gloss: "SATIN", target_transparency: "OPAQUE" })];
     const matches = findSimilarHistory("전혀 다른 요청", fresh, history, 2);
     expect(matches.map((match) => match.runId)).toEqual(["r2", "r1"]);
+  });
+});
+
+describe("recipe de-duplication", () => {
+  const other = { 장석: 30, 규석: 30, 석회석: 20, 카올린: 20 };
+
+  it("treats the same blend as one recipe regardless of name, scale or tiny rounding", () => {
+    const a = candidate({ id: "a", name: "A", materials: { 장석: 40, 석회석: 20, 규석: 25, 카올린: 15 } });
+    const b = candidate({ id: "b", name: "B", materials: { 규석: 25.2, 장석: 39.8, 카올린: 15, 석회석: 20 } });
+    const scaled = candidate({ id: "c", materials: { 장석: 80, 석회석: 40, 규석: 50, 카올린: 30 } });
+    expect(recipeKey(a)).toBe(recipeKey(b));
+    expect(recipeKey(a)).toBe(recipeKey(scaled));
+    expect(recipeKey(a)).not.toBe(recipeKey(candidate({ materials: other })));
+    expect(recipeKey(a)).not.toBe(recipeKey(candidate({ colorants: { 산화철: 2 } })));
+  });
+
+  it("keeps only the closest of several past runs that used the same blend", () => {
+    const history = [
+      record({ id: "run-far", title: "같은 배합 먼 결과", materials: other, resultGloss: "semi_gloss", resultTransparency: "opaque" }),
+      record({ id: "run-near", title: "같은 배합 가까운 결과", materials: other, resultGloss: "satin", resultTransparency: "opaque" }),
+    ];
+    const fresh = [candidate({ materials: { 장석: 10, 규석: 60, 석회석: 10, 카올린: 20 }, target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const matches = findSimilarHistory("새 문장", fresh, history);
+    expect(matches.map((m) => m.runId)).toEqual(["run-near"]);
+  });
+
+  it("does not repeat a past record whose blend the AI just proposed again", () => {
+    const history = [record({ id: "run-same", materials: other, resultGloss: "satin", resultTransparency: "opaque" })];
+    const fresh = [candidate({ id: "fresh-1", materials: other, target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    expect(findSimilarHistory("새 문장", fresh, history)).toHaveLength(0);
+  });
+
+  it("dedupeByRecipe keeps the first occurrence and honours already-seen keys", () => {
+    expect(dedupeByRecipe(["a", "b", "a", "c"], (x) => x, ["c"])).toEqual(["a", "b"]);
   });
 });

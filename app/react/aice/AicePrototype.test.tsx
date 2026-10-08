@@ -360,6 +360,8 @@ describe("AICE guided prototype", () => {
       ...base,
       id: "cand-b",
       name: "웜 클리어 B",
+      //: 같은 배합이면 한 카드로 합쳐지므로 서로 다른 레시피로 만든다.
+      materials: { 장석: 30, 석회석: 25, 규석: 30, 카올린: 15 },
       photo: { ...base.photo, id: "cand-b-photo" },
       predicted_firing_range: { value: [1200, 1260], unit: "°C", source_type: "inferred", confidence: 0.4, note: "" },
     };
