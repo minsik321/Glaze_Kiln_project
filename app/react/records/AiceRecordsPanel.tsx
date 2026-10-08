@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { aiceRunsApi, type AiceRunRecord } from "../lib/api";
-import { isVisibleWorkRecord, workRecordOrigin, type WorkRecordOrigin } from "./workRecords";
+import { aiceRunsApi, type AiceRunRecord, type AiceRunSummary } from "../lib/api";
+import type { WorkRecordOrigin } from "./workRecords";
 
 const PAGE_SIZE = 20;
-const MAX_PAGES = 50;
 type RecordFilter = "all" | WorkRecordOrigin;
 type RecordSort = "newest" | "oldest" | "title-asc" | "title-desc";
 
@@ -15,17 +14,22 @@ type Props = {
 };
 
 export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
-  const [items, setItems] = useState<AiceRunRecord[]>([]);
+  const [items, setItems] = useState<AiceRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [moreError, setMoreError] = useState("");
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
   const [filter, setFilter] = useState<RecordFilter>("all");
   const [sort, setSort] = useState<RecordSort>("newest");
 
   const displayedItems = useMemo(() => {
     const filtered = filter === "all"
       ? items
-      : items.filter((record) => workRecordOrigin(record.run) === filter);
+      : items.filter((record) => record.origin === filter);
 
     return [...filtered].sort((left, right) => {
       if (sort === "title-asc") return left.title.localeCompare(right.title, "ko");
@@ -36,40 +40,59 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
     });
   }, [filter, items, sort]);
 
-  //: 첫 페이지가 오면 바로 목록을 보여 주고, 나머지 페이지는 뒤에서 이어 붙인다.
+  //: 첫 페이지만 불러오고, 나머지는 "더 보기"를 눌렀을 때 한 페이지씩 이어 붙인다.
   //: `isActive`가 false가 되면(언마운트·재로딩) 이전 호출의 결과는 버린다.
+  //: 완료한 기록과 가져온 기록만 보인다(`isVisibleWorkRecord`와 같은 규칙).
+  const keep = useCallback((records: AiceRunSummary[]) => records.filter((record) => (record.status === "evaluated" || record.origin === "imported") && (!onlyOrigin || record.origin === onlyOrigin)), [onlyOrigin]);
+
   const load = useCallback(async (isActive: () => boolean = () => true) => {
     setLoading(true);
     setLoadingMore(false);
+    setHasMore(false);
     setError("");
     setItems([]);
-
-    const keep = (records: AiceRunRecord[]) => records.filter((record) => isVisibleWorkRecord(record.run) && (!onlyOrigin || workRecordOrigin(record.run) === onlyOrigin));
+    setNextOffset(0);
 
     try {
-      for (let pageNumber = 0; pageNumber < MAX_PAGES; pageNumber += 1) {
-        const page = await aiceRunsApi.listMine(token, pageNumber * PAGE_SIZE);
-        if (!isActive()) return;
-        setItems((current) => [...current, ...keep(page.items)]);
-
-        if (page.items.length < PAGE_SIZE) break;
-        if (pageNumber === 0) {
-          setLoading(false);
-          setLoadingMore(true);
-        }
-      }
+      const page = await aiceRunsApi.listSummaries(token, 0);
+      if (!isActive()) return;
+      setItems(keep(page.items));
+      setNextOffset(page.items.length);
+      setHasMore(page.items.length >= PAGE_SIZE);
     } catch (failure) {
       if (!isActive()) return;
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "작업 기록을 불러오지 못했습니다.",
-      );
+      setError(failure instanceof Error ? failure.message : "작업 기록을 불러오지 못했습니다.");
     }
     if (!isActive()) return;
     setLoading(false);
+  }, [token, keep]);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    setMoreError("");
+    try {
+      const page = await aiceRunsApi.listSummaries(token, nextOffset);
+      setItems((current) => [...current, ...keep(page.items)]);
+      setNextOffset(nextOffset + page.items.length);
+      setHasMore(page.items.length >= PAGE_SIZE);
+    } catch (failure) {
+      setMoreError(failure instanceof Error ? failure.message : "작업 기록을 더 불러오지 못했습니다.");
+    }
     setLoadingMore(false);
-  }, [token, onlyOrigin]);
+  }, [token, nextOffset, keep]);
+
+  //: 목록은 요약만 갖고 있으므로, 기록을 열 때 전체 기록을 한 건만 받아 넘긴다.
+  const openRecord = useCallback(async (summary: AiceRunSummary) => {
+    if (!onOpen || openingId) return;
+    setOpeningId(summary.id);
+    setOpenError("");
+    try {
+      onOpen(await aiceRunsApi.get(token, summary.id), summary.origin);
+    } catch (failure) {
+      setOpenError(failure instanceof Error ? failure.message : "작업 기록을 열지 못했습니다.");
+    }
+    setOpeningId(null);
+  }, [onOpen, openingId, token]);
 
   useEffect(() => {
     let active = true;
@@ -119,7 +142,7 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
         </div>
       )}
 
-      {loading || (loadingMore && displayedItems.length === 0) ? (
+      {loading ? (
         <div
           className="record-loading"
           role="status"
@@ -140,22 +163,24 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
           <p>선택한 조건에 맞는 작업이 없습니다.</p>
         </div>
       ) : !error ? (
+        <>
+        {openError && <p className="record-error" role="alert">{openError}</p>}
         <ul className="generation-record-list" aria-label="작업 기록">
           {displayedItems.map((record) => {
-            const origin = workRecordOrigin(record.run);
-            const peak = Math.max(...record.run.curves.baseline.points.map((point) => point.temperature_c));
+            const origin = record.origin;
             return <li key={record.id}>
               <button
                 type="button"
                 className="generation-record-link"
                 aria-label={`${record.title} 작업기록 열기`}
-                onClick={() => onOpen?.(record, origin)}
+                disabled={openingId !== null}
+                onClick={() => void openRecord(record)}
               >
                 <span className="work-record-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v4H7zM5 5H3v16h18V5h-2M7 12h10M7 16h7" /></svg></span>
                 <span className="work-record-copy">
                   <span className={`work-record-origin ${origin}`}>{origin === "imported" ? "다른 사람의 작업" : "내 완료 기록"}</span>
                   <strong>{record.title}</strong>
-                  <small>{record.run.recipe.name} · 최고 {peak}℃</small>
+                  <small>{record.recipe_name}{record.peak_c !== null && ` · 최고 ${record.peak_c}℃`}</small>
                 </span>
                 <svg
                   className="generation-record-chevron"
@@ -168,7 +193,17 @@ export function AiceRecordsPanel({ token, onOpen, onlyOrigin }: Props) {
             </li>
           })}
         </ul>
+        </>
       ) : null}
+
+      {!loading && !error && hasMore && (
+        <div className="record-load-more">
+          {moreError && <p role="alert">{moreError}</p>}
+          <button type="button" disabled={loadingMore} onClick={() => void loadMore()}>
+            {loadingMore ? "불러오는 중…" : "더 보기"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

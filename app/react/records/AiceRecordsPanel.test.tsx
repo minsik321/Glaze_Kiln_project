@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleAiceRun } from "../aice/contract";
 import { AiceRecordsPanel } from "./AiceRecordsPanel";
@@ -31,17 +31,19 @@ function record(id: string, title: string, kind: "completed" | "imported" | "dra
   };
 }
 
+function summary(id: string, title: string, kind: "completed" | "imported" | "draft" = "completed", createdAt = "2026-09-15T00:00:00.000Z") {
+  return { id, title, status: kind === "completed" ? "evaluated" : "draft", origin: kind === "imported" ? "imported" : "mine", recipe_name: "청록", peak_c: 1230, created_at: createdAt };
+}
+
+const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+const page = (items: unknown[], offset = 0) => json({ items, limit: 20, offset });
+
 describe("작업 기록", () => {
   it("완료 기록과 가져온 기록만 나열하고 출처를 구분한다", async () => {
-    const completed = record("run-1", "청록 사틴 유약");
-    const imported = record("run-2", "미라님의 동적유", "imported");
-    const draft = record("run-3", "후보 생성 초안", "draft");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [completed, imported, draft], limit: 20, offset: 0 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    const full = record("run-1", "청록 사틴 유약");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/aice-runs/summaries")
+      ? page([summary("run-1", "청록 사틴 유약"), summary("run-2", "미라님의 동적유", "imported"), summary("run-3", "후보 생성 초안", "draft")])
+      : json(full));
     const onOpen = vi.fn();
 
     render(<AiceRecordsPanel token="token" onOpen={onOpen} />);
@@ -49,19 +51,15 @@ describe("작업 기록", () => {
     const title = await screen.findByRole("button", { name: "청록 사틴 유약 작업기록 열기" });
     expect(screen.getByText("내 완료 기록")).toBeTruthy();
     expect(screen.getByText("다른 사람의 작업")).toBeTruthy();
+    expect(screen.getAllByText("청록 · 최고 1230℃")).toHaveLength(2);
     expect(screen.queryByText("후보 생성 초안")).toBeNull();
 
     fireEvent.click(title);
-    expect(onOpen).toHaveBeenCalledWith(completed, "mine");
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith(full, "mine"));
   });
 
   it("작업 기록이 없으면 빈 목록 안내만 보여준다", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ items: [], limit: 20, offset: 0 }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([]));
 
     render(<AiceRecordsPanel token="token" />);
 
@@ -70,18 +68,11 @@ describe("작업 기록", () => {
   });
 
   it("출처로 필터링하고 날짜와 이름으로 정렬한다", async () => {
-    const newestMine = record("run-1", "나 작업");
-    newestMine.created_at = "2026-09-20T00:00:00.000Z";
-    const oldestMine = record("run-2", "가 작업");
-    oldestMine.created_at = "2026-09-01T00:00:00.000Z";
-    const imported = record("run-3", "다 작업", "imported");
-    imported.created_at = "2026-09-10T00:00:00.000Z";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [oldestMine, imported, newestMine], limit: 20, offset: 0 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => page([
+      summary("run-2", "가 작업", "completed", "2026-09-01T00:00:00.000Z"),
+      summary("run-3", "다 작업", "imported", "2026-09-10T00:00:00.000Z"),
+      summary("run-1", "나 작업", "completed", "2026-09-20T00:00:00.000Z"),
+    ]));
 
     render(<AiceRecordsPanel token="token" />);
     await screen.findByRole("button", { name: "나 작업 작업기록 열기" });
@@ -104,5 +95,22 @@ describe("작업 기록", () => {
       "나 작업 작업기록 열기",
       "다 작업 작업기록 열기",
     ]);
+  });
+
+  it("첫 페이지만 불러오고 더 보기를 눌러야 다음 페이지를 이어 붙인다", async () => {
+    const first = Array.from({ length: 20 }, (_, index) => summary(`run-${index}`, `기록 ${index}`));
+    const second = [summary("run-20", "마지막 기록")];
+    const respond = (items: unknown[], offset: number) => page(items, offset);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("offset=20") ? respond(second, 20) : respond(first, 0));
+
+    render(<AiceRecordsPanel token="token" />);
+    await screen.findByRole("button", { name: "기록 0 작업기록 열기" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "마지막 기록 작업기록 열기" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
+    await screen.findByRole("button", { name: "마지막 기록 작업기록 열기" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
   });
 });

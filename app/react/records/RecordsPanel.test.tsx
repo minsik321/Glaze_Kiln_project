@@ -9,6 +9,25 @@ vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ session: SESSION }),
 }));
 
+
+type TestRecord = { id: string; title: string; status: string; run: ReturnType<typeof sampleAiceRun> };
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+//: 목록(`/aice-runs/summaries`)은 요약만, 열기(`/aice-runs/{id}`)는 전체 기록을 돌려주는 백엔드 흉내.
+function recordsResponse(url: string, records: TestRecord[], origin: "mine" | "imported" = "mine") {
+  if (url.includes("/aice-runs/summaries")) {
+    return json({
+      items: records.map((record) => ({
+        id: record.id, title: record.title, status: record.status, origin, recipe_name: record.run.recipe.name,
+        peak_c: 1230, created_at: record.run.created_at,
+      })),
+      limit: 20, offset: 0,
+    });
+  }
+  const found = records.find((record) => url.endsWith(`/aice-runs/${record.id}`));
+  return found ? json(found) : json({ detail: { message: "없음" } }, 404);
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -47,16 +66,14 @@ describe("작업 기록 상세", () => {
       created_at: run.created_at,
       updated_at: run.updated_at,
     };
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      JSON.stringify({ items: [record], limit: 20, offset: 0 }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    ));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => recordsResponse(String(input), [record]));
     const onStart = vi.fn();
     const onDetailOpenChange = vi.fn();
 
     render(<RecordsPanel onStart={onStart} onDetailOpenChange={onDetailOpenChange} />);
     fireEvent.click(await screen.findByRole("button", { name: "청록 사틴 유약 작업기록 열기" }));
 
+    await screen.findByRole("heading", { name: "유약 레시피" });
     expect(onDetailOpenChange).toHaveBeenCalledWith(true);
     expect(screen.queryByText("저장된 작업을 확인해요")).toBeNull();
     expect(screen.queryByText("레시피와 이전 소성 기록을 확인한 뒤 같은 흐름으로 새 작업을 시작합니다.")).toBeNull();
@@ -83,18 +100,17 @@ describe("작업 기록 상세", () => {
       created_at: run.created_at, updated_at: run.updated_at,
     };
     let deleted = false;
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (init?.method === "DELETE") {
         deleted = true;
         return new Response(null, { status: 204 });
       }
-      return new Response(JSON.stringify({ items: deleted ? [] : [record], limit: 20, offset: 0 }), {
-        status: 200, headers: { "Content-Type": "application/json" },
-      });
+      return recordsResponse(String(input), deleted ? [] : [record]);
     });
 
     render(<RecordsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "삭제할 작업 작업기록 열기" }));
+    await screen.findByRole("region", { name: "작업 기록 상세" });
     fireEvent.click(screen.getByRole("button", { name: "작업기록 삭제" }));
     expect(screen.getByRole("dialog", { name: "작업기록을 삭제할까요?" })).toBeTruthy();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
@@ -119,12 +135,13 @@ describe("작업 기록 상세", () => {
       recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false,
       created_at: run.created_at, updated_at: run.updated_at,
     };
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => init?.method === "DELETE"
-      ? new Response(JSON.stringify({ detail: { message: "삭제 권한이 없습니다." } }), { status: 403, headers: { "Content-Type": "application/json" } })
-      : new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => init?.method === "DELETE"
+      ? json({ detail: { message: "삭제 권한이 없습니다." } }, 403)
+      : recordsResponse(String(input), [record]));
 
     render(<RecordsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "보존할 작업 작업기록 열기" }));
+    await screen.findByRole("region", { name: "작업 기록 상세" });
     fireEvent.click(screen.getByRole("button", { name: "작업기록 삭제" }));
     fireEvent.click(screen.getByRole("button", { name: /^삭제$/ }));
 
@@ -137,11 +154,12 @@ describe("작업 기록 상세", () => {
     run.title = "게시할 유약";
     run.status = "evaluated";
     const record = { id: "run-9", title: run.title, run, schema_version: 3, status: run.status, goal_gloss: run.goal.gloss, goal_transparency: run.goal.transparency, recipe_id: run.recipe.id, ware_preset: run.ware.preset, is_public: false, created_at: run.created_at, updated_at: run.updated_at };
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => recordsResponse(String(input), [record]));
     const onPublish = vi.fn();
 
     render(<RecordsPanel onPublish={onPublish} />);
     fireEvent.click(await screen.findByRole("button", { name: "게시할 유약 작업기록 열기" }));
+    await screen.findByRole("region", { name: "작업 기록 상세" });
     fireEvent.click(screen.getByRole("button", { name: "작업 게시" }));
 
     expect(onPublish).toHaveBeenCalledWith(expect.objectContaining({ id: "run-9" }));
@@ -165,11 +183,12 @@ describe("작업 기록 상세", () => {
         nextTrialCalls += 1;
         return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
       }
-      return new Response(JSON.stringify({ items: [record], limit: 20, offset: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return recordsResponse(url, [record]);
     });
 
     render(<RecordsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "수정할 작업 작업기록 열기" }));
+    await screen.findByRole("region", { name: "작업 기록 상세" });
     await waitFor(() => expect(nextTrialCalls).toBe(1));
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 

@@ -41,6 +41,18 @@ export type Recipe = {
   updated_at: string;
 };
 
+/** 작업 기록 목록용 요약 — payload(사진·후보 등) 없이 목록이 쓰는 값만 담는다. */
+export type AiceRunSummary = {
+  id: string;
+  title: string;
+  status: AiceRun["status"];
+  origin: "mine" | "imported";
+  recipe_name: string;
+  peak_c: number | null;
+  created_at: string;
+};
+export type AiceRunSummaryPage = { items: AiceRunSummary[]; limit: number; offset: number };
+
 export type AiceRunPage = { items: AiceRunRecord[]; limit: number; offset: number };
 
 export class ApiError extends Error {
@@ -317,6 +329,7 @@ export const aiceRunsApi = {
     const page = await request<AiceRunPage>(`/aice-runs?limit=20&offset=${offset}`, token);
     return { ...page, items: page.items.map(validateAiceRecord) };
   },
+  listSummaries: (token: string, offset = 0) => request<AiceRunSummaryPage>(`/aice-runs/summaries?limit=20&offset=${offset}`, token),
   get: async (token: string, id: string) => migrateStoredRunPhotos(validateAiceRecord(await request<AiceRunRecord>(`/aice-runs/${id}`, token))),
   listPublic: async (token: string, offset = 0) => {
     const page = await request<AiceRunPage>(`/public/aice-runs?limit=20&offset=${offset}`, token);

@@ -45,6 +45,8 @@ from .models import (
     AicePublishConsent,
     AiceRunPage,
     AiceRunResponse,
+    AiceRunSummary,
+    AiceRunSummaryPage,
     AuthUser,
     CalibrationRunRequest,
     CalibrationRunResponse,
@@ -94,6 +96,14 @@ Offset = Annotated[int, Query(ge=0, le=100_000)]
 AICE_COLUMNS = "id,title,payload,schema_version,status,goal_gloss,goal_transparency,recipe_id,recipe_ref_id,ware_preset,is_public,created_at,updated_at"
 RECIPE_COLUMNS = "id,owner_id,forked_from_id,name,materials,colorants,composition_key,is_public,created_at,updated_at"
 FEED_POST_COLUMNS = "id,kind,payload,created_at,updated_at"
+#: 목록용 — payload 전체 대신 필요한 JSON 경로만 뽑는다(사진·후보·intake는 받지 않는다).
+AICE_SUMMARY_COLUMNS = (
+    "id,title,status,created_at,"
+    "recipe_name:payload->recipe->>name,"
+    "points:payload->curves->baseline->points,"
+    "sources:payload->sources"
+)
+FEED_IMPORT_SOURCE_REFERENCE = "aice-feed-post-import"
 AICE_FEEDBACK_COLUMNS = f"{AICE_COLUMNS},request_id,feedback_status"
 _LEGACY_AICE_RPC_CODES = {"PGRST202", "42883"}
 
@@ -190,6 +200,41 @@ async def list_aice_runs(
         limit=limit,
         offset=offset,
     )
+
+
+def _summarize_run(row: dict) -> AiceRunSummary:
+    temperatures = [
+        point["temperature_c"]
+        for point in row.get("points") or []
+        if isinstance(point, dict) and isinstance(point.get("temperature_c"), (int, float))
+    ]
+    imported = any(
+        isinstance(source, dict) and source.get("reference") == FEED_IMPORT_SOURCE_REFERENCE
+        for source in row.get("sources") or []
+    )
+    return _validate(AiceRunSummary, {
+        "id": row.get("id"),
+        "title": row.get("title"),
+        "status": row.get("status"),
+        "origin": "imported" if imported else "mine",
+        "recipe_name": row.get("recipe_name") or "",
+        "peak_c": max(temperatures) if temperatures else None,
+        "created_at": row.get("created_at"),
+    })
+
+
+@router.get("/aice-runs/summaries", response_model=AiceRunSummaryPage)
+async def list_aice_run_summaries(
+    token: Token, user: User, gateway: Gateway, limit: Limit = 20, offset: Offset = 0,
+) -> AiceRunSummaryPage:
+    try:
+        rows = await gateway.select("aice_runs", token, {
+            "select": AICE_SUMMARY_COLUMNS, "user_id": f"eq.{user.id}",
+            "order": "created_at.desc", "limit": limit, "offset": offset,
+        })
+    except SupabaseError as exc:
+        _raise_supabase(exc)
+    return AiceRunSummaryPage(items=[_summarize_run(row) for row in rows], limit=limit, offset=offset)
 
 
 @router.post(

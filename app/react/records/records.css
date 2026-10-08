@@ -341,6 +341,23 @@
   padding: 0 16px;
 }
 
+.record-load-more {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.record-load-more p {
+  margin: 0;
+  color: var(--danger);
+}
+
+.record-load-more button {
+  min-height: 42px;
+  padding: 0 24px;
+}
+
 @keyframes record-shimmer {
   to {
     background-position: -220% 0;

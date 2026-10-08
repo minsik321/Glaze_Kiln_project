@@ -171,6 +171,24 @@ class AiceRunPage(ApiModel):
     offset: int
 
 
+class AiceRunSummary(ApiModel):
+    """작업 기록 목록용 요약 — 목록 화면이 쓰는 값만 담고 payload(사진·후보 등)는 싣지 않는다."""
+
+    id: UUID
+    title: str
+    status: str
+    origin: Literal["mine", "imported"]
+    recipe_name: str
+    peak_c: float | None = None
+    created_at: datetime
+
+
+class AiceRunSummaryPage(ApiModel):
+    items: list[AiceRunSummary]
+    limit: int
+    offset: int
+
+
 class AicePublishConsent(ApiModel):
     photo_rights_confirmed: bool
     pii_reviewed: bool

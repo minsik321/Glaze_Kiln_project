@@ -123,6 +123,40 @@ async def test_owner_list_forwards_token_and_is_scoped_and_paginated() -> None:
 
 
 @pytest.mark.asyncio
+async def test_owner_summaries_select_only_list_fields_and_derive_peak_and_origin() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/rest/v1/aice_runs"
+        assert request.url.params["user_id"] == f"eq.{USER_ID}"
+        assert request.url.params["limit"] == "20"
+        assert request.url.params["offset"] == "0"
+        select = request.url.params["select"]
+        assert "payload," not in select and not select.endswith(",payload")
+        return httpx.Response(200, json=[
+            {
+                "id": str(RECORD_ID), "title": "청록 유약", "status": "evaluated", "created_at": NOW,
+                "recipe_name": "청록", "sources": [{"reference": "x"}],
+                "points": [{"minute": 0, "temperature_c": 20}, {"minute": 60, "temperature_c": 1230.5}],
+            },
+            {
+                "id": str(USER_ID), "title": "가져옴", "status": "draft", "created_at": NOW,
+                "recipe_name": None, "points": None,
+                "sources": [{"reference": "aice-feed-post-import"}],
+            },
+        ])
+
+    app, upstream = client_for(handler)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/aice-runs/summaries", headers={"Authorization": "Bearer valid-token"})
+
+    assert response.status_code == 200
+    first, second = response.json()["items"]
+    assert first["origin"] == "mine" and first["peak_c"] == 1230.5 and first["recipe_name"] == "청록"
+    assert "run" not in first and "payload" not in first
+    assert second["origin"] == "imported" and second["peak_c"] is None and second["recipe_name"] == ""
+    await upstream.aclose()
+
+
+@pytest.mark.asyncio
 async def test_public_feed_filters_public_without_exposing_owner() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["is_public"] == "eq.true"
