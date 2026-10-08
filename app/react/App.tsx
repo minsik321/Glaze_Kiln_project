@@ -146,7 +146,7 @@ export function App() {
         if (!active || !data) return;
         setProfileIdentity({
           displayName: data.display_name || session.user.user_metadata.display_name || "가마쟁이",
-          avatarUrl: data.avatar_url || session.user.user_metadata.avatar_url || "",
+          avatarUrl: data.avatar_url || "",
           bio: data.bio || "",
         });
       });
@@ -255,8 +255,8 @@ export function App() {
   const displayName = profileIdentity?.displayName || session?.user.user_metadata.display_name
     || session?.user.user_metadata.nickname
     || "가마쟁이";
-  const avatarUrl = profileIdentity?.avatarUrl ?? session?.user.user_metadata.avatar_url ?? "";
-  const bio = profileIdentity?.bio ?? session?.user.user_metadata.bio ?? "";
+  const avatarUrl = profileIdentity?.avatarUrl ?? "";
+  const bio = profileIdentity?.bio ?? "";
   const applyPostState = (posts: readonly FeedPost[]) => posts.filter((post) => !deletedPostIds.has(post.id)).map((post) => postOverrides[post.id] ?? post);
   const feedPosts = applyPostState([...createdPosts, ...FEED_POSTS]);
   const followingFeedPosts = feedPosts.filter((post) => followedUserIds.has(post.userId));
@@ -601,8 +601,6 @@ export function App() {
                 if (saved.error.code === "23505") throw new Error("이미 사용중인 닉네임입니다.");
                 throw new Error(saved.error.message || "프로필을 저장하지 못했습니다.");
               }
-              const metadata = await client.auth.updateUser({ data: { display_name: nickname, avatar_url: nextAvatarUrl || null, bio: nextBio } });
-              if (metadata.error) throw metadata.error;
               setProfileIdentity({ displayName: nickname, avatarUrl: nextAvatarUrl, bio: nextBio });
             }}
             onSettingsOpenChange={setMySettingsOpen}
