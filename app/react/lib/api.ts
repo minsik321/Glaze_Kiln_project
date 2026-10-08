@@ -368,7 +368,7 @@ export const recipesApi = {
 
 type FeedPostRow = { id: string; author_id?: string | null; author_name?: string; kind: "work" | "sale"; payload: Omit<FeedPost, "id" | "userId" | "image" | "publishedAt"> & { imagePath?: string | null; image?: string }; created_at: string };
 
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (minutes < 1) return "방금 전";
   if (minutes < 60) return `${minutes}분 전`;

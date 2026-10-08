@@ -15,6 +15,7 @@ import { PostDetailScreen, type PostComment } from "./home/PostDetailScreen";
 import { OnboardingGuide } from "./onboarding/OnboardingGuide";
 import { MyScreen } from "./profile/MyScreen";
 import { requireSupabase } from "./lib/supabase";
+import { addComment, loadComments } from "./home/commentStore";
 import { loadFollowers, loadFollowing, setFollowing } from "./home/followStore";
 import { aiceRunsApi, feedPostsApi } from "./lib/api";
 import { feedPostToWorkRecord, workRecordToPostSeed, type RecordPostSeed, type WorkRecordOrigin } from "./records/workRecords";
@@ -119,7 +120,8 @@ export function App() {
   const [connectionsInitialTab, setConnectionsInitialTab] = useState<ConnectionTab>("followers");
   const [selectedPostId, setSelectedPostId] = useState("chloe-1");
   const [postReturnView, setPostReturnView] = useState<"work" | "followingFeed" | "bookmarks" | "my" | "profile">("work");
-  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>(DEMO_POST_COMMENTS);
+  //: 저장된 댓글(DB). 더미 게시물의 시연용 댓글(DEMO_POST_COMMENTS)은 그 앞에 붙여 보여준다.
+  const [savedComments, setSavedComments] = useState<Record<string, PostComment[]>>({});
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
@@ -200,6 +202,19 @@ export function App() {
     });
     return () => { active = false; };
   }, [session?.user.id]);
+
+  //: 게시글 상세를 열면 그 글의 댓글을 DB에서 불러온다.
+  useEffect(() => {
+    if (!session?.user.id || view !== "post") return;
+    let active = true;
+    const postId = selectedPostId;
+    void loadComments(postId).then((comments) => {
+      if (active) setSavedComments((current) => ({ ...current, [postId]: comments }));
+    }).catch((error: unknown) => {
+      if (active) setPostError(error instanceof Error ? error.message : "댓글을 불러오지 못했습니다.");
+    });
+    return () => { active = false; };
+  }, [session?.user.id, view, selectedPostId]);
 
   const reportPostError = (error: unknown, fallback: string) => setPostError(error instanceof Error ? error.message : fallback);
 
@@ -695,7 +710,7 @@ export function App() {
             post={selectedPost}
             user={selectedPostUser}
             viewer={{ displayName, username, avatarUrl }}
-            comments={postComments[selectedPost.id] ?? []}
+            comments={[...(DEMO_POST_COMMENTS[selectedPost.id] ?? []), ...(savedComments[selectedPost.id] ?? [])]}
             isOwnPost={selectedPost.userId === "self"}
             isFollowing={followedUserIds.has(selectedPostUser.id)}
             isSaved={bookmarkedPostIds.has(selectedPost.id)}
@@ -729,13 +744,14 @@ export function App() {
               const imported = feedPostToWorkRecord(selectedPost, selectedPostUser);
               await aiceRunsApi.create(session.access_token, { title: imported.title, run: imported, request_id: imported.run_id, is_public: false });
             }}
-            onAddComment={(body) => setPostComments((current) => ({
-              ...current,
-              [selectedPost.id]: [
-                ...(current[selectedPost.id] ?? []),
-                { id: crypto.randomUUID(), body, displayName, username, avatarUrl, createdAt: "방금 전" },
-              ],
-            }))}
+            onAddComment={(body) => {
+              const ownerId = session?.user.id;
+              const postId = selectedPost.id;
+              if (!ownerId) { setPostError("로그인이 필요합니다."); return; }
+              void addComment(postId, ownerId, body).then((saved) => {
+                setSavedComments((current) => ({ ...current, [postId]: [...(current[postId] ?? []), saved] }));
+              }).catch((error: unknown) => reportPostError(error, "댓글을 저장하지 못했습니다."));
+            }}
             onBack={() => setView(postReturnView)}
             onStartChat={() => openConversation(selectedPostUser)}
             onShareToChat={(recipientId, message) => sharePostInChat(findFeedUser(recipientId), message)}
