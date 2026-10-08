@@ -104,6 +104,8 @@ export function App() {
   const [followToast, setFollowToast] = useState<{ id: number; message: string } | null>(null);
   const followToastId = useRef(0);
   const chatSendCount = useRef(0);
+  //: 피드 다시 불러오기. 팔로우를 바꾸면 비공개 계정 글의 열람 권한이 달라지므로 호출한다.
+  const reloadFeed = useRef<(() => void) | undefined>(undefined);
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState<Set<string>>(() => new Set());
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [workflowClosing, setWorkflowClosing] = useState(false);
@@ -183,9 +185,10 @@ export function App() {
       });
     };
     const reloadWhenVisible = () => { if (document.visibilityState === "visible") load(); };
+    reloadFeed.current = load;
     load();
     document.addEventListener("visibilitychange", reloadWhenVisible);
-    return () => { active = false; document.removeEventListener("visibilitychange", reloadWhenVisible); };
+    return () => { active = false; reloadFeed.current = undefined; document.removeEventListener("visibilitychange", reloadWhenVisible); };
   }, [session?.user.id]);
 
   //: 팔로잉/팔로워는 DB에 있다 — 로그인하면 다시 불러온다.
@@ -411,7 +414,7 @@ export function App() {
     });
     //: 저장에 실패하면 화면을 원래대로 돌리고 알린다 — 새로고침하면 사라질 상태를 남겨 두지 않는다.
     if (!ownerId) return;
-    void setFollowing(ownerId, userId, !wasFollowing).catch((error: unknown) => {
+    void setFollowing(ownerId, userId, !wasFollowing).then(() => reloadFeed.current?.()).catch((error: unknown) => {
       apply(wasFollowing);
       setFollowToast({ id: ++followToastId.current, message: error instanceof Error ? error.message : "팔로우를 저장하지 못했습니다." });
     });
