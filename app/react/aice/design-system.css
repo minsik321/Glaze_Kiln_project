@@ -957,8 +957,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: var(--app-safe-top) 21px 0;
   box-sizing: border-box;
 }
-.my-header strong { justify-self: center; min-width: 0; overflow: hidden; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
-.my-screen.other .my-header { display: flex; gap: 4px; padding-right: 16px; padding-left: 10px; }
+.my-header strong { justify-self: center; min-width: 0; overflow: hidden; font-size: 27px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.my-screen.other .my-header { display: flex; align-items: center; gap: 4px; padding-right: 16px; padding-left: 10px; }
 .my-screen.other .my-header strong { justify-self: auto; }
 .my-screen.other .my-header-actions { margin-left: auto; }
 .my-header button,

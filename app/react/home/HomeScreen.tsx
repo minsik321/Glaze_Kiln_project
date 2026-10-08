@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FEED_POSTS, findFeedUser, type FeedPost, type FeedUser } from "./feedData";
 import type { CreatePostKind } from "./CreatePostScreen";
 
@@ -51,6 +51,23 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterWrapRef = useRef<HTMLDivElement>(null);
+  //: 홈은 다른 화면으로 가도 언마운트되지 않고 숨겨지기만 하므로, 메뉴 바깥을
+  //: 누르면(다른 화면으로 가는 탭·버튼 포함) 닫아야 돌아왔을 때 열린 채 남지 않는다.
+  useEffect(() => {
+    if (!isFilterOpen) return;
+    const close = (event: Event) => {
+      if (event instanceof PointerEvent && filterWrapRef.current?.contains(event.target as Node)) return;
+      setIsFilterOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setIsFilterOpen(false); };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [isFilterOpen]);
   const [filter, setFilter] = useState<FeedFilter>("all");
   const filteredPosts = posts.filter((post) => filter === "all"
     || (filter === "recipe" && post.kind !== "sale")
@@ -68,7 +85,7 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
             <button type="button" aria-pressed={filter === "sale"} onClick={() => setFilter((current) => current === "sale" ? "all" : "sale")}>판매글</button>
           </div>
         </div>
-        <div className="home-wordmark-wrap">
+        <div className="home-wordmark-wrap" ref={filterWrapRef}>
           <button className={`home-wordmark${isFilterOpen ? " is-open" : ""}`} type="button" aria-label="홈 피드 필터" aria-expanded={isFilterOpen} onClick={() => setIsFilterOpen((open) => !open)}>
             <svg className="home-wordmark-angle" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             <strong>AICE Kiln</strong>
