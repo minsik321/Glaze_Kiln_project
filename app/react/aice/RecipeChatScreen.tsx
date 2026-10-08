@@ -160,7 +160,9 @@ export function RecipeChatScreen({
     return Promise.all(list.map((candidate) => requestImage(candidate)));
   }
 
-  async function requestImage(candidate: RecipeCandidate): Promise<RecipeCandidate> {
+  // 이미 저장된 사진만 불러온다 — 새로 생성하지 않으므로 비용이 들지 않는다.
+  // 저장된 사진 경로가 있으면 true(처리 끝), 없으면 false(생성이 필요).
+  async function loadSavedImage(candidate: RecipeCandidate): Promise<boolean> {
     const savedImage = candidate.photo.data_url?.match(/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml));base64,(.+)$/);
     if (savedImage) {
       setImages((prev) => ({
@@ -170,7 +172,7 @@ export function RecipeChatScreen({
           sourceType: savedImage[1] === "image/svg+xml" ? "fallback" : "ai",
         },
       }));
-      return candidate;
+      return true;
     }
     if (candidate.photo.storage_path) {
       try {
@@ -181,8 +183,13 @@ export function RecipeChatScreen({
       } catch (err) {
         setImageErrors((prev) => ({ ...prev, [candidate.id]: err instanceof Error ? err.message : "저장된 이미지를 불러오지 못했습니다." }));
       }
-      return candidate;
+      return true;
     }
+    return false;
+  }
+
+  async function requestImage(candidate: RecipeCandidate): Promise<RecipeCandidate> {
+    if (await loadSavedImage(candidate)) return candidate;
     setImageLoading((prev) => ({ ...prev, [candidate.id]: true }));
     setImageErrors((prev) => ({ ...prev, [candidate.id]: "" }));
     try {
@@ -246,7 +253,10 @@ export function RecipeChatScreen({
       setImages({});
       setImageErrors({});
       setStatus("complete");
-      setHistoryMatches(findSimilarHistory(trimmed, normalizedCandidates, history));
+      const matches = findSimilarHistory(trimmed, normalizedCandidates, history);
+      setHistoryMatches(matches);
+      // 과거 이력 후보는 새로 생성하지 않고 저장된 사진만 보여준다.
+      matches.forEach((match) => void loadSavedImage(match.candidate));
       setCardAnimationKey((current) => current + 1);
       void requestImagesFor(normalizedCandidates).then((candidatesWithImages) => {
         onGenerated?.(trimmed, candidatesWithImages);
@@ -278,7 +288,14 @@ export function RecipeChatScreen({
     setDropped([]);
     setImages({});
     setImageErrors({});
-    setHistoryMatches([]);
+    // 그 시점 이후 쌓인 이력까지 포함해 다시 계산한다 — 자기 자신은 뺀다.
+    const matches = findSimilarHistory(
+      intake.prompt_text,
+      normalizedCandidates,
+      history.filter((item) => item.id !== record.id),
+    );
+    setHistoryMatches(matches);
+    matches.forEach((match) => void loadSavedImage(match.candidate));
     setStatus("complete");
     setError(null);
     setRestoredRunId(record.id);
@@ -536,6 +553,7 @@ export function RecipeChatScreen({
                   }}
                 >상세보기</button>
                 <div className="recipe-card-image-wrap" aria-busy={imageLoading[candidate.id] || undefined}>
+                  {remark && <span className="recipe-history-badge" aria-hidden="true">과거 이력</span>}
                   {images[candidate.id] ? (
                   <img
                     src={images[candidate.id].src}
