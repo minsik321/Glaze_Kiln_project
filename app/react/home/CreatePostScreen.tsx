@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { usePhotoUrl } from "../aice/photoStorage";
 import type { RecordPostSeed } from "../records/workRecords";
 
@@ -20,7 +20,8 @@ type Props = {
   //: 작업기록으로 미리 채운 폼 — 유약 이름·메모·사진만 고칠 수 있다.
   record?: RecordPostSeed;
   onBack: () => void;
-  onSubmit: (draft: CreatePostDraft) => void;
+  //: Promise를 돌려주면 끝날 때까지 게시 버튼을 막는다(저장이 느릴 때 두 번 눌러 글이 두 개 올라가던 문제).
+  onSubmit: (draft: CreatePostDraft) => void | Promise<void>;
 };
 
 function BackIcon() {
@@ -55,6 +56,8 @@ export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
   const [price, setPrice] = useState("");
   const [priceNegotiable, setPriceNegotiable] = useState(false);
   const [imageError, setImageError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
   const isSale = kind === "sale";
   const priceValue = Number(price.replace(/,/g, ""));
   const canSubmit = images.length > 0
@@ -77,8 +80,8 @@ export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
-    onSubmit({
+    if (!canSubmit || submitLock.current) return;
+    const result = onSubmit({
       kind,
       title: title.trim(),
       description: description.trim(),
@@ -87,6 +90,11 @@ export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
       priceNegotiable: isSale && priceNegotiable,
       record,
     });
+    if (result instanceof Promise) {
+      submitLock.current = true;
+      setSubmitting(true);
+      void result.finally(() => { submitLock.current = false; setSubmitting(false); });
+    }
   }
 
   return (
@@ -151,7 +159,7 @@ export function CreatePostScreen({ kind, record, onBack, onSubmit }: Props) {
           <small>{description.length}/1000</small>
         </label>
 
-        <button className="create-post-submit" type="submit" disabled={!canSubmit}>게시하기</button>
+        <button className="create-post-submit" type="submit" disabled={!canSubmit || submitting}>{submitting ? "게시 중…" : "게시하기"}</button>
       </form>
     </section>
   );

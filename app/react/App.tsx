@@ -609,7 +609,8 @@ export function App() {
             }}
             onSubmit={(draft) => {
               const finish = (post: FeedPost) => {
-                setCreatedPosts((current) => [post, ...current]);
+                //: 같은 글이 이미 있으면(피드 재조회가 먼저 끝난 경우) 겹쳐 쌓지 않고 교체한다.
+                setCreatedPosts((current) => [post, ...current.filter((item) => item.id !== post.id)]);
                 setCreatePostKind(null);
                 setCreatePostRecord(null);
                 setView("work");
@@ -617,7 +618,7 @@ export function App() {
               const post = draftToFeedPost(draft);
               if (!session) { finish(post); return; }
               setPostError("");
-              void feedPostsApi.create(session.access_token, post).then(finish).catch((error: unknown) => reportPostError(error, "게시글을 저장하지 못했습니다."));
+              return feedPostsApi.create(session.access_token, post).then(finish).catch((error: unknown) => reportPostError(error, "게시글을 저장하지 못했습니다."));
             }}
           />
         )}
