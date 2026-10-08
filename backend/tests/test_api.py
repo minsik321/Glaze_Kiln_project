@@ -243,12 +243,15 @@ async def test_aice_run_falls_back_to_rls_insert_when_atomic_rpc_is_not_migrated
         assert request.url.path == "/rest/v1/aice_runs"
         values = json.loads(request.content)
         assert values["user_id"] == str(USER_ID)
+        # The DB derives the title column from the payload, so both must agree here.
+        assert values["title"] == values["payload"]["title"] == "이전 질문 저장"
         return httpx.Response(201, json=[{
             "id": str(RECORD_ID), **values, "created_at": NOW, "updated_at": NOW,
         }])
 
     app, upstream = client_for(handler)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert payload["title"] != "이전 질문 저장"  # the run itself carries a different title
         created = await client.post(
             "/api/v1/aice-runs",
             headers={"Authorization": "Bearer valid-token"},
@@ -257,6 +260,7 @@ async def test_aice_run_falls_back_to_rls_insert_when_atomic_rpc_is_not_migrated
 
     assert created.status_code == 201
     assert created.json()["title"] == "이전 질문 저장"
+    assert created.json()["run"]["title"] == "이전 질문 저장"
     assert calls == ["/rest/v1/rpc/save_aice_run", "/rest/v1/aice_runs"]
     await upstream.aclose()
 

@@ -246,6 +246,10 @@ async def create_aice_run(
     body: AiceRunCreate, token: Token, user: User, gateway: Gateway, vectorstore: VectorStore
 ) -> BaseModel:
     run = normalize_run_recipe(body.run)
+    # aice_runs.title is derived from payload->title by a DB trigger, so the
+    # payload has to carry the (validated) request title or the stored title
+    # silently becomes whatever the client left in the run.
+    run["title"] = body.title
     values = {
         "user_id": str(user.id),
         "title": body.title,
