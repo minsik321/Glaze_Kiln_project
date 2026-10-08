@@ -371,3 +371,26 @@
     animation: none;
   }
 }
+
+/* PC: 작업 기록 상세는 모바일 한 줄 레이아웃 대신 넓은 2열로 펼친다. */
+@media (min-width: 768px) {
+  .record-detail-header { width: min(100%, 960px); }
+  .record-detail-panel .work-record-entry {
+    display: grid;
+    width: min(100%, 960px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 16px;
+    padding: 20px 2px 104px;
+  }
+  .record-detail-panel .work-record-entry-hero { grid-column: 1 / -1; margin-bottom: 4px; }
+  .record-detail-panel .work-record-entry-hero:not(.without-photo) { grid-template-columns: 148px minmax(0, 1fr); gap: 20px; }
+  .record-detail-panel .work-record-entry-hero img { width: 148px; height: 148px; }
+  .record-detail-panel .work-record-entry-hero h3 { font-size: 28px; }
+  .record-detail-panel .work-record-entry-hero p { font-size: 14px; }
+  .record-detail-panel .work-record-entry-card { margin-bottom: 0; padding: 22px; }
+  .record-detail-panel .work-record-entry-heading h4 { font-size: 18px; }
+  .record-detail-panel .work-record-entry-guide { grid-column: 1 / -1; margin: 0 4px; font-size: 13px; }
+  .record-detail-publish { left: max(18px, calc(50% - 480px)); }
+  .record-detail-start { right: max(18px, calc(50% - 480px)); }
+}

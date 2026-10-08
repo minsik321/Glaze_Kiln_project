@@ -18,11 +18,19 @@ export type HistoryMatch = {
   remark: string;
 };
 
+// 거의 모든 요청에 들어가는 낱말은 겹쳐도 "비슷한 요청"의 근거가 못 된다 —
+// 이걸로 매칭하면 목표와 전혀 다른 과거 후보가 딸려 올라온다.
+const GENERIC_TERMS = new Set([
+  "유약", "레시피", "배합", "느낌", "추천", "만들어", "만들고", "만들기", "찾고", "찾아",
+  "원해", "원해요", "싶어", "싶어요", "있어요", "해주세요", "주세요", "알려줘", "알려주세요",
+  "또는", "그리고", "정도", "약간", "조금", "좀",
+]);
+
 function keywords(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[\s,./·]+/)
-    .filter((term) => term.length >= 2);
+    .filter((term) => term.length >= 2 && !GENERIC_TERMS.has(term));
 }
 
 function overlap(promptTerms: string[], pastPrompt: string): string[] {
@@ -37,9 +45,12 @@ function toCoordinate(candidate: RecipeCandidate): TargetCoordinate | null {
   return { gloss, transparency };
 }
 
-//: 낱말이 하나도 안 겹쳐도 좌표가 아주 가까우면(거리 <= 1) 후보로 남긴다 —
-//: 반대로 낱말이 겹치면 좌표를 몰라도(예: 과거 후보 좌표 미상) 후보로 남긴다.
+//: 후보 하나하나를 목표 좌표 기준으로 거른다. 좌표를 비교할 수 있으면 거리가
+//: 임계값(<= 1) 이내인 후보만 남긴다 — 낱말이 겹쳐도 좌표가 먼 후보는 버린다
+//: (과거 요청 하나가 겹친다고 그 요청의 후보를 전부 끌어오지 않는다).
+//: 좌표를 비교할 수 없으면 낱말이 충분히(>= 2개) 겹칠 때만 남긴다.
 const COORDINATE_MATCH_THRESHOLD = 1;
+const MIN_TERMS_WITHOUT_COORDINATE = 2;
 
 export function findSimilarHistory(
   promptText: string,
@@ -62,7 +73,11 @@ export function findSimilarHistory(
         ? Math.min(...freshCoordinates.map((coord) => coordinateDistance(coord, pastCoord)))
         : null;
       const coordinateMatches = distance !== null && distance <= COORDINATE_MATCH_THRESHOLD;
-      if (matchedTerms.length === 0 && !coordinateMatches) continue;
+      if (distance !== null) {
+        if (!coordinateMatches) continue;
+      } else if (matchedTerms.length < MIN_TERMS_WITHOUT_COORDINATE) {
+        continue;
+      }
       const remark = matchedTerms.length
         ? `과거 "${record.title}" 요청과 낱말 ${matchedTerms.join(", ")}이(가) 겹쳐 다시 올렸습니다${coordinateMatches ? ` (목표 좌표 거리 ${distance})` : ""}.`
         : `낱말은 다르지만 목표 좌표 거리가 ${distance}로 가까운 과거 "${record.title}" 후보입니다.`;
@@ -72,10 +87,10 @@ export function findSimilarHistory(
 
   return matches
     .sort((a, b) => {
-      if (b.matchedTerms.length !== a.matchedTerms.length) return b.matchedTerms.length - a.matchedTerms.length;
       const ad = a.distance ?? Number.POSITIVE_INFINITY;
       const bd = b.distance ?? Number.POSITIVE_INFINITY;
-      return ad - bd;
+      if (ad !== bd) return ad - bd;
+      return b.matchedTerms.length - a.matchedTerms.length;
     })
     .slice(0, limit);
 }

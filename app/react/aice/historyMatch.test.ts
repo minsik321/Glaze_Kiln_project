@@ -87,4 +87,38 @@ describe("findSimilarHistory", () => {
     const matches = findSimilarHistory("청록 사틴 유약을 찾고 있어요", [], history, 2);
     expect(matches).toHaveLength(2);
   });
+
+  it("drops a past candidate whose coordinate is far from the new target even if keywords overlap", () => {
+    const history = [record({
+      title: "청록 사틴 유약",
+      promptText: "청록 사틴 유약",
+      candidates: [
+        candidate({ id: "near", target_gloss: "SATIN", target_transparency: "OPAQUE" }),
+        candidate({ id: "far", target_gloss: "GLOSS", target_transparency: "TRANSPARENT" }),
+      ],
+    })];
+    const fresh = [candidate({ id: "fresh", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const matches = findSimilarHistory("청록 사틴 유약을 찾아요", fresh, history);
+    expect(matches.map((match) => match.candidate.id)).toEqual(["near"]);
+  });
+
+  it("does not match on generic words alone", () => {
+    const history = [record({ title: "유약 레시피 추천", promptText: "유약 레시피 추천 부탁해요" })];
+    expect(findSimilarHistory("유약 레시피 추천해 주세요", [], history)).toHaveLength(0);
+  });
+
+  it("needs two shared keywords when coordinates cannot be compared", () => {
+    const history = [record({ title: "청록 사발", promptText: "청록 사발" })];
+    expect(findSimilarHistory("청록 느낌 머그", [], history)).toHaveLength(0);
+  });
+
+  it("ranks closer coordinates first", () => {
+    const history = [
+      record({ id: "r1", promptText: "무관 문장 하나", candidates: [candidate({ id: "d1", target_gloss: "SEMI_GLOSS", target_transparency: "OPAQUE" })] }),
+      record({ id: "r2", promptText: "무관 문장 둘", candidates: [candidate({ id: "d0", target_gloss: "SATIN", target_transparency: "OPAQUE" })] }),
+    ];
+    const fresh = [candidate({ id: "fresh", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const matches = findSimilarHistory("전혀 다른 요청", fresh, history);
+    expect(matches.map((match) => match.candidate.id)).toEqual(["d0", "d1"]);
+  });
 });

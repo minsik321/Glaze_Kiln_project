@@ -196,7 +196,9 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
   function startLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     layoutSwipe.current = { active: true, startX: event.clientX, startY: event.clientY, latestX: event.clientX, latestY: event.clientY };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    // 포인터 캡처는 여기서 걸지 않는다 — 누르는 순간 걸면 클릭이 안쪽 게시물
+    // 버튼이 아니라 이 영역으로 전달돼 게시물이 열리지 않는다. 스와이프로
+    // 확정된 뒤(moveLayoutSwipe)에만 건다.
   }
 
   function moveLayoutSwipe(event: ReactPointerEvent<HTMLDivElement>) {
@@ -206,6 +208,7 @@ export function MyScreen({ username = "Chloe.jung", displayName = "가마쟁이"
     const deltaX = event.clientX - layoutSwipe.current.startX;
     const deltaY = event.clientY - layoutSwipe.current.startY;
     if (Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (!event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.setPointerCapture?.(event.pointerId);
       const width = postsViewport.current?.clientWidth || 1;
       setDragging(true);
       setDragX(Math.max(layout === "sale" ? -width : 0, Math.min(layout === "sale" ? 0 : width, deltaX)));
