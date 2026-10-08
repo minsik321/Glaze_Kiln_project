@@ -1679,7 +1679,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (min-width: 768px) {
   :root { --app-safe-top: env(safe-area-inset-top, 0px); }
   .app-stage { padding: var(--space-6); background: #fff; }
-  .app-shell { width: min(1180px, 100%); height: min(920px, calc(100vh - 48px)); border: 1px solid var(--color-border-strong); box-shadow: var(--shadow-overlay); background: #fff; }
+  .app-shell { width: min(1180px, 100%); height: min(920px, calc(100vh - 48px)); border: 1px solid var(--color-border-strong); box-shadow: var(--shadow-overlay); background: #fff; contain: layout; }
+  /* 넓은 화면에서 앱은 가운데 프레임이다 — position: fixed 버튼(작업 게시·작업 시작 등)이 뷰포트가 아니라 프레임 기준이 되게 한다. */
   .prototype-main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: var(--space-4); align-content: start; }
   .prototype-main > .screen-intro { grid-column: 1 / -1; }
   .prototype-main > .kiln-simulator, .prototype-main > .kiln-firing-screen { grid-column: 1 / -1; }
