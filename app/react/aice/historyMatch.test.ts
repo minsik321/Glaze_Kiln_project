@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSimilarHistory } from "./historyMatch";
+import { completedRunCandidate, findSimilarHistory } from "./historyMatch";
 import { sampleAiceRun } from "./contract";
 import type { AiceRunRecord } from "../lib/api";
 import type { RecipeCandidate } from "./contract";
@@ -22,22 +22,44 @@ function candidate(overrides: Partial<RecipeCandidate> = {}): RecipeCandidate {
   };
 }
 
-function record(overrides: Partial<{ id: string; title: string; promptText: string; candidates: RecipeCandidate[] }> = {}): AiceRunRecord {
+type RecordOptions = {
+  id?: string;
+  title?: string;
+  promptText?: string;
+  status?: "draft" | "simulated" | "evaluated";
+  resultGloss?: string | null;
+  resultTransparency?: string | null;
+  goalGloss?: "dry" | "matte" | "satin" | "semi_gloss" | "gloss";
+  goalTransparency?: "opaque" | "semi_opaque" | "translucent" | "transparent";
+  materials?: Record<string, number>;
+};
+
+//: 기본값은 "끝까지 작업해 결과를 기록한" 내 기록이다.
+function record(options: RecordOptions = {}): AiceRunRecord {
   const run = sampleAiceRun();
-  const title = overrides.title ?? "이전 질문";
+  const title = options.title ?? "이전 작업";
   return {
-    id: overrides.id ?? "run-1",
+    id: options.id ?? "run-1",
     title,
     run: {
       ...run,
-      intake: {
-        prompt_text: overrides.promptText ?? title,
+      title,
+      status: options.status ?? "evaluated",
+      goal: { ...run.goal, gloss: options.goalGloss ?? "satin", transparency: options.goalTransparency ?? "opaque" },
+      recipe: { ...run.recipe, name: title, materials: options.materials ?? run.recipe.materials },
+      result: {
+        ...run.result,
+        gloss: options.resultGloss === undefined ? "satin" : options.resultGloss,
+        transparency: options.resultTransparency === undefined ? "opaque" : options.resultTransparency,
+      },
+      intake: options.promptText === undefined ? null : {
+        prompt_text: options.promptText,
         prompt_photos: [],
-        candidates: { candidates: overrides.candidates ?? [candidate()], selected_id: null },
+        candidates: { candidates: [candidate()], selected_id: null },
       },
     },
     schema_version: 3,
-    status: run.status,
+    status: options.status ?? "evaluated",
     goal_gloss: run.goal.gloss,
     goal_transparency: run.goal.transparency,
     recipe_id: run.recipe.id,
@@ -48,58 +70,53 @@ function record(overrides: Partial<{ id: string; title: string; promptText: stri
   };
 }
 
-describe("findSimilarHistory", () => {
-  it("matches a past run when the new prompt shares keywords with it", () => {
-    const history = [record({ title: "사발 청록 사틴 유약", promptText: "사발 청록 사틴 유약" })];
-    const matches = findSimilarHistory("사발에 어울리는 청록 사틴 유약을 또 찾고 있어요", [], history);
-    expect(matches).toHaveLength(1);
-    expect(matches[0].runTitle).toBe("사발 청록 사틴 유약");
-    expect(matches[0].matchedTerms.length).toBeGreaterThan(0);
-    expect(matches[0].remark).toContain("사발 청록 사틴 유약");
+describe("completedRunCandidate", () => {
+  it("uses the recorded result coordinate, not the goal", () => {
+    const converted = completedRunCandidate(record({ goalGloss: "matte", resultGloss: "gloss", resultTransparency: "transparent" }));
+    expect(converted?.target_gloss).toBe("GLOSS");
+    expect(converted?.target_transparency).toBe("TRANSPARENT");
   });
 
-  it("matches a past run by target coordinate distance even without keyword overlap", () => {
-    const history = [record({
-      title: "예전 다른 표현",
-      promptText: "완전히 다른 낱말들",
-      candidates: [candidate({ id: "hist-1", target_gloss: "SATIN", target_transparency: "OPAQUE" })],
-    })];
+  it("falls back to the goal when no result was recorded", () => {
+    const converted = completedRunCandidate(record({ goalGloss: "matte", resultGloss: null, resultTransparency: null }));
+    expect(converted?.target_gloss).toBe("MATTE");
+    expect(converted?.target_transparency).toBe("OPAQUE");
+  });
+
+  it("skips drafts and records without a stored recipe", () => {
+    expect(completedRunCandidate(record({ status: "draft" }))).toBeNull();
+    expect(completedRunCandidate(record({ materials: {} }))).toBeNull();
+  });
+});
+
+describe("findSimilarHistory", () => {
+  it("ignores AI-generated drafts that were never worked through", () => {
+    const history = [record({ status: "draft", title: "청록 사틴 사발", promptText: "청록 사틴 사발" })];
+    const fresh = [candidate({ target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    expect(findSimilarHistory("청록 사틴 사발", fresh, history)).toHaveLength(0);
+  });
+
+  it("matches a completed record by the result coordinate close to the new target", () => {
+    const history = [record({ title: "예전 다른 표현", resultGloss: "satin", resultTransparency: "opaque" })];
     const fresh = [candidate({ id: "fresh-1", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
     const matches = findSimilarHistory("전혀 겹치지 않는 새 문장", fresh, history);
     expect(matches).toHaveLength(1);
     expect(matches[0].distance).toBe(0);
+    expect(matches[0].candidate.id).toBe("completed-run-1");
+    expect(matches[0].remark).toContain("끝까지 작업해 기록한");
   });
 
-  it("does not match unrelated history with neither keyword overlap nor close coordinates", () => {
-    const history = [record({
-      title: "무광 백색 항아리",
-      promptText: "무광 백색 항아리 유약",
-      candidates: [candidate({ id: "hist-2", target_gloss: "MATTE", target_transparency: "OPAQUE" })],
-    })];
-    const fresh = [candidate({ id: "fresh-2", target_gloss: "GLOSS", target_transparency: "TRANSPARENT" })];
-    const matches = findSimilarHistory("청록 사틴 투명 유약을 찾아요", fresh, history);
-    expect(matches).toHaveLength(0);
+  it("drops a completed record whose result is far from the new target even if keywords overlap", () => {
+    const history = [record({ title: "청록 사틴 유약", promptText: "청록 사틴 유약", resultGloss: "gloss", resultTransparency: "transparent" })];
+    const fresh = [candidate({ target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    expect(findSimilarHistory("청록 사틴 유약을 찾아요", fresh, history)).toHaveLength(0);
   });
 
-  it("limits the number of returned matches", () => {
-    const history = Array.from({ length: 5 }, (_, index) =>
-      record({ id: `run-${index}`, title: `청록 사틴 유약 ${index}`, promptText: `청록 사틴 유약 ${index}` }));
-    const matches = findSimilarHistory("청록 사틴 유약을 찾고 있어요", [], history, 2);
-    expect(matches).toHaveLength(2);
-  });
-
-  it("drops a past candidate whose coordinate is far from the new target even if keywords overlap", () => {
-    const history = [record({
-      title: "청록 사틴 유약",
-      promptText: "청록 사틴 유약",
-      candidates: [
-        candidate({ id: "near", target_gloss: "SATIN", target_transparency: "OPAQUE" }),
-        candidate({ id: "far", target_gloss: "GLOSS", target_transparency: "TRANSPARENT" }),
-      ],
-    })];
-    const fresh = [candidate({ id: "fresh", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
-    const matches = findSimilarHistory("청록 사틴 유약을 찾아요", fresh, history);
-    expect(matches.map((match) => match.candidate.id)).toEqual(["near"]);
+  it("matches by keywords when the new candidates have no comparable coordinate", () => {
+    const history = [record({ title: "사발 청록 사틴 유약", promptText: "사발 청록 사틴 유약" })];
+    const matches = findSimilarHistory("사발에 어울리는 청록 사틴 유약을 또 찾고 있어요", [], history);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].matchedTerms.length).toBeGreaterThanOrEqual(2);
   });
 
   it("does not match on generic words alone", () => {
@@ -112,13 +129,14 @@ describe("findSimilarHistory", () => {
     expect(findSimilarHistory("청록 느낌 머그", [], history)).toHaveLength(0);
   });
 
-  it("ranks closer coordinates first", () => {
+  it("ranks closer coordinates first and limits the result count", () => {
     const history = [
-      record({ id: "r1", promptText: "무관 문장 하나", candidates: [candidate({ id: "d1", target_gloss: "SEMI_GLOSS", target_transparency: "OPAQUE" })] }),
-      record({ id: "r2", promptText: "무관 문장 둘", candidates: [candidate({ id: "d0", target_gloss: "SATIN", target_transparency: "OPAQUE" })] }),
+      record({ id: "r1", title: "하나", resultGloss: "semi_gloss", resultTransparency: "opaque" }),
+      record({ id: "r2", title: "둘", resultGloss: "satin", resultTransparency: "opaque" }),
+      record({ id: "r3", title: "셋", resultGloss: "matte", resultTransparency: "opaque" }),
     ];
-    const fresh = [candidate({ id: "fresh", target_gloss: "SATIN", target_transparency: "OPAQUE" })];
-    const matches = findSimilarHistory("전혀 다른 요청", fresh, history);
-    expect(matches.map((match) => match.candidate.id)).toEqual(["d0", "d1"]);
+    const fresh = [candidate({ target_gloss: "SATIN", target_transparency: "OPAQUE" })];
+    const matches = findSimilarHistory("전혀 다른 요청", fresh, history, 2);
+    expect(matches.map((match) => match.runId)).toEqual(["r2", "r1"]);
   });
 });

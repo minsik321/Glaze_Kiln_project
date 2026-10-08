@@ -1,9 +1,12 @@
 import type { AiceRunRecord } from "../lib/api";
+import { workRecordOrigin } from "../records/workRecords";
 import type { RecipeCandidate } from "./contract";
-import { GLOSS_LEVEL, TRANSPARENCY_LEVEL, coordinateDistance, type GlossLevel, type TargetCoordinate, type TransparencyLevel } from "./targetCoordinate";
+import { GLOSS_LEVEL, TRANSPARENCY_LEVEL, coordinateDistance, normalizeGlossLevel, normalizeTransparencyLevel, type GlossLevel, type TargetCoordinate, type TransparencyLevel } from "./targetCoordinate";
 
-// 1페이지(RecipeChatScreen) — 새 프롬프트를 사용자의 저장된 과거 AiceRun
-// 이력과 비교하는 규칙 기반 검색(RAG)이다. `aiMvp.ts`의 예전
+// 1페이지(RecipeChatScreen) — 새 프롬프트를 사용자가 끝까지 작업해 결과까지
+// 기록한(status "evaluated") 과거 AiceRun과 비교하는 규칙 기반 검색(RAG)이다.
+// AI가 만들어 두기만 한 초안(draft)은 쓰지 않는다 — 실제로 작업해 본
+// 레시피와 그 결과가 근거여야 한다. `aiMvp.ts`의 예전
 // `rankRecommendations`/`LocalEvidenceRetriever`와 같은 두 축 구조(낱말
 // 겹침 + 좌표 거리)를 쓰지만, 데이터 소스가 고정 데모(`RECIPE_CANDIDATES`)가
 // 아니라 실제 `aiceRunsApi.listMine`이 돌려주는 사용자 본인의 과거 회차라는
@@ -35,7 +38,34 @@ function keywords(text: string): string[] {
 
 function overlap(promptTerms: string[], pastPrompt: string): string[] {
   const promptSet = new Set(promptTerms);
-  return keywords(pastPrompt).filter((term) => promptSet.has(term));
+  return [...new Set(keywords(pastPrompt).filter((term) => promptSet.has(term)))];
+}
+
+//: 끝까지 작업해 결과를 기록한 내 AiceRun을 카드로 보여줄 후보 모양으로 바꾼다.
+//: 좌표는 목표가 아니라 실제 결과(없으면 목표)를 쓴다 — "그렇게 나온" 레시피를
+//: 근거로 보여주기 위해서다. 배합이 비어 있는 옛 기록은 카드를 만들 수 없어 뺀다.
+export function completedRunCandidate(record: AiceRunRecord): RecipeCandidate | null {
+  const run = record.run;
+  if (run.status !== "evaluated" || workRecordOrigin(run) !== "mine") return null;
+  if (Object.keys(run.recipe.materials).length === 0) return null;
+  const gloss = normalizeGlossLevel(run.result.gloss) ?? run.goal.gloss;
+  const transparency = normalizeTransparencyLevel(run.result.transparency) ?? run.goal.transparency;
+  const resultPhoto = run.result.photo;
+  const photo = resultPhoto && (resultPhoto.data_url || resultPhoto.storage_path) ? resultPhoto : run.recipe.photo;
+  return {
+    id: `completed-${record.id}`,
+    name: run.recipe.name || record.title,
+    materials: run.recipe.materials,
+    colorants: run.recipe.colorants ?? {},
+    colorant_note: run.recipe.colorant_note ?? "",
+    predicted_firing_range: run.recipe.firing_range,
+    predicted_firing_note: "",
+    photo,
+    source_type: "observed",
+    source_ids: [],
+    target_gloss: gloss.toUpperCase(),
+    target_transparency: transparency.toUpperCase(),
+  };
 }
 
 function toCoordinate(candidate: RecipeCandidate): TargetCoordinate | null {
@@ -63,26 +93,24 @@ export function findSimilarHistory(
 
   const matches: HistoryMatch[] = [];
   for (const record of history) {
-    const pastPrompt = record.run.intake?.prompt_text ?? "";
-    const pastCandidates = record.run.intake?.candidates.candidates ?? [];
-    if (!pastPrompt || pastCandidates.length === 0) continue;
-    const matchedTerms = overlap(promptTerms, pastPrompt);
-    for (const pastCandidate of pastCandidates) {
-      const pastCoord = toCoordinate(pastCandidate);
-      const distance = pastCoord && freshCoordinates.length
-        ? Math.min(...freshCoordinates.map((coord) => coordinateDistance(coord, pastCoord)))
-        : null;
-      const coordinateMatches = distance !== null && distance <= COORDINATE_MATCH_THRESHOLD;
-      if (distance !== null) {
-        if (!coordinateMatches) continue;
-      } else if (matchedTerms.length < MIN_TERMS_WITHOUT_COORDINATE) {
-        continue;
-      }
-      const remark = matchedTerms.length
-        ? `과거 "${record.title}" 요청과 낱말 ${matchedTerms.join(", ")}이(가) 겹쳐 다시 올렸습니다${coordinateMatches ? ` (목표 좌표 거리 ${distance})` : ""}.`
-        : `낱말은 다르지만 목표 좌표 거리가 ${distance}로 가까운 과거 "${record.title}" 후보입니다.`;
-      matches.push({ runId: record.id, runTitle: record.title, candidate: pastCandidate, distance, matchedTerms, remark });
+    const pastCandidate = completedRunCandidate(record);
+    if (!pastCandidate) continue;
+    const pastText = [record.run.intake?.prompt_text, record.title, record.run.recipe.name].filter(Boolean).join(" ");
+    const matchedTerms = overlap(promptTerms, pastText);
+    const pastCoord = toCoordinate(pastCandidate);
+    const distance = pastCoord && freshCoordinates.length
+      ? Math.min(...freshCoordinates.map((coord) => coordinateDistance(coord, pastCoord)))
+      : null;
+    const coordinateMatches = distance !== null && distance <= COORDINATE_MATCH_THRESHOLD;
+    if (distance !== null) {
+      if (!coordinateMatches) continue;
+    } else if (matchedTerms.length < MIN_TERMS_WITHOUT_COORDINATE) {
+      continue;
     }
+    const remark = matchedTerms.length
+      ? `내가 끝까지 작업해 기록한 "${record.title}"과(와) 낱말 ${matchedTerms.join(", ")}이(가) 겹쳐 다시 올렸습니다${coordinateMatches ? ` (결과 좌표 거리 ${distance})` : ""}.`
+      : `낱말은 다르지만 실제 결과 좌표 거리가 ${distance}로 가까운, 내가 끝까지 작업해 기록한 "${record.title}"입니다.`;
+    matches.push({ runId: record.id, runTitle: record.title, candidate: pastCandidate, distance, matchedTerms, remark });
   }
 
   return matches
