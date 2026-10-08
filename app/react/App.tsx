@@ -456,9 +456,10 @@ export function App() {
         <section className="app-view" hidden={view !== "work"}>
           <HomeScreen
             posts={feedPosts}
+            selfUser={selfUser}
             onStartWork={openWorkflow}
             onCreatePost={(kind) => { if (kind === "work" && session) setPickingRecord(true); else setCreatePostKind(kind); }}
-            onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }}
+            onOpenProfile={(userId) => { if (userId === "self") setView("my"); else { setSelectedProfileId(userId); setView("profile"); } }}
             onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("work"); setView("post"); }}
             onOpenSearch={() => { setSearchClosing(false); setShowSearch(true); }}
             onOpenFollowingFeed={() => setView("followingFeed")}
@@ -501,10 +502,10 @@ export function App() {
           )}
         </section>
         <section className="app-view" hidden={view !== "followingFeed"}>
-          {view === "followingFeed" && <FeedCollectionScreen title="팔로우 피드" posts={followingFeedPosts} emptyTitle="팔로우한 작가의 게시물이 없어요" emptyDescription="관심 있는 작가를 팔로우하면 새 게시물이 여기에 모여요." onBack={() => setView("work")} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("followingFeed"); setView("post"); }} />}
+          {view === "followingFeed" && <FeedCollectionScreen selfUser={selfUser} title="팔로우 피드" posts={followingFeedPosts} emptyTitle="팔로우한 작가의 게시물이 없어요" emptyDescription="관심 있는 작가를 팔로우하면 새 게시물이 여기에 모여요." onBack={() => setView("work")} onOpenProfile={(userId) => { if (userId === "self") setView("my"); else { setSelectedProfileId(userId); setView("profile"); } }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("followingFeed"); setView("post"); }} />}
         </section>
         <section className="app-view" hidden={view !== "bookmarks"}>
-          {view === "bookmarks" && <FeedCollectionScreen title="북마크" posts={bookmarkedPosts} emptyTitle="저장한 게시물이 없어요" emptyDescription="게시물 상세에서 북마크를 누르면 이곳에 모아볼 수 있어요." onBack={() => setView("work")} onOpenProfile={(userId) => { setSelectedProfileId(userId); setView("profile"); }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("bookmarks"); setView("post"); }} />}
+          {view === "bookmarks" && <FeedCollectionScreen selfUser={selfUser} title="북마크" posts={bookmarkedPosts} emptyTitle="저장한 게시물이 없어요" emptyDescription="게시물 상세에서 북마크를 누르면 이곳에 모아볼 수 있어요." onBack={() => setView("work")} onOpenProfile={(userId) => { if (userId === "self") setView("my"); else { setSelectedProfileId(userId); setView("profile"); } }} onOpenPost={(postId) => { setSelectedPostId(postId); setPostReturnView("bookmarks"); setView("post"); }} />}
         </section>
         {createPostKind && (
           <CreatePostScreen

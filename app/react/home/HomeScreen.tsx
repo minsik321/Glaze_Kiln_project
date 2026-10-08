@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FEED_POSTS, findFeedUser, type FeedPost } from "./feedData";
+import { FEED_POSTS, findFeedUser, type FeedPost, type FeedUser } from "./feedData";
 import type { CreatePostKind } from "./CreatePostScreen";
 
 type HomeScreenProps = {
@@ -13,6 +13,8 @@ type HomeScreenProps = {
   onOpenBookmarks?: () => void;
   onOpenFollowingFeed: () => void;
   onOpenNotifications: () => void;
+  //: 내가 올린 게시글(`userId: "self"`)의 작성자 — 없으면 더미 목록의 첫 사용자로 잘못 표시된다.
+  selfUser?: FeedUser;
 };
 
 function GridIcon() {
@@ -45,7 +47,7 @@ function SaleIcon() {
 
 type FeedFilter = "all" | "recipe" | "sale";
 
-export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications }: HomeScreenProps) {
+export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications, selfUser }: HomeScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -85,10 +87,10 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
         {filteredPosts.length === 0 ? <div className="home-filter-empty" role="status"><strong>표시할 게시물이 없어요</strong><p>다른 필터를 선택해 보세요.</p></div> : layout === "grid"
           ? [filteredPosts.filter((_, index) => index % 2 === 0), filteredPosts.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
             <div className="home-feed-column" key={columnIndex}>
-              {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}
+              {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} selfUser={selfUser} />)}
             </div>
           ))
-          : <div className="home-feed-list">{filteredPosts.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} />)}</div>}
+          : <div className="home-feed-list">{filteredPosts.map((item) => <FeedCard key={item.id} post={item} layout="list" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} selfUser={selfUser} />)}</div>}
       </main>
 
       {isCreateMenuOpen && <button className="home-create-backdrop" type="button" aria-label="게시 메뉴 바깥 영역 닫기" onClick={() => setIsCreateMenuOpen(false)} />}
@@ -126,8 +128,8 @@ function formatPrice(post: FeedPost) {
   return post.priceNegotiable ? "가격 협의" : "";
 }
 
-export function FeedCard({ post, layout, onOpenProfile, onOpenPost }: { post: FeedPost; layout: "grid" | "list"; onOpenProfile: (userId: string) => void; onOpenPost: (postId: string) => void }) {
-  const user = findFeedUser(post.userId);
+export function FeedCard({ post, layout, onOpenProfile, onOpenPost, selfUser }: { post: FeedPost; layout: "grid" | "list"; onOpenProfile: (userId: string) => void; onOpenPost: (postId: string) => void; selfUser?: FeedUser }) {
+  const user = post.userId === "self" && selfUser ? selfUser : findFeedUser(post.userId);
   const isSale = post.kind === "sale";
   return (
     <article className={`home-feed-card home-feed-card--${layout}${isSale ? " is-sale" : ""}`}>
