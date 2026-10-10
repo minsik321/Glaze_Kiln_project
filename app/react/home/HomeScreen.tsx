@@ -49,8 +49,26 @@ function SaleIcon() {
 
 type FeedFilter = "all" | "recipe" | "sale";
 
+//: PC·태블릿(768px 이상)은 4열, 모바일은 2열. 열마다 별도 컨테이너로 쌓는 구조라
+//: 열 수를 CSS만으로 바꿀 수 없어서 화면 너비에 따라 나누는 열 수를 정한다.
+const WIDE_QUERY = "(min-width: 768px)";
+function useGridColumns(): number {
+  const read = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches ? 4 : 2;
+  const [columns, setColumns] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(WIDE_QUERY);
+    const update = () => setColumns(query.matches ? 4 : 2);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return columns;
+}
+
 export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOpenProfile, onOpenPost, onOpenSearch, onOpenFollowingFeed, onOpenNotifications, hasUnreadNotifications = false, selfUser }: HomeScreenProps) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
+  const columns = useGridColumns();
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterWrapRef = useRef<HTMLDivElement>(null);
@@ -102,9 +120,9 @@ export function HomeScreen({ posts = FEED_POSTS, onStartWork, onCreatePost, onOp
         </div>
       </header>
 
-      <main className={`home-feed home-feed--${layout}`} data-layout={layout}>
+      <main className={`home-feed home-feed--${layout}`} data-layout={layout} style={layout === "grid" ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}>
         {filteredPosts.length === 0 ? <div className="home-filter-empty" role="status"><strong>표시할 게시물이 없어요</strong><p>다른 필터를 선택해 보세요.</p></div> : layout === "grid"
-          ? [filteredPosts.filter((_, index) => index % 2 === 0), filteredPosts.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
+          ? Array.from({ length: columns }, (_, column) => filteredPosts.filter((_, index) => index % columns === column)).map((column, columnIndex) => (
             <div className="home-feed-column" key={columnIndex}>
               {column.map((item) => <FeedCard key={item.id} post={item} layout="grid" onOpenProfile={onOpenProfile} onOpenPost={onOpenPost} selfUser={selfUser} />)}
             </div>
